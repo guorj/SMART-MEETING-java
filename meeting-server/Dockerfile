@@ -8,8 +8,8 @@ RUN apk add --no-cache curl
 # 复制 JAR
 COPY target/meeting-server-0.1.0.jar app.jar
 
-# 复制 Web 前端
-COPY ../web /usr/share/nginx/html/web
+# 与 Spring 同源：供可选 Nginx 挂载或镜像内静态副本
+COPY src/main/resources/static /usr/share/nginx/html/web
 
 # JVM 参数
 ENV JAVA_OPTS="-Xms512m -Xmx2g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:MaxRAMPercentage=75.0"

@@ -395,14 +395,15 @@ smart-meeting-java/
 │   ├── pom.xml                            # Maven父POM（依赖版本统一管理）
 │   └── application.yml                    # 主配置文件（详见附录B）
 │
-├── web/                                   # Web录音前端（独立部署，Nginx静态资源）
-│   ├── index.html                         # 录音页面（响应式布局，适配PC/手机）
-│   ├── recorder.js                        # 录音核心（AudioContext→AudioWorkletNode→PCM→WebSocket）
-│   ├── viewer.js                          # 实时转写回显（WebSocket接收→滚动渲染→说话人着色）
-│   └── styles.css                         # 样式（毛玻璃效果/波形动画/移动端适配）
+├── meeting-server/src/main/resources/static/  # 录音前端（唯一维护；打包进 classpath）
+│   ├── index.html                         # 录音页面
+│   ├── start-meeting.html                 # 飞书 Web 选会页
+│   ├── recorder.js                        # 录音核心（AudioWorklet→PCM→WebSocket）
+│   ├── styles/main.css                    # 样式
+│   └── worklet/pcm-processor.js           # AudioWorklet
 │
-├── sql/                                   # 数据库初始化脚本
-│   └── schema.sql                         # 建表DDL（含完整字段注释，见附录A）
+├── sql/                                   # 手工/增量迁移（全量建表 DDL 仅维护 meeting-server/src/main/resources/schema.sql）
+│   └── migration_*.sql
 │
 ├── docker-compose.yml                     # 容器编排（后端+MySQL+Redis+Kafka+Nginx+Nacos）
 └── README.md                              # 项目说明（快速启动/环境依赖/开发指南）

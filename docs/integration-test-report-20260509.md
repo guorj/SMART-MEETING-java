@@ -81,7 +81,7 @@ int_voiceprint
 | API | `GET /api/v1/meetings/{id}/recording-url` |
 | 响应 | `{"code":0,"data":{"url":"http://localhost:8765/rec/...?token=...","token":"eyJ...","expiresIn":14400}}` |
 | JWT token | ✅ 生成成功，含 meetingId claim |
-| 录音页面 | ✅ `GET /rec/{meetingId}` → HTTP 200（`web/index.html` 渲染） |
+| 录音页面 | ✅ `GET /rec/{meetingId}` → HTTP 200（`classpath:/static/index.html` 渲染） |
 | 结果 | ✅ 通过 |
 
 ### 3.4 F-MID-04 实时录音解析

@@ -31,12 +31,23 @@ meeting:
   # 公网入口：WSL frpc (tcp) → Windows 本机 8765；需与飞书/浏览器实际访问一致（无 TLS 反代时用 http + 端口）
   base-url: "https://39.97.61.212"
 
+  # ---- 事项进度通报（本地测试允许classpath回退）----
+  matter-progress:
+    allow-classpath-fallback: true
+
   # ---- 飞书开放平台 ----
   feishu:
-    app-id: "cli_a96266a59238dbc8"
-    app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
-    verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
-    encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"
+#    app-id: "cli_a96266a59238dbc8"
+#    app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
+#    verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
+#    encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"
+#    base-url: "https://open.feishu.cn"
+#    token-cache-seconds: 7200
+    #jq飞书
+    app-id: "cli_a9742c7795795bc2"
+    app-secret: "yNKh96SePvhk4h3b1Z1Rnjw3RZ6fivIj"
+    verification-token: "8xLRCY78R4WF2LVOyjtXJfLXePgfSYOG"
+    encrypt-key: "UUL5bdPrZN6mgNroM38RRbE6rVE1m35y"
     base-url: "https://open.feishu.cn"
     token-cache-seconds: 7200
     # 欢迎语与菜单：开放平台 → 事件订阅 im.chat.member.bot.added_v1、application.bot.menu_v6、
@@ -118,6 +129,19 @@ meeting:
   heartbeat:
     interval: 30
     frontend-ws-close-timeout: 5
+
+# ============================================================
+# OpenClaw AI Agent 配置（方案B：通过OpenClaw调用小栈）
+# ============================================================
+openclaw:
+  enabled: ${OPENCLAW_ENABLED:true}
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+  # sessionKey 格式：agent:{agentId}:{mode}:{userId}
+  # 实际使用时需传入完整sessionKey，或通过环境变量配置
+  agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
+  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
+  # Gateway认证token（从openclaw.json获取）
+  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
 
 # ---- 日志 ----
 logging:

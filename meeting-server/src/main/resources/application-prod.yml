@@ -98,6 +98,20 @@ meeting:
     interval: 30
     frontend-ws-close-timeout: 5
 
+# ============================================================
+# OpenClaw AI Agent 配置（方案B：通过OpenClaw调用小栈）
+# ============================================================
+openclaw:
+  enabled: ${OPENCLAW_ENABLED:true}
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+  # sessionKey 格式：agent:{agentId}:{mode}:{userId}
+  # 实际使用时需传入完整sessionKey，或通过环境变量配置
+  agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
+  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
+  # Gateway认证token（从openclaw.json获取）
+  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
+  # 临时：综合管理会会前让 OpenClaw 读飞书多维表（见根 application.yml；线上设 OPENCLAW_COMP_BITABLE_PROGRESS=true 与 OPENCLAW_COMP_BITABLE_URL）
+
 logging:
   level:
     root: INFO

@@ -44,7 +44,7 @@
 
     <button type="button" id="btn" onclick="submitCreate()">创建并返回会议 ID</button>
     <div id="msg"></div>
-    <p class="sub" style="margin-top:24px">飞书入口提交后将打开 <code>/rec/会议ID?token=…&amp;autostart=1</code>；群内为「会议已开始」通知（无「开始录音」按钮）。</p>
+    <p class="sub" style="margin-top:24px">飞书入口提交后将打开录音页 <code>/rec/会议ID?token=…</code>（不自动开始拾音）；群内推送「会议已开始」通知。</p>
 
     <script>
     let presets = [];
@@ -118,9 +118,7 @@
             const j = await r.json();
             if (j.code !== 0) throw new Error(j.message || '创建失败');
             if (webEntryToken && j.data && j.data.recordingUrl) {
-                let ru = j.data.recordingUrl;
-                ru += (ru.indexOf('?') >= 0 ? '&' : '?') + 'autostart=1';
-                window.location.href = ru;
+                window.location.href = j.data.recordingUrl;
                 return;
             }
             msg.className = 'ok';
@@ -136,8 +134,8 @@
     if (webEntryToken) {
         document.getElementById('manualIds').classList.add('hidden');
         document.getElementById('feishuBanner').classList.remove('hidden');
-        document.getElementById('intro').textContent = '飞书入口：提交后将跳转录音页并开始拾音，同时向本群推送「会议已开始」通知（无需在飞书点「开始录音」）。';
-        document.getElementById('btn').textContent = '创建会议并进入录音';
+        document.getElementById('intro').textContent = '飞书入口：点「开始会议」后将跳转录音页，并向本群推送「会议已开始」通知；请在录音页自行点击「开始录音」授权麦克风。';
+        document.getElementById('btn').textContent = '开始会议';
     }
 
     loadPresets().catch(e => {

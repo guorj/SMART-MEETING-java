@@ -48,6 +48,7 @@ public class MinuteGenerationService {
     private final FeishuService feishuService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final MinuteAIEnhancer minuteAIEnhancer;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -121,6 +122,25 @@ public class MinuteGenerationService {
             log.info("Step 4: LLM minute generation...");
             minuteText = generateMinuteByLLM(meeting, correctedText, participants);
             log.info("Step 4: LLM generation completed, text length={}", minuteText.length());
+
+            // 🤖 【环节2介入】调用AI优化纪要质量
+            try {
+                String participantsNames = participants.stream()
+                    .map(Participant::getName)
+                    .collect(java.util.stream.Collectors.joining(","));
+                
+                minuteText = minuteAIEnhancer.enhanceMinute(
+                    meetingId,
+                    minuteText,
+                    meeting.getTitle(),
+                    meeting.getPresetTypeCode(),
+                    participantsNames,
+                    correctedText
+                );
+                log.info("Step 4.1: AI minute enhancement completed");
+            } catch (Exception e) {
+                log.warn("AI enhancement failed, use original minute: {}", e.getMessage());
+            }
 
             // 5. 创建飞书文档
             log.info("Step 5: Creating Feishu document...");

@@ -1,12 +1,14 @@
 package com.smartmeeting.api.controller;
 
 import com.smartmeeting.api.dto.ApiResponse;
+import com.smartmeeting.api.dto.MatterProgressReportResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.PreviousProgressResponse;
 import com.smartmeeting.api.dto.TodoBoardResponse;
 import com.smartmeeting.service.FeishuMeetingStartCoordinator;
+import com.smartmeeting.service.MatterProgressReportService;
 import com.smartmeeting.service.MeetingRecordingSessionEndService;
 import com.smartmeeting.service.MeetingService;
 import com.smartmeeting.service.TodoService;
@@ -28,6 +30,7 @@ public class MeetingController {
     private final JwtUtil jwtUtil;
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
     private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
+    private final MatterProgressReportService matterProgressReportService;
 
     @PostMapping
     public ApiResponse<MeetingResponse> createMeeting(@Valid @RequestBody MeetingCreateRequest request) {
@@ -69,6 +72,18 @@ public class MeetingController {
         String token = bearerToken(authorization);
         jwtUtil.verifyRecordingPageToken(token, id);
         return ApiResponse.ok(meetingRecordingSessionEndService.endFromRecordingPage(id));
+    }
+
+    /**
+     * 事项进度通报：需录音页 JWT；读取 MySQL 文档配置（飞书 Docx 正文或 classpath 联调样例），调用大模型返回 Markdown。
+     */
+    @PostMapping("/{id}/matter-progress-report")
+    public ApiResponse<MatterProgressReportResponse> matterProgressReport(
+            @PathVariable String id,
+            @RequestHeader("Authorization") String authorization) {
+        String token = bearerToken(authorization);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        return ApiResponse.ok(matterProgressReportService.analyzeForMeeting(id));
     }
 
     private static String bearerToken(String authorization) {

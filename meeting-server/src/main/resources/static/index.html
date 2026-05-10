@@ -32,6 +32,8 @@
         .btn-danger:hover:not(:disabled){background:#c62828}
         .btn-warning{background:#ff9800;color:#fff}
         .btn-success{background:#4caf50;color:#fff}
+        .btn-secondary{background:#fff;color:#333;border:2px solid #bdbdbd;flex:1;min-width:0}
+        .btn-secondary:hover:not(:disabled){background:#f5f5f5}
         .transcript-section{background:#fff;border-radius:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
         .transcript-section h2{font-size:16px;margin-bottom:12px}
         .transcript-list{max-height:300px;overflow-y:auto;font-size:14px;line-height:1.6}
@@ -62,6 +64,7 @@
             </div>
 
             <div class="controls" style="flex-wrap:wrap">
+                <button class="btn btn-secondary" id="progressBtn" onclick="loadMatterProgressReport()">事项进度通报</button>
                 <button class="btn btn-primary" id="startBtn" onclick="startRecording()">🎤 开始录音</button>
                 <button class="btn btn-danger" id="endMeetingBtn" onclick="endMeetingFromWeb()">结束会议</button>
             </div>
@@ -75,6 +78,11 @@
                 <div class="transcript-list" id="transcriptList">
                     <p class="placeholder">点击"开始录音"后，转写内容将在此实时显示</p>
                 </div>
+            </div>
+
+            <div class="transcript-section" id="progressReportSection" style="display:none;margin-top:16px">
+                <h2>📊 事项进度通报</h2>
+                <div class="transcript-list" id="progressReportBody" style="max-height:420px;white-space:pre-wrap;font-size:14px;line-height:1.55"></div>
             </div>
 
             <div class="notice" id="iosNotice" style="display:none">
@@ -134,9 +142,8 @@
             document.getElementById('statusText').textContent = '❌ 链接无效';
             document.getElementById('startBtn').disabled = true;
             document.getElementById('endMeetingBtn').disabled = true;
+            document.getElementById('progressBtn').disabled = true;
             showError('录音链接无效，请从飞书机器人重新获取');
-        } else if (urlParams.get('autostart') === '1') {
-            setTimeout(function () { startRecording(); }, 400);
         }
 
         // 初始化波形canvas
@@ -189,6 +196,34 @@
         document.getElementById('pauseBtn').style.display = 'inline-block';
     }
 
+    async function loadMatterProgressReport() {
+        if (!token || !meetingId) {
+            showError('录音链接无效');
+            return;
+        }
+        const btn = document.getElementById('progressBtn');
+        const sec = document.getElementById('progressReportSection');
+        const body = document.getElementById('progressReportBody');
+        btn.disabled = true;
+        sec.style.display = 'block';
+        body.textContent = '正在调用大模型分析，请稍候…';
+        try {
+            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/matter-progress-report', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const j = await res.json();
+            if (j.code !== 0) throw new Error(j.message || '分析失败');
+            body.textContent = (j.data && j.data.analysisMarkdown) ? j.data.analysisMarkdown : '';
+            sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (e) {
+            body.textContent = '';
+            showError('事项进度通报失败：' + (e.message || e));
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
     async function endMeetingFromWeb() {
         if (!token || !meetingId) {
             showError('录音链接无效，无法结束会议');
@@ -216,6 +251,7 @@
             document.getElementById('statusText').textContent = '✅ 已结束，纪要生成中';
             document.getElementById('statusDot').className = 'status-dot stopped';
             document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('progressBtn').style.display = 'none';
             document.getElementById('pauseBtn').style.display = 'none';
             document.getElementById('resumeBtn').style.display = 'none';
             if (timerInterval) clearInterval(timerInterval);

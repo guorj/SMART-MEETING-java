@@ -25,11 +25,13 @@ smart-meeting-java/
 │   ├── src/main/resources/
 │   │   ├── application.yml                    # 主配置
 │   │   ├── application-dev.yml / application-prod.yml
-│   │   ├── schema.sql                         # DDL 副本（与 sql/schema.sql 对齐）
+│   │   ├── schema.sql                         # 全库 DDL（唯一维护处；Docker 与测试 classpath 共用）
 │   │   ├── logback-spring.xml
-│   │   └── static/                            # 运行时静态资源（录音页、recorder.js、worklet）
+│   │   └── static/                            # 录音前端唯一维护处
 │   │       ├── index.html
+│   │       ├── start-meeting.html
 │   │       ├── recorder.js
+│   │       ├── styles/main.css
 │   │       └── worklet/pcm-processor.js
 │   └── src/main/java/com/smartmeeting/
 │       ├── SmartMeetingApplication.java
@@ -75,14 +77,7 @@ smart-meeting-java/
 │           ├── MinuteGenerateConsumer.java
 │           └── TodoExtractConsumer.java
 │
-├── web/                                       # 录音前端源码目录（与 resources/static 同步维护）
-│   ├── index.html                             # 页面 UI + 内联交互脚本（无独立 app.js）
-│   ├── recorder.js
-│   ├── styles/main.css
-│   └── worklet/pcm-processor.js
-│
-└── sql/
-    └── schema.sql                             # Docker MySQL 初始化使用的 DDL 源文件
+└── sql/                                       # 手工迁移脚本（非全量建表 DDL）
 ```
 
 **状态流转**：未单独抽取 `MeetingStateMachine` 类；合法流转在 `MeetingService`、`RecordingService` 等中以状态字符串校验完成。
@@ -93,7 +88,7 @@ smart-meeting-java/
 
 ### 2.1 建库语句
 
-**以仓库 `sql/schema.sql` 为唯一事实来源**（Docker 初始化挂载该文件）。库名由部署环境决定：`docker-compose.yml` 使用环境变量 `DB_NAME`（常见为 `smart_meeting`）。文档示例：
+**全量建表 DDL 以 `meeting-server/src/main/resources/schema.sql` 为唯一维护处**（`docker-compose.yml` 中 MySQL 初始化挂载该文件；集成测试使用同名 classpath 资源）。库名由部署环境决定：`docker-compose.yml` 使用环境变量 `DB_NAME`（常见为 `smart_meeting`）。文档示例：
 
 ```sql
 CREATE DATABASE IF NOT EXISTS smart_meeting
@@ -287,7 +282,7 @@ spring:
   # 静态资源（Web录音页）
   web:
     resources:
-      static-locations: file:./web/,classpath:/static/
+      static-locations: classpath:/static/
 
 # ============================================================
 # 业务配置
@@ -991,7 +986,7 @@ public class AudioCacheCleaner {
 
 ## 7. Web 录音页
 
-**源码目录**: 仓库根目录 `web/`（含 `styles/main.css`）。**运行时**：同名静态资源打包在 `meeting-server/src/main/resources/static/`，由 Spring 通过 `WebConfig` 映射 `classpath:/static/`（`/static/**`、`/worklet/**` 等）。
+**前端静态资源**：仅在 `meeting-server/src/main/resources/static/` 维护（含 `styles/main.css`），由 Spring `spring.web.resources.static-locations` 与 `WebConfig` 提供（`/static/**`、`/worklet/**` 等）。
 
 | 文件 | 说明 |
 |------|------|
@@ -1154,7 +1149,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./meeting-server/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
       - "3306:3306"
     healthcheck:
@@ -1305,7 +1300,7 @@ ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]
 | `llm/summary.py` | 273行 | `MinuteGenerationService.java` | ~300行 |
 | `feishu/` (全套) | 1516行 | `FeishuService.java` + DTOs | ~800行 |
 | `background/tasks.py` | 127行 | `@Scheduled` 定时任务 | ~150行 |
-| `web/` (前端) | ~800行 | 直接复用，不修改 | 0行 |
+| `static/` (前端) | ~800行 | 直接复用，不修改 | 0行 |
 | **总计** | **~7300行** | | **~4650行** |
 
 > **注**：Java 代码量少于 Python 是因为 MyBatis-Plus 自动生成 CRUD，实体类由 Lombok 简化，且 Kafka/Redis/Spring Security 等中间件用 Starter 自动配置。但实际加上配置文件、异常处理、单元测试后，总体工作量与 Python 版相当。

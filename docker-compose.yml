@@ -17,7 +17,6 @@ services:
       - DB_HOST=mysql
     volumes:
       - meeting-data:/data
-      - meeting-web:/usr/share/nginx/html/web
     depends_on:
       mysql:
         condition: service_healthy
@@ -50,7 +49,7 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./sql/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./meeting-server/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     ports:
       - "3306:3306"
     healthcheck:
@@ -97,7 +96,6 @@ services:
 
 volumes:
   meeting-data:
-  meeting-web:
   mysql-data:
   redis-data:
   kafka-data:

@@ -25,6 +25,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.concurrent.CompletableFuture;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,6 +45,8 @@ public class MeetingService {
     private final FeishuService feishuService;
     private final LocalEventBus localEventBus;
     private final MeetingTypePresetService meetingTypePresetService;
+    private final AiAgentService aiAgentService;
+    private final MeetingProgressAIEnhancer progressAIEnhancer;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Kafka 生产者（生产环境，开发环境可选）
@@ -52,13 +56,17 @@ public class MeetingService {
     public MeetingService(MeetingMapper meetingMapper, ParticipantMapper participantMapper,
                           TodoMapper todoMapper, FeishuService feishuService,
                           LocalEventBus localEventBus,
-                          MeetingTypePresetService meetingTypePresetService) {
+                          MeetingTypePresetService meetingTypePresetService,
+                          AiAgentService aiAgentService,
+                          MeetingProgressAIEnhancer progressAIEnhancer) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.todoMapper = todoMapper;
         this.feishuService = feishuService;
         this.localEventBus = localEventBus;
         this.meetingTypePresetService = meetingTypePresetService;
+        this.aiAgentService = aiAgentService;
+        this.progressAIEnhancer = progressAIEnhancer;
     }
 
     @Transactional
@@ -123,24 +131,22 @@ public class MeetingService {
                 int inProgress = (int) todos.stream().filter(t -> t.getStatus().equals(TodoStatus.IN_PROGRESS.name())).count();
                 int delayed = (int) todos.stream().filter(t -> t.getStatus().equals(TodoStatus.DELAYED.name())).count();
                 
-                // 构建进度通报卡片
-                List<Map<String, String>> elements = new ArrayList<>();
-                Map<String, String> summary = new HashMap<>();
-                summary.put("content", String.format(
-                    "## 📊 上次会议待办进度\n\n**%s**\n\n- ✅ 已完成: %d\n- 🔄 进行中: %d\n- ⚠️ 已延期: %d",
-                    previous.getTitle(), completed, inProgress, delayed));
-                elements.add(summary);
-                
-                // 延期项高亮
-                if (delayed > 0) {
-                    Map<String, String> delayedSection = new HashMap<>();
-                    StringBuilder delayedText = new StringBuilder("**⚠️ 延期项详情:**\n\n");
-                    for (MeetingTodo todo : todos.stream().filter(t -> t.getStatus().equals(TodoStatus.DELAYED.name())).collect(Collectors.toList())) {
-                        delayedText.append("- ").append(todo.getContent())
-                            .append("（责任人: ").append(todo.getAssigneeName()).append("）\n");
+                // 🤖 【环节1介入】调用AI Agent分析待办进度
+                List<Map<String, String>> elements;
+                try {
+                    String aiAnalysis = progressAIEnhancer.analyzeAndEnhance(
+                        meeting.getId(), previous.getId(), previous.getTitle(), todos);
+                    
+                    if (aiAnalysis != null && !aiAnalysis.isEmpty()) {
+                        elements = progressAIEnhancer.buildSmartCardElements(aiAnalysis, previous.getTitle());
+                        log.info("Smart progress card built with AI analysis: meetingId={}", meeting.getId());
+                    } else {
+                        elements = progressAIEnhancer.buildFallbackCardElements(previous.getTitle(), completed, inProgress, delayed, todos);
+                        log.info("Fallback to simple progress card: meetingId={}", meeting.getId());
                     }
-                    delayedSection.put("content", delayedText.toString());
-                    elements.add(delayedSection);
+                } catch (Exception e) {
+                    log.warn("AI enhancement failed, fallback: {}", e.getMessage());
+                    elements = progressAIEnhancer.buildFallbackCardElements(previous.getTitle(), completed, inProgress, delayed, todos);
                 }
                 
                 // 推送卡片到会议群聊（优先使用 chatId，否则降级使用 creatorId）

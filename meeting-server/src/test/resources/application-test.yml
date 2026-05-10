@@ -10,10 +10,23 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:schema.sql,classpath:schema-patch-preset.sql
+      schema-locations: classpath:schema.sql,classpath:schema-patch-preset.sql,classpath:schema-patch-matter-progress.sql
 
 meeting:
   kafka:
     enabled: false
   audio:
     cache-dir: ./test-data/audio
+  matter-progress:
+    allow-classpath-fallback: true
+
+# ============================================================
+# OpenClaw AI Agent 配置（测试环境可禁用）
+# ============================================================
+openclaw:
+  enabled: false  # 测试环境默认禁用AI调用
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+  # sessionKey 格式：agent:{agentId}:{mode}:{userId}
+  agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
+  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
+  auth-token: ${OPENCLAW_AUTH_TOKEN:}

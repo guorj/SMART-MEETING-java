@@ -2,7 +2,7 @@
 -- 智能会议纪要系统 - 数据库 DDL
 -- 版本: v0.1
 -- 日期: 2026-05-08
--- 说明: 本脚本供 docker-compose MySQL 初始化使用
+-- 说明: 全库 DDL 唯一维护处；供 Spring classpath 与 docker-compose MySQL 初始化挂载（勿再复制到 sql/）
 -- ============================================================
 
 -- CREATE DATABASE IF NOT EXISTS smart_meeting
@@ -151,3 +151,18 @@ CREATE TABLE IF NOT EXISTS int_user_mapping (
     INDEX idx_feishu_user_id (feishu_user_id),
     INDEX idx_feishu_open_id (feishu_open_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书ID映射表';
+
+-- 事项进度通报：飞书云文档配置（启用行按 id 升序取第一条；正文由飞书拉取或 classpath 联调样例，见 meeting.matter-progress）
+CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    config_name          VARCHAR(64)   NOT NULL COMMENT '逻辑配置名，全局唯一',
+    feishu_doc_url       VARCHAR(2000) NULL     COMMENT '飞书 Docx HTTPS 链接，需含 /docx/{document_id} 以便解析；可与 token 二选一或同时配置',
+    feishu_doc_token     VARCHAR(512)  NULL     COMMENT '飞书 Docx 的 document_id（与链接中 docx/ 后一致）；优先于从 URL 解析',
+    enabled              TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
+    created_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_matter_progress_config_name (config_name),
+    KEY idx_matter_progress_enabled_id (enabled, id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='事项进度通报：飞书文档配置';

@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.UriComponentsBuilder;
 
 import java.util.*;
 
@@ -313,6 +314,100 @@ public class FeishuService {
 
         log.error("Failed to create feishu doc: {}", json);
         throw new RuntimeException("Failed to create feishu document: " + json);
+    }
+
+    /**
+     * 读取云文档 Docx 的正文为纯文本（遍历 {@code GET .../documents/{id}/blocks} 分页结果，汇总各 Block 内 {@code elements} 的 {@code text_run}）。
+     * <p>
+     * 需应用具备对该文档的读取权限，并在开放平台开通「查看、评论、编辑和管理云空间中所有文件」或 docx 只读相关能力（以控制台为准）。
+     *
+     * @param documentId 文档 {@code document_id}（与浏览器地址 {@code .../docx/xxx} 中 xxx 一致）
+     * @return 拼接后的纯文本，可能含较多换行
+     * @throws RuntimeException 飞书返回 code≠0 或 HTTP 失败时，消息中含错误码与描述
+     */
+    public String fetchDocxPlainText(String documentId) {
+        if (documentId == null || documentId.isBlank()) {
+            throw new IllegalArgumentException("document_id 为空");
+        }
+        String tenantToken = getTenantToken();
+        String pageToken = null;
+        StringBuilder out = new StringBuilder();
+        do {
+            UriComponentsBuilder ub = UriComponentsBuilder
+                    .fromUriString(baseUrl + "/open-apis/docx/v1/documents/" + documentId + "/blocks")
+                    .queryParam("page_size", 500)
+                    .queryParam("document_revision_id", -1);
+            if (pageToken != null && !pageToken.isBlank()) {
+                ub.queryParam("page_token", pageToken);
+            }
+            String url = ub.toUriString();
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setBearerAuth(tenantToken);
+            HttpEntity<Void> request = new HttpEntity<>(headers);
+
+            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
+            JsonNode json = response.getBody();
+            if (json == null) {
+                throw new RuntimeException("飞书文档 blocks 响应为空");
+            }
+            int code = json.path("code").asInt(-1);
+            if (code != 0) {
+                throw new RuntimeException("飞书 docx blocks code=" + code + " msg=" + json.path("msg").asText(""));
+            }
+            JsonNode data = json.path("data");
+            JsonNode items = data.path("items");
+            if (items.isArray()) {
+                for (JsonNode item : items) {
+                    appendDocxBlockPlainText(item, out);
+                }
+            }
+            boolean hasMore = data.path("has_more").asBoolean(false);
+            String next = data.path("page_token").asText("");
+            pageToken = hasMore && !next.isBlank() ? next : null;
+            if (pageToken != null) {
+                try {
+                    Thread.sleep(350);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        } while (pageToken != null);
+
+        return out.toString().trim();
+    }
+
+    /**
+     * 从单条 block JSON 中提取可见文字（遍历除元数据字段外、含 {@code elements} 的子对象）。
+     */
+    private static void appendDocxBlockPlainText(JsonNode block, StringBuilder out) {
+        Iterator<Map.Entry<String, JsonNode>> it = block.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            String key = e.getKey();
+            if ("block_id".equals(key) || "block_type".equals(key) || "parent_id".equals(key) || "children".equals(key)) {
+                continue;
+            }
+            JsonNode val = e.getValue();
+            if (val != null && val.isObject() && val.has("elements") && val.get("elements").isArray()) {
+                appendDocxTextElements(val.get("elements"), out);
+            }
+        }
+        out.append('\n');
+    }
+
+    private static void appendDocxTextElements(JsonNode elements, StringBuilder out) {
+        for (JsonNode el : elements) {
+            if (el == null || !el.isObject()) {
+                continue;
+            }
+            if (el.has("text_run")) {
+                out.append(el.path("text_run").path("content").asText(""));
+            } else if (el.has("equation")) {
+                out.append(el.path("equation").path("content").asText(""));
+            }
+        }
     }
 
     /**
