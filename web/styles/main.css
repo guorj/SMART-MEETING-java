@@ -1,0 +1,60 @@
+/* OpenClaw智能会议纪要系统 - 前端样式 */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; }
+.container { max-width: 640px; margin: 0 auto; padding: 16px; }
+.header { text-align: center; padding: 20px 0; }
+.header h1 { font-size: 24px; margin-bottom: 4px; }
+.meeting-title { color: #666; font-size: 14px; }
+
+.main { display: flex; flex-direction: column; gap: 16px; }
+
+.status-card {
+    background: #fff; border-radius: 12px; padding: 24px; text-align: center;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.status-indicator { display: flex; align-items: center; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.status-dot { width: 12px; height: 12px; border-radius: 50%; background: #ccc; display: inline-block; }
+.status-dot.recording { background: #e53935; animation: pulse 1.5s infinite; }
+.status-dot.paused { background: #ff9800; }
+.status-dot.reconnecting { background: #2196f3; animation: pulse 1s infinite; }
+.status-dot.stopped { background: #9e9e9e; }
+.status-dot.error { background: #f44336; }
+.status-text { font-size: 16px; font-weight: 500; }
+
+@keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+.timer { font-size: 36px; font-weight: 700; font-variant-numeric: tabular-nums; color: #1a1a1a; margin: 8px 0; }
+.waveform { width: 100%; height: 60px; display: block; }
+
+.controls { display: flex; justify-content: center; gap: 12px; }
+.btn {
+    padding: 12px 32px; border: none; border-radius: 24px; font-size: 16px;
+    font-weight: 600; cursor: pointer; transition: all 0.2s;
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.btn-primary { background: #1a73e8; color: #fff; }
+.btn-primary:hover:not(:disabled) { background: #1557b0; }
+.btn-warning { background: #ff9800; color: #fff; }
+.btn-success { background: #4caf50; color: #fff; }
+
+.transcript-section { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.transcript-section h2 { font-size: 16px; margin-bottom: 12px; color: #555; }
+.transcript-list { max-height: 400px; overflow-y: auto; }
+.transcript-line { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
+.transcript-line.interim { opacity: 0.5; font-style: italic; }
+.transcript-line .speaker { font-weight: 600; color: #1a73e8; }
+.transcript-line .time { color: #999; font-size: 12px; }
+.transcript-line .text { color: #333; }
+.placeholder { color: #999; text-align: center; padding: 20px; }
+
+.notice {
+    background: #fff3cd; border: 1px solid #ffc107; border-radius: 8px;
+    padding: 10px 14px; font-size: 13px; color: #856404;
+}
+
+@media (max-width: 480px) {
+    .container { padding: 12px; }
+    .header h1 { font-size: 20px; }
+    .timer { font-size: 28px; }
+    .btn { padding: 10px 24px; font-size: 14px; }
+}

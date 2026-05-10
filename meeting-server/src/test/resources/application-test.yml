@@ -1,0 +1,19 @@
+# 与 application-dev.yml 叠加使用（@ActiveProfiles({"dev", "test"})，test 在后覆盖）
+# 此处只保留「跑集成测试」所需增量，其余飞书/讯飞/LLM/JWT 等沿用 dev 真实配置
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql,classpath:schema-patch-preset.sql
+
+meeting:
+  kafka:
+    enabled: false
+  audio:
+    cache-dir: ./test-data/audio

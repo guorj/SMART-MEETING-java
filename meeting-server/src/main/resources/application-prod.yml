@@ -1,0 +1,116 @@
+# ============================================================
+# Prod Profile — 业务参数与 application-dev.yml 对齐（同库、同三方密钥）
+# 本环境不上 Kafka / Redis：排除自动配置 + meeting.kafka.enabled=false → LocalEventBus
+# MyBatis SQL 日志走 Slf4j（非 dev 的 stdout）
+# ============================================================
+
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+
+  datasource:
+    url: jdbc:mysql://60.205.1.17:3306/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
+    username: intelligence
+    password: "intelligence@2026"
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  sql:
+    init:
+      mode: never
+
+meeting:
+  kafka:
+    enabled: false
+
+  # 与 dev 一致：公网入口（frp / 反代）
+  base-url: "http://39.97.61.212:8765"
+
+  feishu:
+    app-id: "cli_a96266a59238dbc8"
+    app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
+    verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
+    encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"
+    base-url: "https://open.feishu.cn"
+    token-cache-seconds: 7200
+
+  asr:
+    primary: xfyun
+    fallback: tencent
+    lang: "autodialect"
+    role-type: 2
+    eng-speaker-match: 1
+    audio-encode: "pcm_s16le"
+    mock-enabled: false
+    xfyun:
+      app-id: "e88682b8"
+      api-key: "cf2d80e0d6bddb829c43d147dfc1d664"
+      api-secret: "NGFmOGU1MDRjNGQ3NTQwY2NkOTZmNTBl"
+      ws-url: "wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1"
+      isv-url: "https://api.xf-yun.com/v1/private/s1aa729d0"
+      isv-group-id: "smart_meeting_vp"
+      connect-max-retries: 3
+      send-max-retries: 2
+      ws-handshake-timeout: 10
+      receive-timeout: 30
+      reconnect:
+        max-retries: 5
+        backoff-ms: 1000
+        backoff-multiplier: 2.0
+        max-backoff-ms: 30000
+
+  isv:
+    enabled: true
+    group-id: "smart_meeting_vp"
+    match-score-threshold: 0.2
+    search-min-audio-sec: 3.0
+    api-timeout: 8
+    register-timeout: 5.0
+    debug-log: true
+    ttl-years: 10
+
+  llm:
+    provider: "deepseek"
+    api-key: "sk-bc91279066c0419f80df68b03e0d90d8"
+    api-url: "https://api.deepseek.com"
+    model: "deepseek-v4-pro"
+    timeout-seconds: 120
+    max-retries: 2
+
+  audio:
+    sample-rate: 16000
+    bit-depth: 16
+    channels: 1
+    frame-duration-ms: 40
+    max-duration-hours: 4
+    silence-auto-pause-min: 30
+    cache-retention-hours: 72
+    cache-dir: "./data/audio"
+    queue-maxsize: 100
+    write-flush-interval: 25
+
+  jwt:
+    secret: "IQ7vgVe5uBy0XJ6q8mzrqHgRzl9md+1oO1qKLHnxchxdUyhN2qa3aRqiCK+99U5K"
+    expire-hours: 4
+
+  heartbeat:
+    interval: 30
+    frontend-ws-close-timeout: 5
+
+logging:
+  level:
+    root: INFO
+    com.smartmeeting: DEBUG
+  file:
+    path: "./logs/smart-meeting"
+    max-size: 100MB
+    max-history: 7
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
+  global-config:
+    db-config:
+      id-type: assign_uuid
+  mapper-locations: classpath*:/mapper/**/*.xml

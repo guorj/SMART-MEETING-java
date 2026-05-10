@@ -1,0 +1,156 @@
+server:
+  port: ${SERVER_PORT:8765}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: smart-meeting-server
+
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+
+  datasource:
+    url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:intelligence}
+    password: ${DB_PASSWORD:intelligence@2026}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 10000
+
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      database: 0
+      timeout: 5000ms
+
+  sql:
+    init:
+      encoding: UTF-8
+
+  kafka:
+    bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+      retries: 3
+      acks: all
+    consumer:
+      group-id: smart-meeting
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      auto-offset-reset: earliest
+      enable-auto-commit: false
+    listener:
+      concurrency: 3
+      ack-mode: manual
+
+  web:
+    resources:
+      # classpath 优先：jar 部署时不依赖进程 cwd 下的 ./web/（否则 start-meeting.html 会 404/500）
+      static-locations: classpath:/static/,file:./web/
+
+# ============================================================
+# 业务配置（默认值，各 profile 可覆盖）
+# ============================================================
+meeting:
+  kafka:
+    enabled: ${KAFKA_ENABLED:false}
+
+  base-url: ${BASE_URL:http://localhost:8765}
+
+  audio:
+    sample-rate: 16000
+    bit-depth: 16
+    channels: 1
+    frame-duration-ms: 40
+    max-duration-hours: 4
+    silence-auto-pause-min: 30
+    cache-retention-hours: 72
+    cache-dir: ./data/audio
+    queue-maxsize: 100
+    write-flush-interval: 25
+
+  asr:
+    primary: xfyun
+    fallback: tencent
+    lang: autodialect
+    role-type: 2
+    eng-speaker-match: 1
+    audio-encode: pcm_s16le
+    mock-enabled: ${MOCK_ASR:false}
+    xfyun:
+      app-id: ${XFYUN_APP_ID:test}
+      api-key: ${XFYUN_API_KEY:test}
+      api-secret: ${XFYUN_API_SECRET:test}
+      ws-url: wss://office-api-ast-dx.iflyaisol.com/ast/communicate/v1
+      isv-url: https://api.xf-yun.com/v1/private/s1aa729d0
+      isv-group-id: ${ISV_GROUP_ID:smart_meeting_vp}
+      connect-max-retries: 3
+      send-max-retries: 2
+      ws-handshake-timeout: 10
+      receive-timeout: 30
+      reconnect:
+        max-retries: 5
+        backoff-ms: 1000
+        backoff-multiplier: 2.0
+        max-backoff-ms: 30000
+
+  isv:
+    enabled: ${ISV_ENABLED:false}
+    group-id: ${ISV_GROUP_ID:smart_meeting_vp}
+    match-score-threshold: 0.2
+    search-min-audio-sec: 3.0
+    api-timeout: 8
+    register-timeout: 5.0
+    debug-log: ${ISV_DEBUG_LOG:false}
+    ttl-years: 10
+
+  llm:
+    provider: ${LLM_PROVIDER:deepseek}
+    api-key: ${LLM_API_KEY:test}
+    api-url: ${LLM_API_BASE:https://api.deepseek.com/v1/chat/completions}
+    model: ${LLM_MODEL:deepseek-v4-pro}
+    timeout-seconds: 120
+    max-retries: 2
+
+  feishu:
+    app-id: ${FEISHU_APP_ID:test}
+    app-secret: ${FEISHU_APP_SECRET:test}
+    verification-token: ${FEISHU_VERIFICATION_TOKEN:}
+    encrypt-key: ${FEISHU_ENCRYPT_KEY:}
+    base-url: https://open.feishu.cn
+    token-cache-seconds: 7200
+    # 进群欢迎、首次「开始会议」说明卡片、自定义菜单 event_key（见 MeetingFeishuBotUxProperties）
+    # 混合方案：开放平台建议仅订阅 card.action.trigger；服务端仍兼容 card.action.trigger_v1
+    bot-ux:
+      welcome-on-bot-join: true
+      instruction-card-on-first-start: false
+      menu-event-key-start-meeting: start_meeting
+      menu-v6-fallback-to-last-group-chat: true
+
+  jwt:
+    secret: ${JWT_SECRET:this-is-…mum-key-change-in-production}
+    expire-hours: 4
+    # 飞书卡片「打开 Web 选会」链接中的 JWT 有效期（分钟）
+    feishu-web-entry-expire-minutes: ${FEISHU_WEB_ENTRY_EXPIRE_MINUTES:30}
+
+  heartbeat:
+    interval: ${HEARTBEAT_INTERVAL:30}
+    frontend-ws-close-timeout: ${FRONTEND_WS_CLOSE_TIMEOUT:5}
+
+logging:
+  level:
+    root: INFO
+    com.smartmeeting: DEBUG
+  file:
+    path: ./logs/smart-meeting
+    max-size: 100MB
+    max-history: ${LOG_RETENTION_DAYS:7}

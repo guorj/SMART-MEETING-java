@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>智能会议录音</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f5f5;color:#333;min-height:100vh}
+        .container{max-width:480px;margin:0 auto;padding:16px}
+        .header{text-align:center;padding:20px 0}
+        .header h1{font-size:22px;margin-bottom:4px}
+        .meeting-title{font-size:14px;color:#666}
+        .status-card{background:#fff;border-radius:12px;padding:20px;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+        .status-indicator{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:12px}
+        .status-dot{width:10px;height:10px;border-radius:50%;background:#ccc}
+        .status-dot.recording{background:#ff4444;animation:pulse 1s infinite}
+        .status-dot.paused{background:#ff9800}
+        .status-dot.reconnecting{background:#2196f3;animation:pulse .5s infinite}
+        .status-dot.stopped{background:#999}
+        .status-dot.error{background:#f44336}
+        @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+        .status-text{font-size:16px;font-weight:500}
+        .timer{font-size:36px;font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:2px;margin:8px 0;color:#333}
+        .waveform{width:100%;height:50px;margin-top:8px;border-radius:8px}
+        .controls{display:flex;gap:12px;justify-content:center;margin:20px 0}
+        .btn{padding:12px 24px;border:none;border-radius:8px;font-size:16px;font-weight:600;cursor:pointer;transition:all .2s}
+        .btn:disabled{opacity:.5;cursor:not-allowed}
+        .btn-primary{background:#4caf50;color:#fff;flex:1;min-width:0}
+        .btn-primary:hover:not(:disabled){background:#43a047}
+        .btn-danger{background:#e53935;color:#fff;flex:1;min-width:0}
+        .btn-danger:hover:not(:disabled){background:#c62828}
+        .btn-warning{background:#ff9800;color:#fff}
+        .btn-success{background:#4caf50;color:#fff}
+        .transcript-section{background:#fff;border-radius:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+        .transcript-section h2{font-size:16px;margin-bottom:12px}
+        .transcript-list{max-height:300px;overflow-y:auto;font-size:14px;line-height:1.6}
+        .transcript-line{padding:8px 0;border-bottom:1px solid #f0f0f0}
+        .transcript-line.interim{color:#999}
+        .speaker{font-weight:600;color:#1976d2}
+        .time{font-size:12px;color:#999}
+        .placeholder{color:#aaa;text-align:center;padding:20px}
+        .notice{background:#fff3cd;color:#856404;border-radius:8px;padding:12px;margin-top:12px;font-size:13px}
+        .error-banner{background:#ffebee;color:#c62828;border-radius:8px;padding:12px;margin-top:12px;font-size:13px;display:none}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🎙️ 智能会议录音</h1>
+            <p class="meeting-title" id="meetingTitle">加载中...</p>
+        </header>
+
+        <main class="main">
+            <div class="status-card">
+                <div class="status-indicator">
+                    <span class="status-dot" id="statusDot"></span>
+                    <span class="status-text" id="statusText">准备就绪</span>
+                </div>
+                <div class="timer" id="timer">00:00:00</div>
+                <canvas class="waveform" id="waveform" width="400" height="50"></canvas>
+            </div>
+
+            <div class="controls" style="flex-wrap:wrap">
+                <button class="btn btn-primary" id="startBtn" onclick="startRecording()">🎤 开始录音</button>
+                <button class="btn btn-danger" id="endMeetingBtn" onclick="endMeetingFromWeb()">结束会议</button>
+            </div>
+            <div class="controls">
+                <button class="btn btn-warning" id="pauseBtn" onclick="pauseRecording()" style="display:none">⏸️ 暂停</button>
+                <button class="btn btn-success" id="resumeBtn" onclick="resumeRecording()" style="display:none">▶️ 继续</button>
+            </div>
+
+            <div class="transcript-section">
+                <h2>📝 实时转写</h2>
+                <div class="transcript-list" id="transcriptList">
+                    <p class="placeholder">点击"开始录音"后，转写内容将在此实时显示</p>
+                </div>
+            </div>
+
+            <div class="notice" id="iosNotice" style="display:none">
+                🍎 iOS提示：请保持屏幕常亮，勿切换到其他应用
+            </div>
+            <div class="notice">
+                💡 结束会议请在上方点击「结束会议」，系统将生成纪要（飞书发「结束会议」仍为备用方式）
+            </div>
+            <div class="error-banner" id="errorBanner"></div>
+        </main>
+    </div>
+
+    <script src="/static/recorder.js"></script>
+    <script>
+    /**
+     * 智能会议录音 - 前端主逻辑 (内联版)
+     */
+    let recorder = null;
+    let timerInterval = null;
+    let startTime = null;
+    let waveCtx = null;
+    let analyser = null;
+
+    // 从URL解析参数 - 支持 /recorder/{meetingId}?token=xxx 和 /recorder/?meeting_id=xxx&token=xxx
+    const urlParams = new URLSearchParams(window.location.search);
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    const meetingId = urlParams.get('meeting_id') || (pathParts.length >= 2 ? pathParts[pathParts.length - 1] : null);
+    const token = urlParams.get('token');
+
+    console.log('Meeting ID:', meetingId);
+    console.log('Token:', token ? '***' : 'missing');
+
+    function detectIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    }
+
+    function showError(msg) {
+        const banner = document.getElementById('errorBanner');
+        banner.textContent = msg;
+        banner.style.display = msg ? 'block' : 'none';
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('meetingTitle').textContent = meetingId ? `会议: ${meetingId.substring(0,12)}...` : '会议ID: 未知';
+
+        if (detectIOS()) {
+            document.getElementById('iosNotice').style.display = 'block';
+            document.addEventListener('visibilitychange', () => {
+                if (document.hidden && recorder?.isRecording) {
+                    showError('⚠️ 录音中，请保持屏幕常亮！');
+                }
+            });
+        }
+
+        if (!token || !meetingId) {
+            document.getElementById('statusText').textContent = '❌ 链接无效';
+            document.getElementById('startBtn').disabled = true;
+            document.getElementById('endMeetingBtn').disabled = true;
+            showError('录音链接无效，请从飞书机器人重新获取');
+        } else if (urlParams.get('autostart') === '1') {
+            setTimeout(function () { startRecording(); }, 400);
+        }
+
+        // 初始化波形canvas
+        waveCtx = document.getElementById('waveform').getContext('2d');
+    });
+
+    async function startRecording() {
+        if (!token || !meetingId) {
+            showError('录音链接无效，请从飞书机器人重新获取');
+            return;
+        }
+
+        const startBtn = document.getElementById('startBtn');
+        startBtn.disabled = true;
+        startBtn.textContent = '⏳ 连接中...';
+
+        // 构建WebSocket URL
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${wsProtocol}//${location.host}/ws/audio/${meetingId}?token=${encodeURIComponent(token)}`;
+
+        recorder = new MeetingRecorder(meetingId, token, wsUrl);
+
+        recorder.onStatusChange = (status) => updateStatusUI(status);
+        recorder.onTranscript = (result) => addTranscriptLine(result);
+        recorder.onError = (msg) => { showError('❌ ' + msg); updateStatusUI('error'); };
+        recorder.onWarning = (msg) => console.warn(msg);
+        recorder.onAnalyser = (node) => { analyser = node; drawWaveform(); };
+
+        try {
+            await recorder.start();
+            startTime = Date.now();
+            timerInterval = setInterval(updateTimer, 1000);
+            document.getElementById('pauseBtn').style.display = 'inline-block';
+        } catch (e) {
+            showError('录音启动失败：' + e.message);
+            startBtn.disabled = false;
+            startBtn.textContent = '🎤 开始录音';
+        }
+    }
+
+    function pauseRecording() {
+        if (recorder) recorder.pause();
+        document.getElementById('pauseBtn').style.display = 'none';
+        document.getElementById('resumeBtn').style.display = 'inline-block';
+    }
+
+    function resumeRecording() {
+        if (recorder) recorder.resume();
+        document.getElementById('resumeBtn').style.display = 'none';
+        document.getElementById('pauseBtn').style.display = 'inline-block';
+    }
+
+    async function endMeetingFromWeb() {
+        if (!token || !meetingId) {
+            showError('录音链接无效，无法结束会议');
+            return;
+        }
+        if (!confirm('确定结束会议并生成纪要？未保存的录音将提交服务器处理。')) return;
+
+        const endBtn = document.getElementById('endMeetingBtn');
+        endBtn.disabled = true;
+
+        try {
+            if (recorder && recorder.ws && recorder.ws.readyState === WebSocket.OPEN) {
+                recorder.ws.send(JSON.stringify({ type: 'stop' }));
+                await new Promise(function (r) { setTimeout(r, 600); });
+            }
+            if (recorder) recorder.stop();
+
+            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end', {
+                method: 'POST',
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const j = await res.json();
+            if (j.code !== 0) throw new Error(j.message || '结束失败');
+
+            document.getElementById('statusText').textContent = '✅ 已结束，纪要生成中';
+            document.getElementById('statusDot').className = 'status-dot stopped';
+            document.getElementById('startBtn').style.display = 'none';
+            document.getElementById('pauseBtn').style.display = 'none';
+            document.getElementById('resumeBtn').style.display = 'none';
+            if (timerInterval) clearInterval(timerInterval);
+            showError('');
+            const ok = document.createElement('div');
+            ok.className = 'notice';
+            ok.style.background = '#e8f5e9';
+            ok.style.color = '#2e7d32';
+            ok.textContent = '会议已结束（状态：' + (j.data && j.data.status ? j.data.status : '') + '）。可关闭页面或返回飞书查看。';
+            document.querySelector('main.main').appendChild(ok);
+        } catch (e) {
+            showError('结束会议失败：' + (e.message || e));
+            endBtn.disabled = false;
+        }
+    }
+
+    function updateStatusUI(status) {
+        const dot = document.getElementById('statusDot');
+        const text = document.getElementById('statusText');
+        const startBtn = document.getElementById('startBtn');
+
+        const states = {
+            recording: { dot: 'recording', text: '🔴 录音中' },
+            paused: { dot: 'paused', text: '⏸️ 已暂停' },
+            reconnecting: { dot: 'reconnecting', text: '🔄 重连中...' },
+            stopped: { dot: 'stopped', text: '⏹️ 已停止' },
+            error: { dot: 'error', text: '❌ 异常' },
+        };
+
+        const s = states[status] || { dot: '', text: status };
+        dot.className = 'status-dot ' + s.dot;
+        text.textContent = s.text;
+
+        if (status === 'recording') {
+            startBtn.style.display = 'none';
+            document.getElementById('endMeetingBtn').disabled = false;
+        }
+    }
+
+    function updateTimer() {
+        if (!startTime) return;
+        const elapsed = Math.floor((Date.now() - startTime) / 1000);
+        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+        const s = String(elapsed % 60).padStart(2, '0');
+        document.getElementById('timer').textContent = `${h}:${m}:${s}`;
+    }
+
+    function addTranscriptLine(result) {
+        const list = document.getElementById('transcriptList');
+        const placeholder = list.querySelector('.placeholder');
+        if (placeholder) placeholder.remove();
+
+        const speaker = result.speaker_id || '未知';
+        const text = result.text || '';
+        if (!text.trim()) return;
+
+        const line = document.createElement('div');
+        line.className = 'transcript-line' + (result.is_final ? '' : ' interim');
+        const timeStr = new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+        line.innerHTML = `<span class="speaker">👤 ${speaker}</span> <span class="time">(${timeStr})</span><br><span class="text">${text}</span>`;
+        list.appendChild(line);
+        list.scrollTop = list.scrollHeight;
+    }
+
+    function drawWaveform() {
+        if (!analyser || !waveCtx) return;
+        requestAnimationFrame(drawWaveform);
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyser.getByteTimeDomainData(dataArray);
+
+        const canvas = document.getElementById('waveform');
+        const W = canvas.width, H = canvas.height;
+        waveCtx.fillStyle = '#f5f5f5';
+        waveCtx.fillRect(0, 0, W, H);
+        waveCtx.lineWidth = 2;
+        waveCtx.strokeStyle = '#4caf50';
+        waveCtx.beginPath();
+
+        const sliceWidth = W / bufferLength;
+        let x = 0;
+        for (let i = 0; i < bufferLength; i++) {
+            const v = dataArray[i] / 128.0;
+            const y = (v * H) / 2;
+            if (i === 0) waveCtx.moveTo(x, y);
+            else waveCtx.lineTo(x, y);
+            x += sliceWidth;
+        }
+        waveCtx.lineTo(W, H / 2);
+        waveCtx.stroke();
+    }
+    </script>
+</body>
+</html>
