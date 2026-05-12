@@ -5,12 +5,11 @@ import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.util.JwtUtil;
+import com.smartmeeting.util.MeetingWebPageUrls;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
-import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/meetings")
@@ -19,9 +18,7 @@ public class RecordingController {
 
     private final MeetingMapper meetingMapper;
     private final JwtUtil jwtUtil;
-
-    @Value("${meeting.base-url:http://localhost:8765}")
-    private String meetingBaseUrl;
+    private final MeetingWebPageUrls meetingWebPageUrls;
 
     /**
      * 获取录音页面 URL + JWT token
@@ -37,11 +34,7 @@ public class RecordingController {
         // 生成 JWT token（包含 meetingId）
         String token = jwtUtil.generateToken(id, Map.of("meetingId", id));
 
-        // 与 FeishuCommandHandler 一致：使用 meeting.base-url，便于 frp/Nginx 公网访问
-        String base = meetingBaseUrl.endsWith("/")
-                ? meetingBaseUrl.substring(0, meetingBaseUrl.length() - 1)
-                : meetingBaseUrl;
-        String recordingUrl = base + "/rec/" + id + "?token=" + token;
+        String recordingUrl = meetingWebPageUrls.recordingPageUrl(id, token);
 
         // 更新会议记录
         meeting.setRecordingUrl(recordingUrl);
@@ -54,6 +47,26 @@ public class RecordingController {
                 "meetingId", id,
                 "meetingTitle", meeting.getTitle(),
                 "expiresIn", 4 * 3600  // 4小时
+        ));
+    }
+
+    /**
+     * AI 会议主持页 URL + JWT（type=host，与录音页共用结束会议接口凭证族）
+     */
+    @GetMapping("/{id}/host-url")
+    public ApiResponse<Map<String, Object>> getHostUrl(@PathVariable String id) {
+        Meeting meeting = meetingMapper.selectById(id);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + id);
+        }
+        String token = jwtUtil.generateToken(id, Map.of("meetingId", id, "type", "host"));
+        String hostUrl = meetingWebPageUrls.hostPageUrl(id, token);
+        return ApiResponse.ok(Map.of(
+                "url", hostUrl,
+                "token", token,
+                "meetingId", id,
+                "meetingTitle", meeting.getTitle(),
+                "expiresIn", 4 * 3600
         ));
     }
 }

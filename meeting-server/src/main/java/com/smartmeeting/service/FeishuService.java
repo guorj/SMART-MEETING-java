@@ -26,6 +26,7 @@ public class FeishuService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    private final com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry meetingHostFeishuMuteRegistry;
 
     @Value("${meeting.feishu.app-id:test}")
     private String appId;
@@ -78,6 +79,10 @@ public class FeishuService {
      * 发送文本消息到飞书聊天
      */
     public boolean sendMessage(String chatId, String text) {
+        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
+            log.warn("Feishu send suppressed (AI host in-session): sendMessage chatId={}", chatId);
+            return false;
+        }
         String token = getTenantToken();
         String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
 
@@ -138,6 +143,10 @@ public class FeishuService {
      * 发送富文本卡片消息到飞书聊天
      */
     public boolean sendCardMessage(String chatId, String title, List<Map<String, String>> elements) {
+        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
+            log.warn("Feishu send suppressed (AI host in-session): sendCardMessage chatId={}", chatId);
+            return false;
+        }
         String token = getTenantToken();
         String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
 
@@ -250,6 +259,10 @@ public class FeishuService {
      * @param cardJson 卡片JSON字符串
      */
     public boolean sendInteractiveCard(String chatId, String cardJson) {
+        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
+            log.warn("Feishu send suppressed (AI host in-session): sendInteractiveCard chatId={}", chatId);
+            return false;
+        }
         String token = getTenantToken();
         String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
 

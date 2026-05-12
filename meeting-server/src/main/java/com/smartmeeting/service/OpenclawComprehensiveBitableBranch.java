@@ -72,7 +72,7 @@ public class OpenclawComprehensiveBitableBranch {
         StringBuilder sb = new StringBuilder();
         sb.append("【飞书多维表格-录音页事项进度通报】当前会议命中综合管理会临时策略。\n");
         sb.append("请你通过 **OpenClaw CLI / 会话内可用工具** 读取飞书多维表格 **「").append(displayName.trim()).append("」** 的当前行数据，");
-        sb.append("生成「事项进度通报」：需含概览、分项进度（列表或表格）、风险与需协调事项、下一步建议；语言简洁专业。\n");
+        sb.append("生成「事项进度通报」：需含概览、分项进度（列表或表格）、风险与需协调事项、下一步建议；语言简洁专业。 不含数据源信息，统计时间精确到小时级\n");
         appendUrlHint(sb);
         sb.append("**仅输出 Markdown 正文**，不要使用 JSON 代码块包裹全文；不要输出除通报外的闲聊。\n");
         sb.append("若无法读取该多维表格，正文开头单独一行写：「未读取到飞书多维表格。」其后可简述原因并列出你仍能从会话中推断的要点（若有）。");

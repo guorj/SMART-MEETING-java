@@ -5,6 +5,7 @@ import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.service.host.MeetingHostMediaTeardownService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -22,8 +23,10 @@ public class MeetingRecordingSessionEndService {
     private final MeetingService meetingService;
     private final FeishuService feishuService;
     private final FeishuCardBuilder cardBuilder;
+    private final MeetingHostMediaTeardownService meetingHostMediaTeardownService;
 
     public MeetingResponse endFromRecordingPage(String meetingId) {
+        meetingHostMediaTeardownService.beforeRecordingSessionEnd(meetingId);
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
             throw new BusinessException(404, "会议不存在: " + meetingId);

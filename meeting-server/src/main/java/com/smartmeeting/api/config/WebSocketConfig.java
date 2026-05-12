@@ -10,15 +10,19 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 public class WebSocketConfig implements WebSocketConfigurer {
 
     private final AudioWebSocketHandler audioWebSocketHandler;
+    private final MeetingHostWebSocketHandler meetingHostWebSocketHandler;
 
-    // 构造器注入 Spring 管理的单例（不用 new）
-    public WebSocketConfig(AudioWebSocketHandler audioWebSocketHandler) {
+    public WebSocketConfig(AudioWebSocketHandler audioWebSocketHandler,
+                           MeetingHostWebSocketHandler meetingHostWebSocketHandler) {
         this.audioWebSocketHandler = audioWebSocketHandler;
+        this.meetingHostWebSocketHandler = meetingHostWebSocketHandler;
     }
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(audioWebSocketHandler, "/ws/audio/{meetingId}")
+                .setAllowedOrigins("*");
+        registry.addHandler(meetingHostWebSocketHandler, "/ws/host/{meetingId}")
                 .setAllowedOrigins("*");
     }
 }

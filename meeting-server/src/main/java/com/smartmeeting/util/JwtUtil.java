@@ -2,8 +2,12 @@ package com.smartmeeting.util;
 
 import com.smartmeeting.exception.BusinessException;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.ExpiredJwtException;
+import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
+import io.jsonwebtoken.MalformedJwtException;
 import io.jsonwebtoken.security.Keys;
+import io.jsonwebtoken.security.SignatureException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -109,6 +113,12 @@ public class JwtUtil {
         final Claims c;
         try {
             c = parseToken(token);
+        } catch (ExpiredJwtException e) {
+            throw new BusinessException(401, "录音链接已过期，请从飞书重新开会或在后台重新调取录音链接");
+        } catch (MalformedJwtException | SignatureException e) {
+            throw new BusinessException(401, "录音链接无效（token 损坏或密钥已变更），请重新获取录音链接");
+        } catch (JwtException e) {
+            throw new BusinessException(401, "录音链接校验失败，请从飞书重新打开录音页");
         } catch (Exception e) {
             throw new BusinessException(401, "录音链接已失效，请从飞书重新打开录音页");
         }
@@ -118,8 +128,8 @@ public class JwtUtil {
             throw new BusinessException(403, "令牌与会议不匹配");
         }
         String typ = c.get("type", String.class);
-        if (typ != null && !"recording".equals(typ)) {
-            throw new BusinessException(403, "无效的录音会话令牌");
+        if (typ != null && !"recording".equals(typ) && !"host".equals(typ)) {
+            throw new BusinessException(403, "无效的会议页面令牌类型");
         }
     }
 }

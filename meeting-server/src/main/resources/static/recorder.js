@@ -2,6 +2,14 @@
  * OpenClaw智能会议纪要系统 - 录音控制器 v2
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
+/** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */
+const SM_STATIC_ASSET_V = 'sm-20260512-6';
+
+function smAssetUrl(path) {
+    const sep = path.includes('?') ? '&' : '?';
+    return path + sep + 'v=' + encodeURIComponent(SM_STATIC_ASSET_V);
+}
+
 class MeetingRecorder {
     constructor(meetingId, token, wsUrl) {
         this.meetingId = meetingId;
@@ -63,9 +71,9 @@ class MeetingRecorder {
             if (this.audioContext.audioWorklet) {
                 // 尝试多种路径加载worklet
                 const workletPaths = [
-                    '/static/worklet/pcm-processor.js',
-                    '/worklet/pcm-processor.js',
-                    './worklet/pcm-processor.js',
+                    smAssetUrl('/static/worklet/pcm-processor.js'),
+                    smAssetUrl('/worklet/pcm-processor.js'),
+                    smAssetUrl('./worklet/pcm-processor.js'),
                 ];
                 for (const p of workletPaths) {
                     try {

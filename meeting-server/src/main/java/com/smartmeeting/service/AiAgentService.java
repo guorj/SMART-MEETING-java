@@ -36,7 +36,7 @@ public class AiAgentService {
     @Value("${openclaw.timeout-seconds:60}")
     private int timeoutSeconds;
 
-    @Value("${openclaw.enabled:true}")
+    @Value("${openclaw.enabled:false}")
     private boolean enabled;
 
     @Value("${openclaw.auth-token:}")

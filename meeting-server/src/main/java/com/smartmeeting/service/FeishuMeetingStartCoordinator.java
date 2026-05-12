@@ -9,9 +9,9 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
 import com.smartmeeting.util.JwtUtil;
+import com.smartmeeting.util.MeetingWebPageUrls;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
@@ -30,9 +30,7 @@ public class FeishuMeetingStartCoordinator {
     private final FeishuService feishuService;
     private final JwtUtil jwtUtil;
     private final FeishuCardBuilder cardBuilder;
-
-    @Value("${meeting.base-url:http://localhost:8765}")
-    private String baseUrl;
+    private final MeetingWebPageUrls meetingWebPageUrls;
 
     public MeetingResponse createMeetingStartAndNotifyFeishu(String openId, String chatId, MeetingCreateRequest request) {
         startMeetingPendingStore.clear(openId, chatId);
@@ -61,7 +59,7 @@ public class FeishuMeetingStartCoordinator {
         meetingService.startMeeting(meetingId);
 
         String recordingToken = jwtUtil.generateToken(meetingId, Map.of("type", "recording", "meetingId", meetingId));
-        String recordingUrl = baseUrl + "/rec/" + meetingId + "?token=" + recordingToken;
+        String recordingUrl = meetingWebPageUrls.recordingPageUrl(meetingId, recordingToken);
 
         Meeting entity = meetingMapper.selectById(meetingId);
         entity.setRecordingToken(recordingToken);

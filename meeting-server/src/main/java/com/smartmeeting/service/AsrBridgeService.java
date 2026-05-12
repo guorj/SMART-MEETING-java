@@ -207,13 +207,26 @@ public class AsrBridgeService {
     }
 
     /**
-     * 获取当前 ASR 状态
+     * 结束当前会议的实时 ASR 并强制断开讯飞连接（用于「结束会议」 teardown，避免悬挂连接）。
      */
-    public boolean isAsrActive() {
-        return xfyunClient.isConnected();
+    public void forceDisconnectAsr(String meetingId) {
+        try {
+            endRealtimeAsr(meetingId);
+        } catch (Exception e) {
+            log.warn("endRealtimeAsr: {}", e.getMessage());
+        }
+        try {
+            xfyunClient.disconnect();
+        } catch (Exception e) {
+            log.warn("xfyun disconnect: {}", e.getMessage());
+        }
     }
 
     public String getAsrProvider() {
         return primaryAsr;
+    }
+
+    public boolean isAsrActive() {
+        return xfyunClient.isConnected();
     }
 }

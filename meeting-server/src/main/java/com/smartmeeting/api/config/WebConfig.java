@@ -1,5 +1,6 @@
 package com.smartmeeting.api.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
@@ -7,6 +8,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
+
+    @Value("${meeting.web.static-cache-seconds:300}")
+    private int staticCacheSeconds;
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
@@ -30,10 +34,10 @@ public class WebConfig implements WebMvcConfigurer {
                 .addResourceLocations("classpath:/static/recorder/")
                 .resourceChain(true);
 
-        // 静态资源: /static/**
+        // 静态资源: /static/**（勿对单文件再注册一条 handler，Spring 6 下会解析失败 → 404）
         registry.addResourceHandler("/static/**")
                 .addResourceLocations("classpath:/static/")
-                .setCachePeriod(86400);  // 缓存 24h
+                .setCachePeriod(staticCacheSeconds);
 
         // worklet: /worklet/** (AudioWorklet 脚本)
         registry.addResourceHandler("/worklet/**")

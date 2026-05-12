@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能会议</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #0f1419; color: #e6edf3; min-height: 100vh; padding: 16px; }
+    h1 { font-size: 1.1rem; margin-bottom: 12px; }
+    h2 { font-size: 0.95rem; color: #8b949e; margin-bottom: 10px; font-weight: 600; }
+    .card { background: #161b22; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #30363d; }
+    textarea { width: 100%; min-height: 100px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 8px; padding: 10px; font-size: 13px; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    button { padding: 10px 14px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #238636; color: #fff; }
+    .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
+    .btn-danger { background: #da3633; color: #fff; }
+    .muted { color: #8b949e; font-size: 13px; margin-top: 8px; line-height: 1.5; }
+    #state { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
+    .topic { padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 14px; }
+    .topic.RUNNING { color: #58a6ff; }
+    .topic.COMPLETED { color: #3fb950; text-decoration: line-through; opacity: 0.7; }
+    .topic.SKIPPED { color: #d29922; }
+    .timer { font-size: 1.25rem; font-weight: 700; margin: 6px 0; font-variant-numeric: tabular-nums; }
+    .err { color: #f85149; font-size: 13px; margin-top: 8px; }
+    .status-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
+    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #484f58; }
+    .status-dot.recording { background: #f85149; animation: pulse 1s infinite; }
+    .status-dot.paused { background: #d29922; }
+    .status-dot.stopped { background: #6e7681; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
+    #recWaveform { width: 100%; height: 44px; border-radius: 8px; background: #0d1117; display: block; margin-top: 6px; }
+    .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.45; margin-top: 8px; border: 1px solid #30363d; border-radius: 8px; padding: 8px; background: #0d1117; }
+    .rec-footer-block { margin-top: 14px; padding-top: 14px; border-top: 1px solid #30363d; }
+    .transcript-line { padding: 6px 0; border-bottom: 1px solid #21262d; }
+    .transcript-line.interim { color: #8b949e; }
+    .speaker { font-weight: 600; color: #58a6ff; }
+    .divider { height: 1px; background: #30363d; margin: 14px 0; }
+    .progress-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+    .tts-btn-host { flex-shrink: 0; width: 44px; height: 44px; border: 1px solid #30363d; border-radius: 10px; background: #21262d; color: #58a6ff; font-size: 20px; line-height: 1; cursor: pointer; }
+    .tts-btn-host:hover:not(:disabled) { background: #30363d; }
+    .tts-btn-host:disabled { opacity: 0.45; cursor: not-allowed; }
+    .tts-btn-host.tts-playing { background: #1f6feb; color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+    .md-body-host { font-size: 13px; line-height: 1.55; color: #c9d1d9; word-break: break-word; }
+    .md-body-host h1 { font-size: 1.2rem; margin: 10px 0 6px; color: #e6edf3; font-weight: 700; }
+    .md-body-host h2 { font-size: 1.05rem; margin: 12px 0 6px; color: #e6edf3; font-weight: 600; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
+    .md-body-host h3 { font-size: 1rem; margin: 8px 0 4px; color: #c9d1d9; font-weight: 600; }
+    .md-body-host p { margin: 6px 0; }
+    .md-body-host ul, .md-body-host ol { margin: 6px 0; padding-left: 1.25rem; }
+    .md-body-host li { margin: 3px 0; }
+    .md-body-host code { background: #21262d; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .md-body-host pre { background: #0d1117; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 6px 0; border: 1px solid #30363d; }
+    .md-body-host pre code { background: transparent; padding: 0; }
+    .md-body-host table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
+    .md-body-host th, .md-body-host td { border: 1px solid #30363d; padding: 6px 4px; text-align: left; }
+    .md-body-host th { background: #21262d; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <h1>智能会议</h1>
+  <p class="muted" id="titleLine">加载中…</p>
+
+  <div class="card">
+    <div class="row" style="margin-top:0">
+      <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
+      <button class="btn-secondary" type="button" id="btnPauseMeeting" style="display:none">暂停会议</button>
+      <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
+    </div>
+    <div class="transcript-box" id="transcriptHost">
+      <div class="muted" style="margin-bottom:6px">实时转写</div>
+      <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none">转写将显示在此</p></div>
+    </div>
+    <div class="rec-footer-block">
+      <h2>现场录音与转写</h2>
+      <div class="status-row">
+        <span class="status-dot stopped" id="recStatusDot"></span>
+        <span id="recStatusText">未开始</span>
+      </div>
+      <div class="timer" id="recTimer">00:00:00</div>
+      <canvas id="recWaveform" width="400" height="44"></canvas>
+    </div>
+  </div>
+
+  <div class="card" id="matterProgressCard">
+    <h2>事项进度通报</h2>
+    <p class="muted" id="iosNoticeHost" style="display:none">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
+    <div class="progress-head">
+      <span class="muted">进入页面后自动拉取（需有效 token）</span>
+      <button type="button" class="tts-btn-host" id="progressReportTtsBtn" title="语音播报" disabled>🔊</button>
+    </div>
+    <div class="err" id="progressErr" style="margin-bottom:8px"></div>
+    <div class="transcript-box md-body-host" id="progressReportBody"></div>
+  </div>
+
+  <div class="card">
+    <h2>议程与主持</h2>
+    <div class="muted">议程 JSON（点击「开始会议」前可编辑）</div>
+    <textarea id="agendaJson">{
+  "items": [
+    { "title": "议题一：需求同步", "minutes": 5 },
+    { "title": "议题二：方案讨论", "minutes": 5 }
+  ]
+}</textarea>
+    <div class="row">
+      <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
+      <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
+    </div>
+    <div class="divider"></div>
+    <div class="timer" id="topicTimer">议题剩余 —:—</div>
+    <div class="timer" id="meetTimer">会议剩余 —:—</div>
+    <div id="topics"></div>
+    <div class="row" style="margin-top:14px">
+      <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
+    </div>
+    <p class="muted">「结束会议」：先停止录音并结束主持，再生成纪要。主持进行中会拦截飞书群消息。录音与议程的暂停/继续请使用上方「暂停会议」「继续会议」。</p>
+    <div class="err" id="err"></div>
+  </div>
+
+  <div class="card">
+    <div class="muted">host_state（调试）</div>
+    <div id="state">未连接</div>
+  </div>
+
+  <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
+  <script src="/static/vendor/marked.min.js?v=sm-20260512-6"></script>
+  <script src="/static/vendor/purify.min.js?v=sm-20260512-6"></script>
+  <script src="/static/recorder.js?v=sm-20260512-6"></script>
+  <script>
+    (function () {
+      const params = new URLSearchParams(location.search);
+      const token = params.get('token');
+      const parts = location.pathname.split('/').filter(Boolean);
+      const meetingId = parts[parts.length - 1] || '';
+
+      let recorder = null;
+      let recTimerInterval = null;
+      let recStartTime = null;
+      let waveCtx = null;
+      let analyser = null;
+      let meetingLive = false;
+
+      const authHeader = () => ({ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' });
+
+      function showErr(msg) {
+        document.getElementById('err').textContent = msg || '';
+      }
+
+      function showProgressErr(msg) {
+        var el = document.getElementById('progressErr');
+        if (el) el.textContent = msg || '';
+      }
+
+      function renderProgressMarkdownHost(el, markdown) {
+        var text = markdown == null ? '' : String(markdown);
+        el.className = 'transcript-box md-body-host';
+        el.style.maxHeight = '360px';
+        el.style.overflowY = 'auto';
+        if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
+          try {
+            var rawHtml = marked.parse(text, { breaks: true, gfm: true, mangle: false, headerIds: false });
+            el.innerHTML = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+            return;
+          } catch (err) { console.warn('Markdown render failed', err); }
+        }
+        el.textContent = text;
+      }
+
+      function setProgressReportTtsEnabled(on) {
+        var btn = document.getElementById('progressReportTtsBtn');
+        if (btn) btn.disabled = !on;
+      }
+
+      function stopProgressReportTts() {
+        if (window.speechSynthesis) {
+          try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+        }
+        var btn = document.getElementById('progressReportTtsBtn');
+        if (btn) btn.classList.remove('tts-playing');
+      }
+
+      function pickZhVoice() {
+        var syn = window.speechSynthesis;
+        if (!syn) return null;
+        var voices = syn.getVoices() || [];
+        return voices.find(function (v) { return v.lang && /^zh/i.test(v.lang); })
+            || voices.find(function (v) { return v.lang && /CN|TW|HK/i.test(v.lang); })
+            || null;
+      }
+
+      function toggleProgressReportTts() {
+        var syn = window.speechSynthesis;
+        if (!syn) {
+          showProgressErr('当前浏览器不支持语音播报');
+          return;
+        }
+        if (syn.speaking || syn.pending) {
+          stopProgressReportTts();
+          return;
+        }
+        var body = document.getElementById('progressReportBody');
+        var text = (body && body.innerText ? body.innerText : '').replace(/\s+/g, ' ').trim();
+        if (!text || text.indexOf('智能体正在生成') !== -1) {
+          showProgressErr('暂无播报内容，请等待通报生成完成');
+          return;
+        }
+        showProgressErr('');
+        var u = new SpeechSynthesisUtterance(text);
+        u.lang = 'zh-CN';
+        u.rate = 0.92;
+        var vv = pickZhVoice();
+        if (vv) u.voice = vv;
+        u.onend = function () {
+          var btn = document.getElementById('progressReportTtsBtn');
+          if (btn) btn.classList.remove('tts-playing');
+        };
+        u.onerror = u.onend;
+        var btn = document.getElementById('progressReportTtsBtn');
+        if (btn) btn.classList.add('tts-playing');
+        syn.speak(u);
+      }
+
+      async function loadMatterProgressReport() {
+        if (!token || !meetingId) return;
+        var sec = document.getElementById('matterProgressCard');
+        var body = document.getElementById('progressReportBody');
+        showProgressErr('');
+        body.className = 'transcript-box md-body-host';
+        body.style.maxHeight = '360px';
+        body.style.overflowY = 'auto';
+        body.textContent = '智能体正在生成待办进度通报，请稍候…';
+        setProgressReportTtsEnabled(false);
+        stopProgressReportTts();
+        try {
+          var res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/matter-progress-report', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+          });
+          var j = await res.json();
+          if (j.code !== 0) throw new Error(j.message || '分析失败');
+          var md = (j.data && j.data.analysisMarkdown) ? j.data.analysisMarkdown : '';
+          renderProgressMarkdownHost(body, md);
+          setProgressReportTtsEnabled(!!String(md || '').trim());
+          if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        } catch (e) {
+          body.innerHTML = '';
+          body.textContent = '';
+          setProgressReportTtsEnabled(false);
+          showProgressErr('事项进度通报失败：' + (e.message || e));
+        }
+      }
+
+      function detectIOS() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent)
+            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      }
+
+      function fmtMs(ms) {
+        ms = Math.max(0, ms | 0);
+        const s = Math.floor(ms / 1000);
+        const m = Math.floor(s / 60);
+        const h = Math.floor(m / 60);
+        const pad = (n) => (n < 10 ? '0' : '') + n;
+        return pad(h) + ':' + pad(m % 60) + ':' + pad(s % 60);
+      }
+
+      function renderHostState(obj) {
+        document.getElementById('state').textContent = JSON.stringify(obj, null, 2);
+        if (!obj || !obj.active) {
+          document.getElementById('topicTimer').textContent = '议题剩余 —:—';
+          document.getElementById('meetTimer').textContent = '会议剩余 —:—';
+          document.getElementById('topics').innerHTML = '';
+          return;
+        }
+        document.getElementById('topicTimer').textContent = '议题剩余 ' + fmtMs(obj.topicLeftMs);
+        document.getElementById('meetTimer').textContent = '会议剩余 ' + fmtMs(obj.meetingLeftMs);
+        const topics = obj.topics || [];
+        document.getElementById('topics').innerHTML = topics.map(function (t, i) {
+          const cur = i === obj.currentTopicIndex ? ' ▶' : '';
+          return '<div class="topic ' + t.status + '">' + (i + 1) + '. ' + t.title + '（' + t.minutes + ' 分钟）' + cur + '</div>';
+        }).join('');
+      }
+
+      function updateRecStatusUI(status) {
+        const dot = document.getElementById('recStatusDot');
+        const text = document.getElementById('recStatusText');
+        const map = {
+          recording: { cls: 'recording', label: '录音中' },
+          paused: { cls: 'paused', label: '会议已暂停' },
+          reconnecting: { cls: 'recording', label: '重连中…' },
+          stopped: { cls: 'stopped', label: '已停止' },
+          idle: { cls: 'stopped', label: '未开始' },
+          error: { cls: 'stopped', label: '异常' }
+        };
+        const x = map[status] || { cls: 'stopped', label: status || '' };
+        dot.className = 'status-dot ' + x.cls;
+        text.textContent = x.label;
+      }
+
+      function updateRecTimer() {
+        if (!recStartTime) return;
+        const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
+        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+        const s = String(elapsed % 60).padStart(2, '0');
+        document.getElementById('recTimer').textContent = h + ':' + m + ':' + s;
+      }
+
+      function addTranscriptLine(result) {
+        if (result.type && result.type !== 'transcript') return;
+        const list = document.getElementById('transcriptListHost');
+        const ph = list.querySelector('.placeholder-muted');
+        if (ph) ph.remove();
+        const speaker = result.speaker || result.speaker_id || '未知';
+        const text = result.text || '';
+        if (!String(text).trim()) return;
+        const line = document.createElement('div');
+        const isFinal = result.isFinal === true || result.is_final === true;
+        line.className = 'transcript-line' + (isFinal ? '' : ' interim');
+        const head = document.createElement('div');
+        const sp = document.createElement('span');
+        sp.className = 'speaker';
+        sp.textContent = speaker;
+        const tm = document.createElement('span');
+        tm.style.color = '#8b949e';
+        tm.textContent = ' (' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) + ')';
+        head.appendChild(sp);
+        head.appendChild(tm);
+        const body = document.createElement('div');
+        body.textContent = text;
+        line.appendChild(head);
+        line.appendChild(body);
+        list.appendChild(line);
+        list.scrollTop = list.scrollHeight;
+      }
+
+      function drawWaveform() {
+        if (!analyser || !waveCtx) return;
+        requestAnimationFrame(drawWaveform);
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyser.getByteTimeDomainData(dataArray);
+        const canvas = document.getElementById('recWaveform');
+        const W = canvas.width, H = canvas.height;
+        waveCtx.fillStyle = '#0d1117';
+        waveCtx.fillRect(0, 0, W, H);
+        waveCtx.lineWidth = 2;
+        waveCtx.strokeStyle = '#3fb950';
+        waveCtx.beginPath();
+        const sliceWidth = W / bufferLength;
+        let x = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          const v = dataArray[i] / 128.0;
+          const y = (v * H) / 2;
+          if (i === 0) waveCtx.moveTo(x, y);
+          else waveCtx.lineTo(x, y);
+          x += sliceWidth;
+        }
+        waveCtx.lineTo(W, H / 2);
+        waveCtx.stroke();
+      }
+
+      if (!token || !meetingId) {
+        showErr('缺少 token 或会议 ID');
+        return;
+      }
+      document.getElementById('titleLine').textContent = '会议 ID: ' + meetingId.substring(0, 12) + '…';
+      waveCtx = document.getElementById('recWaveform').getContext('2d');
+
+      if (detectIOS()) {
+        document.getElementById('iosNoticeHost').style.display = 'block';
+        document.addEventListener('visibilitychange', function () {
+          if (document.hidden && recorder && recorder.isRecording) {
+            showErr('录音中，请保持屏幕常亮');
+          }
+        });
+      }
+      document.getElementById('progressReportTtsBtn').onclick = toggleProgressReportTts;
+      if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = function () { pickZhVoice(); };
+      }
+      loadMatterProgressReport();
+
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = proto + '//' + location.host + '/ws/host/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token);
+      let sock = null;
+      function connectHostWs() {
+        sock = new WebSocket(wsHost);
+        sock.onmessage = function (ev) {
+          try {
+            const o = JSON.parse(ev.data);
+            if (o.type === 'host_state') renderHostState(o);
+          } catch (e) { console.warn(e); }
+        };
+        sock.onclose = function () { setTimeout(connectHostWs, 2000); };
+      }
+      connectHostWs();
+
+      async function hostApi(path, opts) {
+        const res = await fetch('/api/v1/host/meetings/' + encodeURIComponent(meetingId) + path, Object.assign({
+          headers: authHeader()
+        }, opts || {}));
+        const j = await res.json().catch(function () { return {}; });
+        if (!res.ok || j.code !== 0) throw new Error(j.message || res.statusText || '请求失败');
+        return j.data;
+      }
+
+      function setMeetingPausedUI(paused) {
+        var pBtn = document.getElementById('btnPauseMeeting');
+        var rBtn = document.getElementById('btnResumeMeeting');
+        if (!meetingLive) {
+          if (pBtn) pBtn.style.display = 'none';
+          if (rBtn) rBtn.style.display = 'none';
+          return;
+        }
+        if (pBtn) pBtn.style.display = paused ? 'none' : 'inline-block';
+        if (rBtn) rBtn.style.display = paused ? 'inline-block' : 'none';
+      }
+
+      document.getElementById('btnStartMeeting').onclick = async function () {
+        showErr('');
+        const btn = document.getElementById('btnStartMeeting');
+        btn.disabled = true;
+        btn.textContent = '连接中…';
+        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = wsProtocol + '//' + location.host + '/ws/audio/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token);
+        recorder = new MeetingRecorder(meetingId, token, wsUrl);
+        recorder.onStatusChange = function (s) { updateRecStatusUI(s); };
+        recorder.onTranscript = function (r) { addTranscriptLine(r); };
+        recorder.onError = function (msg) { showErr(msg); updateRecStatusUI('error'); };
+        recorder.onWarning = function (m) { console.warn(m); };
+        recorder.onAnalyser = function (node) { analyser = node; drawWaveform(); };
+        var agendaBody = null;
+        try {
+          const raw = document.getElementById('agendaJson').value.trim();
+          agendaBody = raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          showErr('议程 JSON 格式无效：' + (e.message || e));
+          btn.disabled = false;
+          btn.textContent = '开始会议';
+          recorder = null;
+          return;
+        }
+        try {
+          await recorder.start();
+          if (!recorder.isRecording) {
+            throw new Error('录音未能启动（请检查麦克风权限）');
+          }
+          recStartTime = Date.now();
+          recTimerInterval = setInterval(updateRecTimer, 1000);
+          renderHostState(await hostApi('/start', { method: 'POST', body: JSON.stringify(agendaBody) }));
+          meetingLive = true;
+          setMeetingPausedUI(false);
+          btn.textContent = '会议进行中';
+        } catch (e) {
+          showErr('会议启动失败：' + (e.message || e));
+          if (recorder) {
+            try { recorder.stop(); } catch (err) { console.warn(err); }
+            recorder = null;
+          }
+          analyser = null;
+          if (recTimerInterval) {
+            clearInterval(recTimerInterval);
+            recTimerInterval = null;
+          }
+          recStartTime = null;
+          meetingLive = false;
+          document.getElementById('recTimer').textContent = '00:00:00';
+          updateRecStatusUI('idle');
+          btn.disabled = false;
+          btn.textContent = '开始会议';
+          setMeetingPausedUI(false);
+        }
+      };
+
+      document.getElementById('btnPauseMeeting').onclick = async function () {
+        if (!meetingLive) return;
+        showErr('');
+        try {
+          if (recorder) recorder.pause();
+          renderHostState(await hostApi('/pause', { method: 'POST' }));
+          setMeetingPausedUI(true);
+        } catch (e) {
+          showErr(e.message || String(e));
+          try {
+            if (recorder) recorder.resume();
+          } catch (err) { console.warn(err); }
+        }
+      };
+      document.getElementById('btnResumeMeeting').onclick = async function () {
+        if (!meetingLive) return;
+        showErr('');
+        try {
+          if (recorder) recorder.resume();
+          renderHostState(await hostApi('/resume', { method: 'POST' }));
+          setMeetingPausedUI(false);
+        } catch (e) {
+          showErr(e.message || String(e));
+        }
+      };
+      document.getElementById('btnNext').onclick = async function () {
+        showErr('');
+        try { renderHostState(await hostApi('/next-topic', { method: 'POST' })); } catch (e) { showErr(e.message); }
+      };
+      document.getElementById('btnSkip').onclick = async function () {
+        showErr('');
+        try { renderHostState(await hostApi('/skip-topic', { method: 'POST' })); } catch (e) { showErr(e.message); }
+      };
+
+      document.getElementById('btnEnd').onclick = async function () {
+        if (!confirm('确定结束会议并生成纪要？')) return;
+        showErr('');
+        const endBtn = document.getElementById('btnEnd');
+        endBtn.disabled = true;
+        try {
+          if (recorder && recorder.ws && recorder.ws.readyState === WebSocket.OPEN) {
+            try { recorder.ws.send(JSON.stringify({ type: 'stop' })); } catch (e) { console.warn(e); }
+            await new Promise(function (r) { setTimeout(r, 600); });
+          }
+          if (recorder) {
+            try { recorder.stop(); } catch (e) { console.warn(e); }
+            recorder = null;
+          }
+          if (recTimerInterval) {
+            clearInterval(recTimerInterval);
+            recTimerInterval = null;
+          }
+          const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end', {
+            method: 'POST',
+            headers: { 'Authorization': 'Bearer ' + token }
+          });
+          const j = await res.json();
+          if (!res.ok || j.code !== 0) throw new Error(j.message || '结束失败');
+          meetingLive = false;
+          updateRecStatusUI('stopped');
+          document.getElementById('btnStartMeeting').disabled = true;
+          document.getElementById('btnPauseMeeting').style.display = 'none';
+          document.getElementById('btnResumeMeeting').style.display = 'none';
+          alert('会议已结束：' + (j.data && j.data.status ? j.data.status : 'ok'));
+        } catch (e) {
+          showErr(e.message || String(e));
+          endBtn.disabled = false;
+        }
+      };
+    })();
+  </script>
+</body>
+</html>

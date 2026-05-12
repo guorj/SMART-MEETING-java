@@ -66,6 +66,12 @@ meeting:
 
   base-url: ${BASE_URL:http://localhost:8765}
 
+  web:
+    # 浏览器缓存 /static/**（秒）；前端发布后若仍见旧壳可调小或提高 page-cache-buster
+    static-cache-seconds: ${MEETING_STATIC_CACHE_SECONDS:300}
+    # 非空时拼在 /rec、/host 的 URL 上 &v=...，改环境变量或此处后重新「取录音链接」或飞书重新开会以更新库
+    page-cache-buster: ${MEETING_PAGE_CACHE_BUSTER:}
+
   audio:
     sample-rate: 16000
     bit-depth: 16
@@ -102,6 +108,20 @@ meeting:
         backoff-ms: 1000
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
+
+  # 讯飞在线语音合成（主持 TTS），鉴权复用 meeting.asr.xfyun 的 app-id / api-key / api-secret
+  tts:
+    ws-url: ${XFYUN_TTS_WS_URL:wss://tts-api.xfyun.cn/v2/tts}
+    vcn: ${XFYUN_TTS_VCN:xiaoyan}
+    connect-timeout-sec: 15
+    read-timeout-sec: 60
+
+  # AI 会议主持人（Web 主持页 + 会中零飞书）
+  host:
+    enabled: ${MEETING_HOST_ENABLED:true}
+    reminder:
+      topic-minutes-left: 3
+      meeting-minutes-left: "10,5"
 
   isv:
     enabled: ${ISV_ENABLED:false}
@@ -166,7 +186,7 @@ openclaw:
   # --- 临时：综合管理会会前，指示 OpenClaw CLI 读取飞书多维表格后再输出 JSON 通报（默认关，线上设 OPENCLAW_COMP_BITABLE_PROGRESS=true）---
   comprehensive-bitable-progress-enabled: ${OPENCLAW_COMP_BITABLE_PROGRESS:true}
   comprehensive-bitable-preset-codes: ${OPENCLAW_COMP_BITABLE_PRESETS:1}
-  comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单 测试}
+  comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单}
   comprehensive-bitable-url: ${OPENCLAW_COMP_BITABLE_URL:}
 
 logging:
