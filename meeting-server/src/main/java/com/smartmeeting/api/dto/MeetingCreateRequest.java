@@ -1,5 +1,6 @@
 package com.smartmeeting.api.dto;
 
+import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import jakarta.validation.constraints.AssertTrue;
 import lombok.Data;
 
@@ -11,6 +12,8 @@ public class MeetingCreateRequest {
     /** 会议主题；使用 presetTypeCode 1-5 时可由服务端覆盖 */
     private String title;
     private List<String> agenda;
+    /** AI 主持议题；写入 int_meeting.host_agenda（与会务 agenda 分离） */
+    private List<HostAgendaItemDto> hostAgendaItems;
     /** 所属集团；预设 1-5 时由服务端覆盖 */
     private String company;
     private String department;

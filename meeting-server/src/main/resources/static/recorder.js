@@ -3,7 +3,7 @@
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
 /** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */
-const SM_STATIC_ASSET_V = 'sm-20260512-6';
+const SM_STATIC_ASSET_V = 'sm-20260512-7';
 
 function smAssetUrl(path) {
     const sep = path.includes('?') ? '&' : '?';

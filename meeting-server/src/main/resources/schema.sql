@@ -1,8 +1,8 @@
 -- ============================================================
 -- 智能会议纪要系统 - 数据库 DDL
--- 版本: v0.1
--- 日期: 2026-05-08
--- 说明: 全库 DDL 唯一维护处；供 Spring classpath 与 docker-compose MySQL 初始化挂载（勿再复制到 sql/）
+-- 版本: v0.3
+-- 日期: 2026-05-12
+-- 说明: 全库 DDL；固定会务 1-5 的会务信息与主持议题模板均在 int_meeting_type_preset，业务会议仅 preset_type_code 关联，无需额外 FK
 -- ============================================================
 
 -- CREATE DATABASE IF NOT EXISTS smart_meeting
@@ -13,7 +13,8 @@
 CREATE TABLE IF NOT EXISTS int_meeting (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '会议UUID',
     title           VARCHAR(200) NOT NULL COMMENT '会议主题',
-    agenda          JSON         NULL     COMMENT '议题列表 JSON',
+    agenda          JSON         NULL     COMMENT '会务议程：JSON 字符串数组，如 ["召开时间：…","会议内容：…"]',
+    host_agenda     JSON         NULL     COMMENT 'AI主持专用：{"items":[{"title","minutes"}]}，与会务 agenda 分离',
     company         VARCHAR(200) NOT NULL COMMENT '所属集团',
     department      VARCHAR(200) NULL     COMMENT '集团部门',
     group_name      VARCHAR(200) NOT NULL COMMENT '会议组',
@@ -51,15 +52,31 @@ CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
     agenda_summary      VARCHAR(1000) NULL    COMMENT '会议内容',
     organizer_name      VARCHAR(100) NULL     COMMENT '组织人',
     leader_name         VARCHAR(100) NULL     COMMENT '会议主导',
-    participants_names  TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔'
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设（吉青汽车科技集团会议计划表）';
+    participants_names  TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔',
+    host_agenda         JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes"},...]}，与 code 对应'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设（会议基本信息 + 主持模板）';
 
-INSERT INTO int_meeting_type_preset (code, display_name, company, department, group_name, schedule_note, agenda_summary, organizer_name, leader_name, participants_names) VALUES
-(1, '综合管理会（周会）', '吉青汽车科技集团', NULL, '会议计划表', '每周一 9:30', '集团综合职能事务汇报', '管小慧', '单承标', '单承标,田树清,郭运娇,付靖怡,管小慧,陈婉韵,李海天'),
-(2, '技术委员会（周会）', '吉青汽车科技集团', NULL, '会议计划表', '周一上午 10:15', '专项技术方案、项目立项可行性等技术开发相关议题', '郭儒杰', '李金雷', '单承标,田树清,李金雷,何浩,褚玥,董秀红,及指定相关人员'),
-(3, '市场经营会（月会）', '吉青汽车科技集团', NULL, '会议计划表', '每月 18 日前', '各中心月度营收情况、市场信息汇报', '郭运娇', '田树清', '单承标,田树清,郭运娇,付靖怡,管小慧,各中心负责人'),
-(4, '财务月会', '吉青汽车科技集团', NULL, '会议计划表', '每月 28 日前', '集团月度财务情况汇报', '付靖怡', '单承标', '单承标,郭运娇,付靖怡,管小慧'),
-(5, '经营委员会（半年会）', '吉青汽车科技集团', NULL, '会议计划表', '每年两次', '集团经营分析、规划审定、风险管控、协同决策', '管小慧', '单承标', '单承标,田树清,何浩,褚玥,李金雷,郭运娇,付靖怡,指定人员')
+SET @exist_ha := (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'int_meeting_type_preset'
+      AND column_name = 'host_agenda'
+);
+SET @sql_ha := IF(
+    @exist_ha = 0,
+    'ALTER TABLE int_meeting_type_preset ADD COLUMN host_agenda JSON NULL COMMENT ''AI主持议题模板'' AFTER participants_names',
+    'SELECT 1'
+);
+PREPARE stmt_ha FROM @sql_ha;
+EXECUTE stmt_ha;
+DEALLOCATE PREPARE stmt_ha;
+
+INSERT INTO int_meeting_type_preset (code, display_name, company, department, group_name, schedule_note, agenda_summary, organizer_name, leader_name, participants_names, host_agenda) VALUES
+(1, '综合管理会（周会）', '吉青汽车科技集团', NULL, '会议计划表', '每周一 9:30', '集团综合职能事务汇报', '管小慧', '单承标', '单承标,田树清,郭运娇,付靖怡,管小慧,陈婉韵,李海天', CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)),
+(2, '技术委员会（周会）', '吉青汽车科技集团', NULL, '会议计划表', '周一上午 10:15', '专项技术方案、项目立项可行性等技术开发相关议题', '郭儒杰', '李金雷', '单承标,田树清,李金雷,何浩,褚玥,董秀红,及指定相关人员', CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)),
+(3, '市场经营会（月会）', '吉青汽车科技集团', NULL, '会议计划表', '每月 18 日前', '各中心月度营收情况、市场信息汇报', '郭运娇', '田树清', '单承标,田树清,郭运娇,付靖怡,管小慧,各中心负责人', CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)),
+(4, '财务月会', '吉青汽车科技集团', NULL, '会议计划表', '每月 28 日前', '集团月度财务情况汇报', '付靖怡', '单承标', '单承标,郭运娇,付靖怡,管小慧', CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)),
+(5, '经营委员会（半年会）', '吉青汽车科技集团', NULL, '会议计划表', '每年两次', '集团经营分析、规划审定、风险管控、协同决策', '管小慧', '单承标', '单承标,田树清,何浩,褚玥,李金雷,郭运娇,付靖怡,指定人员', CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON))
 ON DUPLICATE KEY UPDATE
     display_name = VALUES(display_name),
     company = VALUES(company),
@@ -69,7 +86,36 @@ ON DUPLICATE KEY UPDATE
     agenda_summary = VALUES(agenda_summary),
     organizer_name = VALUES(organizer_name),
     leader_name = VALUES(leader_name),
-    participants_names = VALUES(participants_names);
+    participants_names = VALUES(participants_names),
+    host_agenda = VALUES(host_agenda);
+
+SET @exist_tid := (
+    SELECT COUNT(*) FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = 'int_meeting_type_preset'
+      AND column_name = 'host_agenda_template_meeting_id'
+);
+SET @sql_mig := IF(
+    @exist_tid > 0,
+    'UPDATE int_meeting_type_preset p INNER JOIN int_meeting m ON m.id = p.host_agenda_template_meeting_id SET p.host_agenda = m.host_agenda WHERE p.code IN (1,2,3,4,5) AND p.host_agenda IS NULL AND m.host_agenda IS NOT NULL',
+    'SELECT 1'
+);
+PREPARE stmt_mig FROM @sql_mig;
+EXECUTE stmt_mig;
+DEALLOCATE PREPARE stmt_mig;
+
+UPDATE int_meeting_type_preset
+SET host_agenda = CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)
+WHERE code IN (1, 2, 3, 4, 5) AND host_agenda IS NULL;
+
+SET @sql_drop_tid := IF(
+    @exist_tid > 0,
+    'ALTER TABLE int_meeting_type_preset DROP COLUMN host_agenda_template_meeting_id',
+    'SELECT 1'
+);
+PREPARE stmt_drop_tid FROM @sql_drop_tid;
+EXECUTE stmt_drop_tid;
+DEALLOCATE PREPARE stmt_drop_tid;
 
 CREATE TABLE IF NOT EXISTS int_meeting_participant (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '记录UUID',

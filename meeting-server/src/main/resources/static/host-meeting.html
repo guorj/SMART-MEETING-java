@@ -10,29 +10,29 @@
     h1 { font-size: 1.1rem; margin-bottom: 12px; }
     h2 { font-size: 0.95rem; color: #8b949e; margin-bottom: 10px; font-weight: 600; }
     .card { background: #161b22; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #30363d; }
-    textarea { width: 100%; min-height: 100px; background: #0d1117; color: #c9d1d9; border: 1px solid #30363d; border-radius: 8px; padding: 10px; font-size: 13px; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
     button { padding: 10px 14px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
     .btn-primary { background: #238636; color: #fff; }
     .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
     .btn-danger { background: #da3633; color: #fff; }
     .muted { color: #8b949e; font-size: 13px; margin-top: 8px; line-height: 1.5; }
-    #state { font-family: ui-monospace, monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; max-height: 160px; overflow: auto; }
-    .topic { padding: 6px 0; border-bottom: 1px solid #21262d; font-size: 14px; }
-    .topic.RUNNING { color: #58a6ff; }
-    .topic.COMPLETED { color: #3fb950; text-decoration: line-through; opacity: 0.7; }
-    .topic.SKIPPED { color: #d29922; }
     .timer { font-size: 1.25rem; font-weight: 700; margin: 6px 0; font-variant-numeric: tabular-nums; }
     .err { color: #f85149; font-size: 13px; margin-top: 8px; }
-    .status-row { display: flex; align-items: center; gap: 8px; margin: 8px 0; }
-    .status-dot { width: 10px; height: 10px; border-radius: 50%; background: #484f58; }
-    .status-dot.recording { background: #f85149; animation: pulse 1s infinite; }
-    .status-dot.paused { background: #d29922; }
-    .status-dot.stopped { background: #6e7681; }
     @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
-    #recWaveform { width: 100%; height: 44px; border-radius: 8px; background: #0d1117; display: block; margin-top: 6px; }
     .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.45; margin-top: 8px; border: 1px solid #30363d; border-radius: 8px; padding: 8px; background: #0d1117; }
-    .rec-footer-block { margin-top: 14px; padding-top: 14px; border-top: 1px solid #30363d; }
+    .transcript-host-live { margin-top: 8px; border: 1px solid #30363d; border-radius: 8px; padding: 8px; background: #0d1117; font-size: 13px; line-height: 1.45; }
+    .transcript-host-viewport { height: calc(13px * 1.45 * 3); overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
+    .transcript-host-viewport .transcript-line { padding: 2px 0 4px; border-bottom: 1px solid #21262d; }
+    .row-primary { align-items: center; }
+    .row-primary .btn-danger { margin-left: auto; }
+    @media (max-width: 520px) {
+      .row-primary .btn-danger { margin-left: 0; width: 100%; }
+    }
+    .timer-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid #30363d; }
+    .timer-block .timer { margin: 4px 0; }
+    .section-live { margin-top: 14px; padding-top: 14px; border-top: 1px solid #30363d; }
+    .section-live h2 { margin-bottom: 6px; }
+    #matterProgressCard #progressReportBody { min-height: 200px; }
     .transcript-line { padding: 6px 0; border-bottom: 1px solid #21262d; }
     .transcript-line.interim { color: #8b949e; }
     .speaker { font-weight: 600; color: #58a6ff; }
@@ -60,31 +60,39 @@
 <body>
   <h1>智能会议</h1>
   <p class="muted" id="titleLine">加载中…</p>
+  <div class="err" id="err" style="margin-bottom:10px"></div>
 
-  <div class="card">
-    <div class="row" style="margin-top:0">
+  <div class="card" id="mainMeetingCard">
+    <p class="muted" id="iosNoticeHost" style="display:none;margin-top:0">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
+
+    <div class="row row-primary" style="margin-top:0">
       <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
-      <button class="btn-secondary" type="button" id="btnPauseMeeting" style="display:none">暂停会议</button>
+      <button class="btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
       <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
+      <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
     </div>
-    <div class="transcript-box" id="transcriptHost">
-      <div class="muted" style="margin-bottom:6px">实时转写</div>
-      <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none">转写将显示在此</p></div>
+    <div class="row">
+      <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
+      <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
     </div>
-    <div class="rec-footer-block">
+
+    <div class="timer-block">
+      <div class="timer" id="topicTimer">议题剩余 —:—</div>
+      <div class="timer" id="meetTimer">会议剩余 —:—</div>
+    </div>
+    <div class="section-live">
       <h2>现场录音与转写</h2>
-      <div class="status-row">
-        <span class="status-dot stopped" id="recStatusDot"></span>
-        <span id="recStatusText">未开始</span>
+      <div class="transcript-host-live" id="transcriptHost">
+        <div class="muted" style="margin-bottom:6px;font-size:12px">实时转写</div>
+        <div class="transcript-host-viewport" id="transcriptViewport">
+          <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">转写将显示在此</p></div>
+        </div>
       </div>
-      <div class="timer" id="recTimer">00:00:00</div>
-      <canvas id="recWaveform" width="400" height="44"></canvas>
     </div>
   </div>
 
   <div class="card" id="matterProgressCard">
     <h2>事项进度通报</h2>
-    <p class="muted" id="iosNoticeHost" style="display:none">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
     <div class="progress-head">
       <span class="muted">进入页面后自动拉取（需有效 token）</span>
       <button type="button" class="tts-btn-host" id="progressReportTtsBtn" title="语音播报" disabled>🔊</button>
@@ -93,39 +101,10 @@
     <div class="transcript-box md-body-host" id="progressReportBody"></div>
   </div>
 
-  <div class="card">
-    <h2>议程与主持</h2>
-    <div class="muted">议程 JSON（点击「开始会议」前可编辑）</div>
-    <textarea id="agendaJson">{
-  "items": [
-    { "title": "议题一：需求同步", "minutes": 5 },
-    { "title": "议题二：方案讨论", "minutes": 5 }
-  ]
-}</textarea>
-    <div class="row">
-      <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
-      <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
-    </div>
-    <div class="divider"></div>
-    <div class="timer" id="topicTimer">议题剩余 —:—</div>
-    <div class="timer" id="meetTimer">会议剩余 —:—</div>
-    <div id="topics"></div>
-    <div class="row" style="margin-top:14px">
-      <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
-    </div>
-    <p class="muted">「结束会议」：先停止录音并结束主持，再生成纪要。主持进行中会拦截飞书群消息。录音与议程的暂停/继续请使用上方「暂停会议」「继续会议」。</p>
-    <div class="err" id="err"></div>
-  </div>
-
-  <div class="card">
-    <div class="muted">host_state（调试）</div>
-    <div id="state">未连接</div>
-  </div>
-
   <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
-  <script src="/static/vendor/marked.min.js?v=sm-20260512-6"></script>
-  <script src="/static/vendor/purify.min.js?v=sm-20260512-6"></script>
-  <script src="/static/recorder.js?v=sm-20260512-6"></script>
+  <script src="/static/vendor/marked.min.js?v=sm-20260512-7"></script>
+  <script src="/static/vendor/purify.min.js?v=sm-20260512-7"></script>
+  <script src="/static/recorder.js?v=sm-20260512-7"></script>
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
@@ -134,11 +113,9 @@
       const meetingId = parts[parts.length - 1] || '';
 
       let recorder = null;
-      let recTimerInterval = null;
-      let recStartTime = null;
-      let waveCtx = null;
-      let analyser = null;
       let meetingLive = false;
+      /** 从会议/预设解析的议程，仅用于开始会议 POST body，不在页面上展示 */
+      let plannedTopicsCache = [];
 
       const authHeader = () => ({ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' });
 
@@ -222,7 +199,6 @@
 
       async function loadMatterProgressReport() {
         if (!token || !meetingId) return;
-        var sec = document.getElementById('matterProgressCard');
         var body = document.getElementById('progressReportBody');
         showProgressErr('');
         body.className = 'transcript-box md-body-host';
@@ -241,7 +217,6 @@
           var md = (j.data && j.data.analysisMarkdown) ? j.data.analysisMarkdown : '';
           renderProgressMarkdownHost(body, md);
           setProgressReportTtsEnabled(!!String(md || '').trim());
-          if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         } catch (e) {
           body.innerHTML = '';
           body.textContent = '';
@@ -255,6 +230,25 @@
             || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
       }
 
+      function parseHostAgendaItemsFromApi(raw) {
+        if (raw == null) return null;
+        if (typeof raw === 'object') {
+          if (Array.isArray(raw)) return raw;
+          if (raw.items && Array.isArray(raw.items)) return raw.items;
+          return null;
+        }
+        if (typeof raw === 'string') {
+          var s = raw.trim();
+          if (!s) return null;
+          try {
+            var o = JSON.parse(s);
+            if (Array.isArray(o)) return o;
+            if (o && Array.isArray(o.items)) return o.items;
+          } catch (e) { console.warn('parseHostAgendaItemsFromApi', e); }
+        }
+        return null;
+      }
+
       function fmtMs(ms) {
         ms = Math.max(0, ms | 0);
         const s = Math.floor(ms / 1000);
@@ -265,45 +259,18 @@
       }
 
       function renderHostState(obj) {
-        document.getElementById('state').textContent = JSON.stringify(obj, null, 2);
-        if (!obj || !obj.active) {
+        var active = obj && (obj.active === true || obj.active === 'true');
+        if (!active) {
           document.getElementById('topicTimer').textContent = '议题剩余 —:—';
           document.getElementById('meetTimer').textContent = '会议剩余 —:—';
-          document.getElementById('topics').innerHTML = '';
           return;
         }
         document.getElementById('topicTimer').textContent = '议题剩余 ' + fmtMs(obj.topicLeftMs);
         document.getElementById('meetTimer').textContent = '会议剩余 ' + fmtMs(obj.meetingLeftMs);
         const topics = obj.topics || [];
-        document.getElementById('topics').innerHTML = topics.map(function (t, i) {
-          const cur = i === obj.currentTopicIndex ? ' ▶' : '';
-          return '<div class="topic ' + t.status + '">' + (i + 1) + '. ' + t.title + '（' + t.minutes + ' 分钟）' + cur + '</div>';
-        }).join('');
-      }
-
-      function updateRecStatusUI(status) {
-        const dot = document.getElementById('recStatusDot');
-        const text = document.getElementById('recStatusText');
-        const map = {
-          recording: { cls: 'recording', label: '录音中' },
-          paused: { cls: 'paused', label: '会议已暂停' },
-          reconnecting: { cls: 'recording', label: '重连中…' },
-          stopped: { cls: 'stopped', label: '已停止' },
-          idle: { cls: 'stopped', label: '未开始' },
-          error: { cls: 'stopped', label: '异常' }
-        };
-        const x = map[status] || { cls: 'stopped', label: status || '' };
-        dot.className = 'status-dot ' + x.cls;
-        text.textContent = x.label;
-      }
-
-      function updateRecTimer() {
-        if (!recStartTime) return;
-        const elapsed = Math.floor((Date.now() - recStartTime) / 1000);
-        const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-        const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-        const s = String(elapsed % 60).padStart(2, '0');
-        document.getElementById('recTimer').textContent = h + ':' + m + ':' + s;
+        plannedTopicsCache = topics.map(function (t) {
+          return { title: t.title, minutes: t.minutes != null ? t.minutes : 10 };
+        });
       }
 
       function addTranscriptLine(result) {
@@ -331,41 +298,78 @@
         line.appendChild(head);
         line.appendChild(body);
         list.appendChild(line);
-        list.scrollTop = list.scrollHeight;
+        var viewport = document.getElementById('transcriptViewport');
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
       }
 
-      function drawWaveform() {
-        if (!analyser || !waveCtx) return;
-        requestAnimationFrame(drawWaveform);
-        const bufferLength = analyser.frequencyBinCount;
-        const dataArray = new Uint8Array(bufferLength);
-        analyser.getByteTimeDomainData(dataArray);
-        const canvas = document.getElementById('recWaveform');
-        const W = canvas.width, H = canvas.height;
-        waveCtx.fillStyle = '#0d1117';
-        waveCtx.fillRect(0, 0, W, H);
-        waveCtx.lineWidth = 2;
-        waveCtx.strokeStyle = '#3fb950';
-        waveCtx.beginPath();
-        const sliceWidth = W / bufferLength;
-        let x = 0;
-        for (let i = 0; i < bufferLength; i++) {
-          const v = dataArray[i] / 128.0;
-          const y = (v * H) / 2;
-          if (i === 0) waveCtx.moveTo(x, y);
-          else waveCtx.lineTo(x, y);
-          x += sliceWidth;
+      async function prefillHostAgendaFromServer() {
+        if (!meetingId) return;
+        try {
+          var res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId), {
+            headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+          });
+          var j = await res.json();
+          if (j.code !== 0 || !j.data) return;
+          var d = j.data;
+          if (d.title) {
+            document.getElementById('titleLine').textContent = d.title;
+          }
+          var items = null;
+          if (d.hostAgendaItems && d.hostAgendaItems.length) {
+            items = d.hostAgendaItems.map(function (it) {
+              return { title: it.title, minutes: it.minutes != null ? it.minutes : 10 };
+            });
+          } else if (d.presetTypeCode >= 1 && d.presetTypeCode <= 5) {
+            var pr = await fetch('/api/v1/meeting-type-presets');
+            var pj = await pr.json();
+            if (pj.code === 0 && pj.data) {
+              var preset = pj.data.find(function (x) { return x.code === d.presetTypeCode; });
+              if (preset) {
+                var arr = parseHostAgendaItemsFromApi(preset.hostAgenda);
+                if (arr && arr.length) {
+                  items = arr.map(function (it) {
+                    return { title: it.title, minutes: it.minutes != null ? it.minutes : 10 };
+                  });
+                }
+              }
+            }
+          }
+          plannedTopicsCache = items && items.length ? items : [];
+        } catch (e) {
+          console.warn('prefillHostAgendaFromServer', e);
         }
-        waveCtx.lineTo(W, H / 2);
-        waveCtx.stroke();
+      }
+
+      async function refreshHostStateFromApi() {
+        if (!token || !meetingId) return;
+        try {
+          var res = await fetch('/api/v1/host/meetings/' + encodeURIComponent(meetingId) + '/state', {
+            headers: authHeader()
+          });
+          var j = await res.json();
+          if (j.code === 0 && j.data) {
+            renderHostState(j.data);
+          }
+        } catch (e) {
+          console.warn('refreshHostStateFromApi', e);
+        }
       }
 
       if (!token || !meetingId) {
         showErr('缺少 token 或会议 ID');
         return;
       }
+      var btnStartInit = document.getElementById('btnStartMeeting');
+      btnStartInit.disabled = true;
+      btnStartInit.textContent = '加载中…';
       document.getElementById('titleLine').textContent = '会议 ID: ' + meetingId.substring(0, 12) + '…';
-      waveCtx = document.getElementById('recWaveform').getContext('2d');
+      prefillHostAgendaFromServer()
+        .then(function () { return refreshHostStateFromApi(); })
+        .finally(function () {
+          btnStartInit.disabled = false;
+          btnStartInit.textContent = '开始会议';
+        });
+      setMeetingPausedUI(false);
 
       if (detectIOS()) {
         document.getElementById('iosNoticeHost').style.display = 'block';
@@ -408,13 +412,16 @@
       function setMeetingPausedUI(paused) {
         var pBtn = document.getElementById('btnPauseMeeting');
         var rBtn = document.getElementById('btnResumeMeeting');
+        if (!pBtn || !rBtn) return;
         if (!meetingLive) {
-          if (pBtn) pBtn.style.display = 'none';
-          if (rBtn) rBtn.style.display = 'none';
+          pBtn.style.display = 'inline-block';
+          pBtn.disabled = true;
+          rBtn.style.display = 'none';
           return;
         }
-        if (pBtn) pBtn.style.display = paused ? 'none' : 'inline-block';
-        if (rBtn) rBtn.style.display = paused ? 'inline-block' : 'none';
+        pBtn.disabled = false;
+        pBtn.style.display = paused ? 'none' : 'inline-block';
+        rBtn.style.display = paused ? 'inline-block' : 'none';
       }
 
       document.getElementById('btnStartMeeting').onclick = async function () {
@@ -425,30 +432,27 @@
         const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = wsProtocol + '//' + location.host + '/ws/audio/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token);
         recorder = new MeetingRecorder(meetingId, token, wsUrl);
-        recorder.onStatusChange = function (s) { updateRecStatusUI(s); };
         recorder.onTranscript = function (r) { addTranscriptLine(r); };
-        recorder.onError = function (msg) { showErr(msg); updateRecStatusUI('error'); };
+        recorder.onError = function (msg) { showErr(msg); };
         recorder.onWarning = function (m) { console.warn(m); };
-        recorder.onAnalyser = function (node) { analyser = node; drawWaveform(); };
-        var agendaBody = null;
-        try {
-          const raw = document.getElementById('agendaJson').value.trim();
-          agendaBody = raw ? JSON.parse(raw) : null;
-        } catch (e) {
-          showErr('议程 JSON 格式无效：' + (e.message || e));
-          btn.disabled = false;
-          btn.textContent = '开始会议';
-          recorder = null;
-          return;
-        }
+        var agendaBody = plannedTopicsCache.length
+            ? { items: plannedTopicsCache }
+            : null;
         try {
           await recorder.start();
           if (!recorder.isRecording) {
             throw new Error('录音未能启动（请检查麦克风权限）');
           }
-          recStartTime = Date.now();
-          recTimerInterval = setInterval(updateRecTimer, 1000);
-          renderHostState(await hostApi('/start', { method: 'POST', body: JSON.stringify(agendaBody) }));
+          var st = await hostApi('/start', {
+            method: 'POST',
+            body: agendaBody != null ? JSON.stringify(agendaBody) : '{}'
+          });
+          if (st && st.topics && st.topics.length) {
+            plannedTopicsCache = st.topics.map(function (t) {
+              return { title: t.title, minutes: t.minutes != null ? t.minutes : 10 };
+            });
+          }
+          renderHostState(st);
           meetingLive = true;
           setMeetingPausedUI(false);
           btn.textContent = '会议进行中';
@@ -458,15 +462,7 @@
             try { recorder.stop(); } catch (err) { console.warn(err); }
             recorder = null;
           }
-          analyser = null;
-          if (recTimerInterval) {
-            clearInterval(recTimerInterval);
-            recTimerInterval = null;
-          }
-          recStartTime = null;
           meetingLive = false;
-          document.getElementById('recTimer').textContent = '00:00:00';
-          updateRecStatusUI('idle');
           btn.disabled = false;
           btn.textContent = '开始会议';
           setMeetingPausedUI(false);
@@ -521,10 +517,6 @@
             try { recorder.stop(); } catch (e) { console.warn(e); }
             recorder = null;
           }
-          if (recTimerInterval) {
-            clearInterval(recTimerInterval);
-            recTimerInterval = null;
-          }
           const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token }
@@ -532,10 +524,9 @@
           const j = await res.json();
           if (!res.ok || j.code !== 0) throw new Error(j.message || '结束失败');
           meetingLive = false;
-          updateRecStatusUI('stopped');
           document.getElementById('btnStartMeeting').disabled = true;
-          document.getElementById('btnPauseMeeting').style.display = 'none';
-          document.getElementById('btnResumeMeeting').style.display = 'none';
+          document.getElementById('btnEnd').disabled = true;
+          setMeetingPausedUI(false);
           alert('会议已结束：' + (j.data && j.data.status ? j.data.status : 'ok'));
         } catch (e) {
           showErr(e.message || String(e));

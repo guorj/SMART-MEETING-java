@@ -2,9 +2,12 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
+import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -22,6 +25,7 @@ public class MeetingTypePresetService {
     public static final String OTHER_GROUP = "其他会议";
 
     private final MeetingTypePresetMapper presetMapper;
+    private final ObjectMapper objectMapper;
 
     public List<MeetingPresetResponse> listPresets() {
         return presetMapper.selectList(null).stream()
@@ -42,6 +46,7 @@ public class MeetingTypePresetService {
                 .organizerName(p.getOrganizerName())
                 .leaderName(p.getLeaderName())
                 .participantNames(splitNames(p.getParticipantsNames()))
+                .hostAgenda(p.getHostAgenda())
                 .build();
     }
 
@@ -100,6 +105,51 @@ public class MeetingTypePresetService {
             entries.add(e);
         }
         request.setParticipants(entries);
+        if ((request.getHostAgendaItems() == null || request.getHostAgendaItems().isEmpty())
+                && p.getHostAgenda() != null && !p.getHostAgenda().isBlank()) {
+            List<HostAgendaItemDto> fromPreset = hostAgendaItemsFromPresetJson(p.getHostAgenda());
+            if (fromPreset != null && !fromPreset.isEmpty()) {
+                request.setHostAgendaItems(fromPreset);
+            }
+        }
+    }
+
+    /**
+     * 预设 code 1～5 的主持议题项（与 merge 解析逻辑一致，供会议详情 API 补全）。
+     */
+    public List<HostAgendaItemDto> hostAgendaItemsForPresetCode(int code) {
+        if (code < 1 || code > 5) {
+            return null;
+        }
+        MeetingTypePreset p = presetMapper.selectById(code);
+        if (p == null) {
+            return null;
+        }
+        return hostAgendaItemsFromPresetJson(p.getHostAgenda());
+    }
+
+    private List<HostAgendaItemDto> hostAgendaItemsFromPresetJson(String json) {
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode items = root.path("items");
+            if (!items.isArray()) {
+                return null;
+            }
+            List<HostAgendaItemDto> out = new ArrayList<>();
+            for (JsonNode n : items) {
+                String title = n.path("title").asText("").trim();
+                if (title.isEmpty()) {
+                    continue;
+                }
+                HostAgendaItemDto dto = new HostAgendaItemDto();
+                dto.setTitle(title);
+                dto.setMinutes(n.path("minutes").asInt(10));
+                out.add(dto);
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     public List<String> splitNames(String raw) {

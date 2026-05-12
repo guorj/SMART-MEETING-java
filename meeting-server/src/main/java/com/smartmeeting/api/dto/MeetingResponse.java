@@ -1,5 +1,6 @@
 package com.smartmeeting.api.dto;
 
+import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -10,6 +11,7 @@ public class MeetingResponse {
     private String id;
     private String title;
     private List<String> agenda;
+    private List<HostAgendaItemDto> hostAgendaItems;
     private String company;
     private String department;
     private String groupName;

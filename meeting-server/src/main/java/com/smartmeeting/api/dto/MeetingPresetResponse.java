@@ -22,4 +22,6 @@ public class MeetingPresetResponse {
     private String organizerName;
     private String leaderName;
     private List<String> participantNames;
+    /** AI 主持议题模板 JSON（与 int_meeting_type_preset.host_agenda 一致） */
+    private String hostAgenda;
 }

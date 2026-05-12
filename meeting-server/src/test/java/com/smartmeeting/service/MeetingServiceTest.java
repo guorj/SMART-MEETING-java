@@ -2,6 +2,7 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.BaseTest;
 import com.smartmeeting.api.dto.*;
+import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
@@ -148,6 +149,37 @@ class MeetingServiceTest extends BaseTest {
     void testStartNonExistentMeeting() {
         assertThrows(BusinessException.class, () ->
                 meetingService.startMeeting("non-existent-id"));
+    }
+
+    @Test
+    @Order(10)
+    @DisplayName("host_agenda 与 agenda 拆分：建会写入并详情回读")
+    void testCreateMeetingWithHostAgendaItems() {
+        MeetingCreateRequest request = new MeetingCreateRequest();
+        request.setTitle("主持拆分测");
+        request.setCompany("集团总部");
+        request.setGroupName("测试组");
+        request.setAgenda(List.of("会务行1", "会务行2"));
+        HostAgendaItemDto a = new HostAgendaItemDto();
+        a.setTitle("主持议题A");
+        a.setMinutes(3);
+        HostAgendaItemDto b = new HostAgendaItemDto();
+        b.setTitle("主持议题B");
+        b.setMinutes(7);
+        request.setHostAgendaItems(List.of(a, b));
+
+        MeetingResponse created = meetingService.createMeeting(request);
+        Meeting row = meetingMapper.selectById(created.getId());
+        assertNotNull(row.getHostAgenda());
+        assertTrue(row.getHostAgenda().contains("\"items\""));
+        assertTrue(row.getHostAgenda().contains("主持议题A"));
+
+        MeetingResponse detail = meetingService.getMeeting(created.getId());
+        assertEquals(List.of("会务行1", "会务行2"), detail.getAgenda());
+        assertNotNull(detail.getHostAgendaItems());
+        assertEquals(2, detail.getHostAgendaItems().size());
+        assertEquals("主持议题A", detail.getHostAgendaItems().get(0).getTitle());
+        assertEquals(3, detail.getHostAgendaItems().get(0).getMinutes());
     }
 
     private MeetingResponse createTestMeeting(String title, String previousId) {

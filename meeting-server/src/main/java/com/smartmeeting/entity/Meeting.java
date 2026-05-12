@@ -1,8 +1,11 @@
 package com.smartmeeting.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.smartmeeting.mybatis.handler.MysqlJsonAsStringTypeHandler;
 import lombok.Data;
+import org.apache.ibatis.type.JdbcType;
 
 import java.time.LocalDateTime;
 
@@ -12,7 +15,11 @@ public class Meeting {
     @TableId
     private String id;
     private String title;
+    @TableField(value = "agenda", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
     private String agenda;
+    /** AI 主持议题 JSON：{"items":[{"title","minutes"}]}，与会务 agenda（字符串数组）分离 */
+    @TableField(value = "host_agenda", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
+    private String hostAgenda;
     private String company;
     private String department;
     private String groupName;

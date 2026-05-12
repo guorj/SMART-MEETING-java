@@ -10,7 +10,7 @@ spring:
   sql:
     init:
       mode: always
-      schema-locations: classpath:schema.sql,classpath:schema-patch-preset.sql,classpath:schema-patch-matter-progress.sql
+      schema-locations: classpath:schema.sql,classpath:schema-patch-preset.sql,classpath:schema-patch-matter-progress.sql,classpath:schema-patch-host-agenda.sql,classpath:schema-patch-host-agenda-template.sql
 
 meeting:
   kafka:

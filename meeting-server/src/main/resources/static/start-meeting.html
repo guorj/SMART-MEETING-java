@@ -75,7 +75,6 @@
         if (!p) return;
         let t = '类型：' + p.displayName + '\n集团：' + (p.company || '') + '\n会议组：' + (p.groupName || '');
         if (p.scheduleNote) t += '\n召开时间：' + p.scheduleNote;
-        if (p.agendaSummary) t += '\n会议内容：' + p.agendaSummary;
         if (p.organizerName) t += '\n组织人：' + p.organizerName;
         if (p.leaderName) t += '\n会议主导：' + p.leaderName;
         if (p.participantNames && p.participantNames.length) t += '\n与会人员：' + p.participantNames.join('、');

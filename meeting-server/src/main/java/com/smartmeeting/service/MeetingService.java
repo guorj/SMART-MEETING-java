@@ -2,11 +2,13 @@ package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.api.dto.PreviousProgressResponse;
 import com.smartmeeting.api.dto.PreviousProgressResponse.DelayedItem;
+import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
@@ -77,6 +79,7 @@ public class MeetingService {
         meeting.setId(UUID.randomUUID().toString());
         meeting.setTitle(request.getTitle());
         meeting.setAgenda(request.getAgenda() != null ? toJson(request.getAgenda()) : null);
+        meeting.setHostAgenda(hostAgendaItemsToJson(request.getHostAgendaItems()));
         meeting.setCompany(request.getCompany());
         meeting.setDepartment(request.getDepartment());
         meeting.setGroupName(request.getGroupName());
@@ -324,6 +327,18 @@ public class MeetingService {
         resp.setId(meeting.getId());
         resp.setTitle(meeting.getTitle());
         resp.setAgenda(meeting.getAgenda() != null ? fromJsonArray(meeting.getAgenda()) : null);
+        List<HostAgendaItemDto> hostItems = hostAgendaItemsFromJson(meeting.getHostAgenda());
+        resp.setHostAgendaItems(hostItems);
+        if ((hostItems == null || hostItems.isEmpty())
+                && meeting.getPresetTypeCode() != null
+                && meeting.getPresetTypeCode() >= 1
+                && meeting.getPresetTypeCode() <= 5) {
+            List<HostAgendaItemDto> fromPreset =
+                    meetingTypePresetService.hostAgendaItemsForPresetCode(meeting.getPresetTypeCode());
+            if (fromPreset != null && !fromPreset.isEmpty()) {
+                resp.setHostAgendaItems(fromPreset);
+            }
+        }
         resp.setCompany(meeting.getCompany());
         resp.setDepartment(meeting.getDepartment());
         resp.setGroupName(meeting.getGroupName());
@@ -371,6 +386,60 @@ public class MeetingService {
         } catch (Exception e) {
             log.warn("Failed to deserialize agenda", e);
             return List.of();
+        }
+    }
+
+    private String hostAgendaItemsToJson(List<HostAgendaItemDto> items) {
+        if (items == null || items.isEmpty()) {
+            return null;
+        }
+        try {
+            var root = objectMapper.createObjectNode();
+            var arr = root.putArray("items");
+            for (HostAgendaItemDto dto : items) {
+                if (dto == null || dto.getTitle() == null || dto.getTitle().isBlank()) {
+                    continue;
+                }
+                var n = arr.addObject();
+                n.put("title", dto.getTitle().trim());
+                int min = dto.getMinutes() != null && dto.getMinutes() > 0 ? dto.getMinutes() : 10;
+                n.put("minutes", min);
+            }
+            if (arr.isEmpty()) {
+                return null;
+            }
+            return objectMapper.writeValueAsString(root);
+        } catch (Exception e) {
+            log.warn("Failed to serialize host_agenda", e);
+            return null;
+        }
+    }
+
+    private List<HostAgendaItemDto> hostAgendaItemsFromJson(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            JsonNode items = root.path("items");
+            if (!items.isArray()) {
+                return null;
+            }
+            List<HostAgendaItemDto> out = new ArrayList<>();
+            for (JsonNode n : items) {
+                String title = n.path("title").asText("").trim();
+                if (title.isEmpty()) {
+                    continue;
+                }
+                HostAgendaItemDto dto = new HostAgendaItemDto();
+                dto.setTitle(title);
+                dto.setMinutes(n.path("minutes").asInt(10));
+                out.add(dto);
+            }
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            log.warn("Failed to deserialize host_agenda", e);
+            return null;
         }
     }
 }

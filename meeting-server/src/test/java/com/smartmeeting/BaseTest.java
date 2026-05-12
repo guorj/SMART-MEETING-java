@@ -31,7 +31,6 @@ public abstract class BaseTest {
 
     @BeforeEach
     void setUp() {
-        // Clean tables before each test
         transcriptMapper.delete(null);
         todoMapper.delete(null);
         participantMapper.delete(null);

@@ -6,10 +6,13 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.api.dto.host.HostStartRequest;
+import com.smartmeeting.constants.HostAgendaConstants;
 import com.smartmeeting.api.config.MeetingHostWebSocketHandler;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +39,7 @@ import java.util.concurrent.TimeUnit;
 public class MeetingHostSessionService {
 
     private final MeetingMapper meetingMapper;
+    private final MeetingTypePresetMapper presetMapper;
     private final MeetingHostFeishuMuteRegistry muteRegistry;
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
@@ -59,11 +63,13 @@ public class MeetingHostSessionService {
     private final Map<String, HostRuntime> runtimes = new ConcurrentHashMap<>();
 
     public MeetingHostSessionService(MeetingMapper meetingMapper,
+                                     MeetingTypePresetMapper presetMapper,
                                      MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
                                      ObjectMapper objectMapper) {
         this.meetingMapper = meetingMapper;
+        this.presetMapper = presetMapper;
         this.muteRegistry = muteRegistry;
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
@@ -87,7 +93,7 @@ public class MeetingHostSessionService {
         }
         List<HostTopic> topics = resolveTopics(meeting, body);
         if (topics.isEmpty()) {
-            throw new BusinessException(400, "议程为空：请在请求体中提供 items，或为会议配置 agenda JSON");
+            throw new BusinessException(400, "议程为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
         }
 
         muteRegistry.muteChat(meeting.getChatId());
@@ -289,27 +295,54 @@ public class MeetingHostSessionService {
     }
 
     private List<HostTopic> resolveTopics(Meeting meeting, HostStartRequest body) {
-        List<HostTopic> out = new ArrayList<>();
         if (body != null && body.getItems() != null && !body.getItems().isEmpty()) {
-            for (HostAgendaItemDto dto : body.getItems()) {
-                if (dto.getTitle() == null || dto.getTitle().isBlank()) {
-                    continue;
-                }
-                int min = dto.getMinutes() != null && dto.getMinutes() > 0 ? dto.getMinutes() : 10;
-                HostTopic t = new HostTopic();
-                t.title = dto.getTitle().trim();
-                t.minutes = min;
-                t.status = "PENDING";
-                out.add(t);
-            }
-            return out;
+            return topicsFromDtos(body.getItems());
         }
-        String agendaStr = meeting.getAgenda();
-        if (agendaStr == null || agendaStr.isBlank()) {
+        // preset_type_code 1-5：仅按 code 读 int_meeting_type_preset.host_agenda，再回退本会 host_agenda
+        Integer presetCode = meeting.getPresetTypeCode();
+        if (presetCode != null && presetCode >= 1 && presetCode <= 5) {
+            MeetingTypePreset preset = presetMapper.selectById(presetCode);
+            if (preset != null) {
+                List<HostTopic> fromPreset = topicsFromHostAgendaJson(preset.getHostAgenda());
+                if (!fromPreset.isEmpty()) {
+                    return fromPreset;
+                }
+            }
+        }
+        List<HostTopic> fromOwn = topicsFromHostAgendaJson(meeting.getHostAgenda());
+        if (!fromOwn.isEmpty()) {
+            return fromOwn;
+        }
+        List<HostTopic> fromDefaultJson = topicsFromHostAgendaJson(HostAgendaConstants.DEFAULT_HOST_AGENDA_JSON);
+        if (!fromDefaultJson.isEmpty()) {
+            return fromDefaultJson;
+        }
+        return defaultHostTopicsHardcoded();
+    }
+
+    private List<HostTopic> topicsFromDtos(List<HostAgendaItemDto> dtos) {
+        List<HostTopic> out = new ArrayList<>();
+        for (HostAgendaItemDto dto : dtos) {
+            if (dto.getTitle() == null || dto.getTitle().isBlank()) {
+                continue;
+            }
+            int min = dto.getMinutes() != null && dto.getMinutes() > 0 ? dto.getMinutes() : 10;
+            HostTopic t = new HostTopic();
+            t.title = dto.getTitle().trim();
+            t.minutes = min;
+            t.status = "PENDING";
+            out.add(t);
+        }
+        return out;
+    }
+
+    private List<HostTopic> topicsFromHostAgendaJson(String hostAgendaStr) {
+        List<HostTopic> out = new ArrayList<>();
+        if (hostAgendaStr == null || hostAgendaStr.isBlank()) {
             return out;
         }
         try {
-            JsonNode root = objectMapper.readTree(agendaStr);
+            JsonNode root = objectMapper.readTree(hostAgendaStr);
             JsonNode items = root.path("items");
             if (items.isArray()) {
                 for (JsonNode n : items) {
@@ -326,8 +359,23 @@ public class MeetingHostSessionService {
                 }
             }
         } catch (Exception e) {
-            log.warn("Parse meeting.agenda failed: {}", e.getMessage());
+            log.warn("Parse host_agenda JSON failed: {}", e.getMessage());
         }
+        return out;
+    }
+
+    private List<HostTopic> defaultHostTopicsHardcoded() {
+        HostTopic a = new HostTopic();
+        a.title = "主持议题A";
+        a.minutes = 3;
+        a.status = "PENDING";
+        HostTopic b = new HostTopic();
+        b.title = "主持议题B";
+        b.minutes = 7;
+        b.status = "PENDING";
+        List<HostTopic> out = new ArrayList<>();
+        out.add(a);
+        out.add(b);
         return out;
     }
 
