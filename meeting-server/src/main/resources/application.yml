@@ -125,8 +125,8 @@ meeting:
   host:
     enabled: ${MEETING_HOST_ENABLED:true}
     reminder:
-      topic-minutes-left: 3
-      meeting-minutes-left: "10,5"
+      topic-minutes-left: 1
+      meeting-minutes-left: "10,3"
     roll-call:
       # 每人「请某某答到」话术推送完成后的基础作答秒数（至少 5 生效）
       window-seconds: ${MEETING_HOST_ROLL_CALL_WINDOW_SEC:12}

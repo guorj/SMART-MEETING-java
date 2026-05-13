@@ -198,7 +198,7 @@
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
-          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，将<strong>自动</strong>开始本节检点（无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，会先播报<strong>会议开场</strong>，播完后再<strong>自动</strong>进入检点（一般无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
           <div class="row" style="margin-top:0">
             <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
             <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
@@ -599,7 +599,7 @@
         var btnRk = document.getElementById('btnRollCallSkip');
         if (rcList && rcCd && btnRs && btnRk) {
           if (!people.length && phase === 'NONE') {
-            rcList.innerHTML = '<p class="muted" style="padding:4px 0">具备应到名单时，开始会议后将自动开始检点；此处也可再次点击「开始检点」发起新一轮。</p>';
+            rcList.innerHTML = '<p class="muted" style="padding:4px 0">具备应到名单时，开场播完将自动检点；此处也可再次点击「开始检点」发起新一轮。</p>';
           } else {
             rcList.innerHTML = people.map(function (p, i) {
               var cur = phase === 'ACTIVE' && i === (rc.currentIndex | 0);

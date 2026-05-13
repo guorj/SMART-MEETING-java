@@ -40,8 +40,8 @@ public class MeetingHostSessionService {
     private static final int PCM_SAMPLE_RATE = 16000;
     private static final int PCM_BYTES_PER_SAMPLE = 2;
     private static final long ROLL_CALL_ARM_EXTRA_MS = 300L;
-    /** 检点小结 PCM 预计播完后额外等待，再自动「下一议题」，避免新 tts_meta 触发前端 stopPlayback 截断小结 */
-    private static final long ROLL_CALL_SUMMARY_TO_NEXT_TOPIC_TAIL_MS = 600L;
+    /** 两段主持 TTS 之间须留出的客户端播放尾量（下一段 tts_meta 会触发前端 stopPlayback，过短会截断上一段） */
+    private static final long HOST_TTS_CLIENT_PLAYBACK_TAIL_MS = 600L;
 
     private final MeetingMapper meetingMapper;
     private final MeetingTypePresetMapper presetMapper;
@@ -138,15 +138,21 @@ public class MeetingHostSessionService {
         runtimes.put(meetingId, rt);
 
         pushHostState(meetingId);
+        String openingLine = "会议开始。当前进行：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。";
         if (canAutoStartRollCall(meeting)) {
-            try {
-                startRollCall(meetingId);
-            } catch (Exception e) {
-                log.warn("Auto roll-call after host start failed: {}", e.getMessage());
-                speakAsync(meetingId, "会议主持已启动。当前议题：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。");
-            }
+            final String mid = meetingId;
+            speakAsyncFutureWithDurationMs(meetingId, openingLine).thenAccept(openingDurationMs -> {
+                long waitMs = Math.max(0L, openingDurationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
+                scheduler.schedule(() -> {
+                    try {
+                        startRollCall(mid);
+                    } catch (Exception e) {
+                        log.warn("Auto roll-call after host opening failed: {}", e.getMessage());
+                    }
+                }, waitMs, TimeUnit.MILLISECONDS);
+            });
         } else {
-            speakAsync(meetingId, "会议主持已启动。当前议题：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。");
+            speakAsync(meetingId, openingLine);
         }
     }
 
@@ -279,7 +285,7 @@ public class MeetingHostSessionService {
         next.status = "RUNNING";
         int min = Math.max(1, next.minutes);
         rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
-        speakAsync(meetingId, "现在进入议题：" + next.title + "，预计 " + min + " 分钟。");
+        speakAsync(meetingId, "现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
     }
 
@@ -296,7 +302,7 @@ public class MeetingHostSessionService {
         rt.topicTimeUpAnnounced = false;
         rt.lastTopicLeftSec = Integer.MAX_VALUE;
         if (rt.currentIndex >= rt.topics.size()) {
-            speakAsync(meetingId, "议题已跳过剩余项。您可点击「结束会议」。");
+            speakAsync(meetingId, "已跳过剩余项。您可点击「结束会议」。");
             pushHostState(meetingId);
             return;
         }
@@ -304,7 +310,7 @@ public class MeetingHostSessionService {
         next.status = "RUNNING";
         int min = Math.max(1, next.minutes);
         rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
-        speakAsync(meetingId, "跳过当前议题。现在进入：" + next.title + "，预计 " + min + " 分钟。");
+        speakAsync(meetingId, "跳过当前会序。现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
     }
 
@@ -552,7 +558,7 @@ public class MeetingHostSessionService {
                 if (!autoNextTopic) {
                     return;
                 }
-                long waitMs = Math.max(0L, durationMs) + ROLL_CALL_SUMMARY_TO_NEXT_TOPIC_TAIL_MS;
+                long waitMs = Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
                 scheduler.schedule(() -> {
                     try {
                         nextTopic(finalMeetingId);
