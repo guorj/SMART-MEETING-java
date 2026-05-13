@@ -11,7 +11,30 @@ public final class RollCallAffirmationMatcher {
     private static final Pattern LIKELY_NAME_CALL_TTS =
             Pattern.compile("^请[^，。\\s]{0,48}答到[。！!…\\s]*$");
 
+    /**
+     * 短句「到了」类：仅允许句首为语气词/标点，避免「他到了吗」「李海天到了吗」「他到了」等追问或代他人陈述被判答到。
+     */
+    private static final Pattern SHORT_SELF_DAOD_LE =
+            Pattern.compile("^[\\s，,。.…、嗯啊哦噢喔哎好啦呀哇吧呗得了呃哼]*到了[呢呐啊呀哇啦吧噢哦]?[。！!…\\s]*$");
+
     private RollCallAffirmationMatcher() {
+    }
+
+    /** 追问/核实类表述，不应视为本人答到。 */
+    static boolean looksLikeQuestionOrInquiry(String t) {
+        if (t == null || t.isEmpty()) {
+            return false;
+        }
+        if (t.indexOf('吗') >= 0 || t.indexOf('？') >= 0 || t.indexOf('?') >= 0) {
+            return true;
+        }
+        return t.contains("到没")
+                || t.contains("没到")
+                || t.contains("有没有")
+                || t.contains("是不是")
+                || t.contains("为啥")
+                || t.contains("为什么")
+                || t.contains("是否");
     }
 
     public static boolean matches(String raw) {
@@ -20,6 +43,9 @@ public final class RollCallAffirmationMatcher {
         }
         String t = raw.trim();
         if (t.isEmpty()) {
+            return false;
+        }
+        if (looksLikeQuestionOrInquiry(t)) {
             return false;
         }
         // 显式「答到」：不因 ASR 粘连长句（含环境/TTS 尾音）被 48 字上限误杀；排除整句仅为「请某某答到」的播报。
@@ -32,7 +58,7 @@ public final class RollCallAffirmationMatcher {
         if (t.length() > 48) {
             return false;
         }
-        if (t.contains("到了") && t.length() <= 16) {
+        if (t.contains("到了") && t.length() <= 16 && SHORT_SELF_DAOD_LE.matcher(t).matches()) {
             return true;
         }
         String compact = t

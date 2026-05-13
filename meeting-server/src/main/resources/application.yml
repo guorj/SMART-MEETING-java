@@ -114,9 +114,12 @@ meeting:
   # 讯飞在线语音合成（主持 TTS），鉴权复用 meeting.asr.xfyun 的 app-id / api-key / api-secret
   tts:
     ws-url: ${XFYUN_TTS_WS_URL:wss://tts-api.xfyun.cn/v2/tts}
-    vcn: ${XFYUN_TTS_VCN:xiaoyan}
+    vcn: ${XFYUN_TTS_VCN:x4_yezi}
     connect-timeout-sec: 15
-    read-timeout-sec: 60
+    # 长稿合成可能超过 60s；分段后单段一般更快，仍适当放宽
+    read-timeout-sec: ${XFYUN_TTS_READ_TIMEOUT_SEC:120}
+    # 讯飞文档：单次 data.text 的 base64 长度须 <8000 字节；原文 UTF-8 建议留余量（约 5300 字节）
+    max-text-utf8-bytes: ${XFYUN_TTS_MAX_TEXT_UTF8_BYTES:5300}
 
   # AI 会议主持人（Web 主持页 + 会中零飞书）
   host:
@@ -199,7 +202,7 @@ openclaw:
 logging:
   level:
     root: INFO
-    com.smartmeeting: DEBUG
+    com.smartmeeting: info
   file:
     path: ./logs/smart-meeting
     max-size: 100MB

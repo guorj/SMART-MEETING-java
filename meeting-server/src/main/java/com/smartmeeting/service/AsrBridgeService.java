@@ -4,6 +4,7 @@ import com.smartmeeting.api.config.AudioWebSocketHandler;
 import com.smartmeeting.asr.AsrResult;
 import com.smartmeeting.asr.XfyunRealtimeClient;
 import com.smartmeeting.service.host.MeetingHostSessionService;
+import com.smartmeeting.service.host.RollCallAffirmationMatcher;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
@@ -193,7 +194,7 @@ public class AsrBridgeService {
         if (t.isEmpty()) {
             return false;
         }
-        if (t.contains("答到") || t.contains("到了")) {
+        if (RollCallAffirmationMatcher.matches(t)) {
             return true;
         }
         return t.length() <= 8 && (t.contains("到") || t.contains("在") || t.contains("收到") || t.contains("嗯"));

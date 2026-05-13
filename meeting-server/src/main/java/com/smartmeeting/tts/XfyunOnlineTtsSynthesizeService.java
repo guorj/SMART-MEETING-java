@@ -14,6 +14,7 @@ import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -40,17 +41,21 @@ public class XfyunOnlineTtsSynthesizeService {
     @Value("${meeting.asr.xfyun.api-secret:test}")
     private String apiSecret;
 
-    @Value("${meeting.tts.vcn:xiaoyan}")
+    @Value("${meeting.tts.vcn:x4_yezi}")
     private String vcn;
 
     @Value("${meeting.tts.connect-timeout-sec:15}")
     private int connectTimeoutSec;
 
-    @Value("${meeting.tts.read-timeout-sec:60}")
+    @Value("${meeting.tts.read-timeout-sec:120}")
     private int readTimeoutSec;
 
+    /** 单段原文 UTF-8 字节上限（讯飞单次 text 的 base64 须小于 8000 字节，见文档） */
+    @Value("${meeting.tts.max-text-utf8-bytes:5300}")
+    private int maxTextUtf8Bytes;
+
     /**
-     * @return 16k raw PCM s16le 拼接；失败返回空数组
+     * @return 16k raw PCM s16le 拼接；失败返回空数组。超长文本自动按 UTF-8 与句读切段后多次合成再拼接。
      */
     public byte[] synthesizeToPcm(String text) {
         if (text == null || text.isBlank()) {
@@ -61,7 +66,22 @@ public class XfyunOnlineTtsSynthesizeService {
             return new byte[0];
         }
         try {
-            return synthesizeBlocking(text);
+            List<String> parts = XfyunTtsUtf8Segmenter.split(text.strip(), maxTextUtf8Bytes);
+            if (parts.isEmpty()) {
+                return new byte[0];
+            }
+            if (parts.size() > 1) {
+                log.info("Xfyun TTS: splitting into {} segment(s), maxUtf8Bytes={}", parts.size(), maxTextUtf8Bytes);
+            }
+            ByteArrayOutputStream all = new ByteArrayOutputStream();
+            for (String part : parts) {
+                if (part == null || part.isBlank()) {
+                    continue;
+                }
+                byte[] seg = synthesizeBlocking(part);
+                all.write(seg);
+            }
+            return all.toByteArray();
         } catch (Exception e) {
             log.warn("Xfyun TTS failed: {}", e.getMessage());
             return new byte[0];

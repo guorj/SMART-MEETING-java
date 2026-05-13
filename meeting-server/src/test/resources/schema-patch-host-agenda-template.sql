@@ -49,7 +49,7 @@ EXECUTE stmt_mig;
 DEALLOCATE PREPARE stmt_mig;
 
 UPDATE int_meeting_type_preset
-SET host_agenda = CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}' AS JSON)
+SET host_agenda = CAST('{"items":[{"title":"主持议题A","minutes":3},{"title":"事项进度通报","minutes":7}]}' AS JSON)
 WHERE code IN (1, 2, 3, 4, 5) AND host_agenda IS NULL;
 
 SET @sql_drop_tid := IF(

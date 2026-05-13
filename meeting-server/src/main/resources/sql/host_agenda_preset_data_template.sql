@@ -18,7 +18,7 @@ WHERE code = 1;
 -- 批量写入默认议题（与常量一致，便于对齐）
 UPDATE int_meeting_type_preset
 SET host_agenda = CAST(
-    '{"items":[{"title":"主持议题A","minutes":3},{"title":"主持议题B","minutes":7}]}'
+    '{"items":[{"title":"主持议题A","minutes":3},{"title":"事项进度通报","minutes":7}]}'
     AS JSON
 )
 WHERE code IN (1, 2, 3, 4, 5);

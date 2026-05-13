@@ -9,8 +9,8 @@ public final class HostAgendaConstants {
     }
 
     /**
-     * 当库中 preset.host_agenda 与会议 host_agenda 均为空时的硬编码保底（须与 schema 种子、前端约定一致）。
+     * 当库中 preset.host_agenda 与会议 host_agenda 均为空时的硬编码保底（须与 schema 种子、前端约定一致；会序 2 为「事项进度通报」）。
      */
     public static final String DEFAULT_HOST_AGENDA_JSON =
-            "{\"items\":[{\"title\":\"主持议题A\",\"minutes\":3},{\"title\":\"主持议题B\",\"minutes\":7}]}";
+            "{\"items\":[{\"title\":\"主持议题A\",\"minutes\":3},{\"title\":\"事项进度通报\",\"minutes\":7}]}";
 }

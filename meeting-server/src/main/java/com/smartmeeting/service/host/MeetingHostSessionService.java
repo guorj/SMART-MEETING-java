@@ -32,7 +32,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * AI 会议主持人：议程计时、会中飞书静音、主持 WS 推送、讯飞 TTS 播报。
+ * AI 会议主持人：议题计时、会中飞书静音、主持 WS 推送、讯飞 TTS 播报。
  */
 @Slf4j
 @Service
@@ -40,6 +40,8 @@ public class MeetingHostSessionService {
     private static final int PCM_SAMPLE_RATE = 16000;
     private static final int PCM_BYTES_PER_SAMPLE = 2;
     private static final long ROLL_CALL_ARM_EXTRA_MS = 300L;
+    /** 检点小结 PCM 预计播完后额外等待，再自动「下一议题」，避免新 tts_meta 触发前端 stopPlayback 截断小结 */
+    private static final long ROLL_CALL_SUMMARY_TO_NEXT_TOPIC_TAIL_MS = 600L;
 
     private final MeetingMapper meetingMapper;
     private final MeetingTypePresetMapper presetMapper;
@@ -110,7 +112,7 @@ public class MeetingHostSessionService {
         }
         List<HostTopic> topics = resolveTopics(meeting, body);
         if (topics.isEmpty()) {
-            throw new BusinessException(400, "议程为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
+            throw new BusinessException(400, "议题为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
         }
 
         muteRegistry.muteChat(meeting.getChatId());
@@ -136,7 +138,25 @@ public class MeetingHostSessionService {
         runtimes.put(meetingId, rt);
 
         pushHostState(meetingId);
-        speakAsync(meetingId, "会议主持已启动。当前议题：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。");
+        if (canAutoStartRollCall(meeting)) {
+            try {
+                startRollCall(meetingId);
+            } catch (Exception e) {
+                log.warn("Auto roll-call after host start failed: {}", e.getMessage());
+                speakAsync(meetingId, "会议主持已启动。当前议题：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。");
+            }
+        } else {
+            speakAsync(meetingId, "会议主持已启动。当前议题：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。");
+        }
+    }
+
+    private boolean canAutoStartRollCall(Meeting meeting) {
+        try {
+            List<String> names = loadRollCallSnapshot(meeting);
+            return names != null && !names.isEmpty();
+        } catch (BusinessException ex) {
+            return false;
+        }
     }
 
     private void safeTick(String meetingId) {
@@ -276,7 +296,7 @@ public class MeetingHostSessionService {
         rt.topicTimeUpAnnounced = false;
         rt.lastTopicLeftSec = Integer.MAX_VALUE;
         if (rt.currentIndex >= rt.topics.size()) {
-            speakAsync(meetingId, "议程已跳过剩余项。您可点击「结束会议」。");
+            speakAsync(meetingId, "议题已跳过剩余项。您可点击「结束会议」。");
             pushHostState(meetingId);
             return;
         }
@@ -471,7 +491,7 @@ public class MeetingHostSessionService {
         scheduler.schedule(() -> armRollCallDeadlineIfStillActive(meetingId), delayMs, TimeUnit.MILLISECONDS);
     }
 
-    /** 当前议程项是否为「会议检点」类环节（标题含「检点」且进行中），用于检点结束后自动下一议题。 */
+    /** 当前议题项是否为「会议检点」类环节（标题含「检点」且进行中），用于检点结束后自动下一议题。 */
     private static boolean currentTopicIsRollCallChapter(HostRuntime rt) {
         if (rt.currentIndex < 0 || rt.currentIndex >= rt.topics.size()) {
             return false;
@@ -528,15 +548,18 @@ public class MeetingHostSessionService {
                     ? ""
                     : preludeForNextOrSummary + " ";
             String finalMeetingId = meetingId;
-            speakAsyncFuture(meetingId, prefix + summary).thenRun(() -> {
+            speakAsyncFutureWithDurationMs(meetingId, prefix + summary).thenAccept(durationMs -> {
                 if (!autoNextTopic) {
                     return;
                 }
-                try {
-                    nextTopic(finalMeetingId);
-                } catch (Exception e) {
-                    log.warn("auto nextTopic after roll-call: {}", e.getMessage());
-                }
+                long waitMs = Math.max(0L, durationMs) + ROLL_CALL_SUMMARY_TO_NEXT_TOPIC_TAIL_MS;
+                scheduler.schedule(() -> {
+                    try {
+                        nextTopic(finalMeetingId);
+                    } catch (Exception e) {
+                        log.warn("auto nextTopic after roll-call: {}", e.getMessage());
+                    }
+                }, waitMs, TimeUnit.MILLISECONDS);
             });
             return;
         }
@@ -677,7 +700,7 @@ public class MeetingHostSessionService {
         a.minutes = 3;
         a.status = "PENDING";
         HostTopic b = new HostTopic();
-        b.title = "主持议题B";
+        b.title = "事项进度通报";
         b.minutes = 7;
         b.status = "PENDING";
         List<HostTopic> out = new ArrayList<>();

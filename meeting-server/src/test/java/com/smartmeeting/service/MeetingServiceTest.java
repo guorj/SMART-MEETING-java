@@ -164,7 +164,7 @@ class MeetingServiceTest extends BaseTest {
         a.setTitle("主持议题A");
         a.setMinutes(3);
         HostAgendaItemDto b = new HostAgendaItemDto();
-        b.setTitle("主持议题B");
+        b.setTitle("事项进度通报");
         b.setMinutes(7);
         request.setHostAgendaItems(List.of(a, b));
 
@@ -180,6 +180,8 @@ class MeetingServiceTest extends BaseTest {
         assertEquals(2, detail.getHostAgendaItems().size());
         assertEquals("主持议题A", detail.getHostAgendaItems().get(0).getTitle());
         assertEquals(3, detail.getHostAgendaItems().get(0).getMinutes());
+        assertEquals("事项进度通报", detail.getHostAgendaItems().get(1).getTitle());
+        assertEquals(7, detail.getHostAgendaItems().get(1).getMinutes());
     }
 
     private MeetingResponse createTestMeeting(String title, String previousId) {

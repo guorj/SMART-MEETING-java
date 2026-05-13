@@ -147,7 +147,7 @@ openclaw:
 logging:
   level:
     root: INFO
-    com.smartmeeting: DEBUG
+    com.smartmeeting: info
   file:
     path: "./logs/smart-meeting"
     max-size: 100MB

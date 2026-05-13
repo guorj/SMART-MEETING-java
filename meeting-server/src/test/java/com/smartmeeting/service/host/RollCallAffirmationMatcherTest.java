@@ -39,4 +39,23 @@ class RollCallAffirmationMatcherTest {
         assertFalse(RollCallAffirmationMatcher.matches("我们今天讨论一下项目进度和排期问题"));
         assertFalse(RollCallAffirmationMatcher.matches("不知道"));
     }
+
+    @Test
+    void rejectsArrivalQuestionsAndThirdPartyStatements() {
+        assertFalse(RollCallAffirmationMatcher.matches("他到了吗？李海天"));
+        assertFalse(RollCallAffirmationMatcher.matches("李海天到了吗"));
+        assertFalse(RollCallAffirmationMatcher.matches("? 李海天到了吗"));
+        assertFalse(RollCallAffirmationMatcher.matches("他到了"));
+        assertFalse(RollCallAffirmationMatcher.matches("人到了没"));
+        assertFalse(RollCallAffirmationMatcher.matches("到没到"));
+        assertFalse(RollCallAffirmationMatcher.matches("他答到了吗"));
+    }
+
+    @Test
+    void stillAcceptsShortSelfAffirmationWithDaoLe() {
+        assertTrue(RollCallAffirmationMatcher.matches("到了"));
+        assertTrue(RollCallAffirmationMatcher.matches("嗯到了"));
+        assertTrue(RollCallAffirmationMatcher.matches("噢到了"));
+        assertTrue(RollCallAffirmationMatcher.matches("到了。"));
+    }
 }

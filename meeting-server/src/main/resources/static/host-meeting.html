@@ -6,7 +6,13 @@
   <title>智能会议</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body.host-page { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; min-height: 100vh; padding: 16px 20px 24px; }
+    body.host-page {
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #f0f2f5;
+      color: #1a1a1a;
+      min-height: 100vh;
+      padding: 16px 20px max(20px, calc(11.5rem + env(safe-area-inset-bottom, 0px)));
+    }
     .host-header { margin-bottom: 12px; }
     .host-header h1 { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 4px; }
     .host-header .sub { font-size: 14px; color: #555; line-height: 1.4; }
@@ -17,7 +23,26 @@
     .host-col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
     .host-col-right { min-height: 0; display: flex; flex-direction: column; }
     .card-agenda-progress { flex-shrink: 0; }
-    .card-transcript { flex: 1; min-height: 200px; display: flex; flex-direction: column; }
+    /* 实时字幕：固定于视口底部 */
+    .host-transcript-dock {
+      position: fixed;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      z-index: 100;
+      padding: 0 12px max(10px, env(safe-area-inset-bottom, 0px)) 12px;
+      pointer-events: none;
+    }
+    .host-transcript-dock-card {
+      pointer-events: auto;
+      max-width: 1200px;
+      margin: 0 auto;
+      border-radius: 12px 12px 0 0;
+      padding: 10px 14px 12px;
+      box-shadow: 0 -6px 20px rgba(0,0,0,.1);
+      border-bottom: none;
+    }
+    .host-transcript-dock-title { font-size: 13px; margin-bottom: 8px; padding-bottom: 6px; }
     .card-avatar { flex-shrink: 0; }
     /* 主持形象：仪表化 UI（状态徽章 + 声场圆环 + 口型条），避免复杂 CSS 人脸的廉价感 */
     .avatar-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
@@ -103,13 +128,13 @@
     .rc-row.MISSED .rc-st { color: #c62828; }
     .rc-row.SKIPPED .rc-st { color: #e65100; }
     .muted { color: #757575; font-size: 13px; line-height: 1.5; }
-    .transcript-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 4px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; overflow: hidden; }
-    /* 约三句定稿转写高度（每条含发言人一行 + 正文），超出滚动 */
+    .transcript-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; overflow: hidden; }
+    /* 底部字幕区：可滚动，高度随视口略变 */
     .transcript-host-viewport {
       flex: none;
-      height: 14rem;
-      min-height: 14rem;
-      max-height: 14rem;
+      min-height: 5rem;
+      max-height: min(32vh, 11rem);
+      height: 8.5rem;
       overflow-y: auto;
       overflow-x: hidden;
       scroll-behavior: smooth;
@@ -124,12 +149,6 @@
     .card-matter { margin-top: 16px; }
     #progressErr { font-size: 13px; color: #c62828; margin-bottom: 8px; min-height: 0; }
     #matterProgressCard #progressReportBody { min-height: 200px; }
-    .progress-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-    .tts-btn-host { flex-shrink: 0; width: 44px; height: 44px; border: 1px solid #ccc; border-radius: 10px; background: #fff; color: #1565c0; font-size: 20px; line-height: 1; cursor: pointer; }
-    .tts-btn-host:hover:not(:disabled) { background: #e3f2fd; }
-    .tts-btn-host:disabled { opacity: 0.45; cursor: not-allowed; }
-    .tts-btn-host.tts-playing { background: #1565c0; color: #fff; animation: pulse 1.2s ease-in-out infinite; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.72} }
     .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.55; margin-top: 8px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; background: #fafafa; }
     .md-body-host { font-size: 14px; line-height: 1.6; color: #333; word-break: break-word; }
     .md-body-host h1 { font-size: 1.2rem; margin: 10px 0 6px; color: #111; font-weight: 700; }
@@ -179,7 +198,7 @@
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
-          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：主持开场会统一说明一次规则；随后仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，将<strong>自动</strong>开始本节检点（无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
           <div class="row" style="margin-top:0">
             <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
             <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
@@ -188,20 +207,12 @@
           <div class="rc-list" id="rollCallList"></div>
         </div>
       </section>
-      <section class="card-light card-transcript">
-        <h2 class="panel-title">语音转写</h2>
-        <div class="transcript-inner" id="transcriptHost">
-          <div class="transcript-host-viewport" id="transcriptViewport">
-            <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">实时转写显示在此；灰色斜体为识别中，定稿后变为正常样式。</p></div>
-          </div>
-        </div>
-      </section>
     </div>
     <aside class="host-col-right">
       <section class="card-light card-avatar">
         <div class="avatar-card-top">
           <h2 class="panel-title">主持数字人</h2>
-          <span class="avatar-badge" id="avatarBadge" data-badge="idle">待机</span>
+          <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
         </div>
         <div class="avatar-stage" id="avatarStage" data-state="idle">
           <div class="avatar-orbit" aria-hidden="true">
@@ -213,7 +224,7 @@
               </div>
             </div>
           </div>
-          <p class="avatar-caption" id="avatarCaption">等待主持语音…</p>
+          <p class="avatar-caption" id="avatarCaption">等待中</p>
         </div>
       </section>
       <section class="card-light card-agenda-detail">
@@ -225,12 +236,20 @@
 
   <section class="card-light card-matter" id="matterProgressCard">
     <h2 class="panel-title">事项进度通报</h2>
-    <div class="progress-head">
-      <button type="button" class="tts-btn-host" id="progressReportTtsBtn" title="语音播报" disabled>🔊</button>
-    </div>
     <div id="progressErr" style="margin-bottom:8px"></div>
-    <div class="transcript-box md-body-host" id="progressReportBody"></div>
+    <div class="transcript-box md-body-host" id="progressReportBody"><p class="muted" style="padding:4px 0">进入会序 2「事项进度通报」后将自动生成全文（主持 TTS 仍由议程播报下发）。</p></div>
   </section>
+
+  <div class="host-transcript-dock" role="region" aria-label="实时语音字幕">
+    <section class="card-light host-transcript-dock-card">
+      <h2 class="panel-title host-transcript-dock-title">实时字幕</h2>
+      <div class="transcript-inner" id="transcriptHost">
+        <div class="transcript-host-viewport" id="transcriptViewport">
+          <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
+        </div>
+      </div>
+    </section>
+  </div>
 
   <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
   <script src="/static/vendor/marked.min.js?v=sm-20260512-7"></script>
@@ -249,6 +268,8 @@
       let meetingLive = false;
       /** 从会议/预设解析；未开始时右侧议程详情为预览，开始后为实时状态 */
       let plannedTopicsCache = [];
+      /** 会序 2（0-based index 1）进入时拉取事项进度通报；-1 表示未在会序2 */
+      let matterProgressLoadedForSlot = -1;
 
       /** 主持 TTS（PCM）+ 虚拟形象口型：Analyser RMS，指数平滑时间常数 300ms（体感同步档） */
       var hostTtsAvatar = (function () {
@@ -277,7 +298,7 @@
           var badge = document.getElementById('avatarBadge');
           if (badge) {
             badge.setAttribute('data-badge', state === 'speaking' ? 'speaking' : 'idle');
-            badge.textContent = state === 'speaking' ? '播报中' : '待机';
+            badge.textContent = state === 'speaking' ? '播报中' : '等待中';
           }
           var cap = document.getElementById('avatarCaption');
           if (cap && caption != null) cap.textContent = caption;
@@ -332,14 +353,14 @@
           pcmChunks = [];
           currentUtteranceId = o.utteranceId || null;
           if (!currentUtteranceId) {
-            setAvatarState('idle', '待机');
+            setAvatarState('idle', '等待中');
             return;
           }
           if (o.encoding === 'none' || !o.encoding) {
             setAvatarState('idle', '本段无音频');
             return;
           }
-          setAvatarState('speaking', '播报中…');
+          setAvatarState('speaking', '播报中');
           var cap = document.getElementById('avatarCaption');
           if (cap && o.text) {
             var t = String(o.text);
@@ -382,12 +403,12 @@
           pcmChunks = [];
           currentUtteranceId = null;
           if (!chunks.length) {
-            setAvatarState('idle', '待机');
+            setAvatarState('idle', '等待中');
             return;
           }
           var int16 = pcmChunksToInt16(chunks);
           if (!int16.length) {
-            setAvatarState('idle', '待机');
+            setAvatarState('idle', '等待中');
             return;
           }
           var ctx = ensureCtx();
@@ -416,7 +437,7 @@
               stopLipLoop();
               try { analyser.disconnect(); } catch (e) { /* ignore */ }
               analyser = null;
-              setAvatarState('idle', '待机');
+              setAvatarState('idle', '等待中');
             };
             try {
               src.start(0);
@@ -460,60 +481,6 @@
         el.textContent = text;
       }
 
-      function setProgressReportTtsEnabled(on) {
-        var btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.disabled = !on;
-      }
-
-      function stopProgressReportTts() {
-        if (window.speechSynthesis) {
-          try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
-        }
-        var btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.classList.remove('tts-playing');
-      }
-
-      function pickZhVoice() {
-        var syn = window.speechSynthesis;
-        if (!syn) return null;
-        var voices = syn.getVoices() || [];
-        return voices.find(function (v) { return v.lang && /^zh/i.test(v.lang); })
-            || voices.find(function (v) { return v.lang && /CN|TW|HK/i.test(v.lang); })
-            || null;
-      }
-
-      function toggleProgressReportTts() {
-        var syn = window.speechSynthesis;
-        if (!syn) {
-          showProgressErr('当前浏览器不支持语音播报');
-          return;
-        }
-        if (syn.speaking || syn.pending) {
-          stopProgressReportTts();
-          return;
-        }
-        var body = document.getElementById('progressReportBody');
-        var text = (body && body.innerText ? body.innerText : '').replace(/\s+/g, ' ').trim();
-        if (!text || text.indexOf('智能体正在生成') !== -1) {
-          showProgressErr('暂无播报内容，请等待通报生成完成');
-          return;
-        }
-        showProgressErr('');
-        var u = new SpeechSynthesisUtterance(text);
-        u.lang = 'zh-CN';
-        u.rate = 0.92;
-        var vv = pickZhVoice();
-        if (vv) u.voice = vv;
-        u.onend = function () {
-          var btn = document.getElementById('progressReportTtsBtn');
-          if (btn) btn.classList.remove('tts-playing');
-        };
-        u.onerror = u.onend;
-        var btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.classList.add('tts-playing');
-        syn.speak(u);
-      }
-
       async function loadMatterProgressReport() {
         if (!token || !meetingId) return;
         var body = document.getElementById('progressReportBody');
@@ -522,8 +489,6 @@
         body.style.maxHeight = '360px';
         body.style.overflowY = 'auto';
         body.textContent = '智能体正在生成待办进度通报，请稍候…';
-        setProgressReportTtsEnabled(false);
-        stopProgressReportTts();
         try {
           var res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/matter-progress-report', {
             method: 'POST',
@@ -533,11 +498,9 @@
           if (j.code !== 0) throw new Error(j.message || '分析失败');
           var md = (j.data && j.data.analysisMarkdown) ? j.data.analysisMarkdown : '';
           renderProgressMarkdownHost(body, md);
-          setProgressReportTtsEnabled(!!String(md || '').trim());
         } catch (e) {
           body.innerHTML = '';
           body.textContent = '';
-          setProgressReportTtsEnabled(false);
           showProgressErr('事项进度通报失败：' + (e.message || e));
         }
       }
@@ -602,6 +565,7 @@
         var active = obj && (obj.active === true || obj.active === 'true');
         var rcw = document.getElementById('rollCallWrap');
         if (!active) {
+          matterProgressLoadedForSlot = -1;
           document.getElementById('topicTimer').textContent = '议题剩余 —:—';
           document.getElementById('meetTimer').textContent = '会议剩余 —:—';
           renderTopicsPreviewFromCache();
@@ -635,7 +599,7 @@
         var btnRk = document.getElementById('btnRollCallSkip');
         if (rcList && rcCd && btnRs && btnRk) {
           if (!people.length && phase === 'NONE') {
-            rcList.innerHTML = '<p class="muted" style="padding:4px 0">开始检点后，将按预设与会人名单依次点名。</p>';
+            rcList.innerHTML = '<p class="muted" style="padding:4px 0">具备应到名单时，开始会议后将自动开始检点；此处也可再次点击「开始检点」发起新一轮。</p>';
           } else {
             rcList.innerHTML = people.map(function (p, i) {
               var cur = phase === 'ACTIVE' && i === (rc.currentIndex | 0);
@@ -656,6 +620,15 @@
           }
           btnRs.disabled = !meetingLive || phase === 'ACTIVE';
           btnRk.disabled = !meetingLive || phase !== 'ACTIVE';
+        }
+        var curTopicIdx = obj.currentTopicIndex | 0;
+        if (topics.length > 1 && curTopicIdx === 1) {
+          if (matterProgressLoadedForSlot !== 1) {
+            matterProgressLoadedForSlot = 1;
+            loadMatterProgressReport();
+          }
+        } else if (curTopicIdx !== 1) {
+          matterProgressLoadedForSlot = -1;
         }
       }
 
@@ -794,12 +767,6 @@
           }
         });
       }
-      document.getElementById('progressReportTtsBtn').onclick = toggleProgressReportTts;
-      if (window.speechSynthesis) {
-        window.speechSynthesis.onvoiceschanged = function () { pickZhVoice(); };
-      }
-      loadMatterProgressReport();
-
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const wsHost = proto + '//' + location.host + '/ws/host/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token);
       let sock = null;
