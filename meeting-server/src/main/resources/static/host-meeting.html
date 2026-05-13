@@ -44,51 +44,63 @@
     }
     .host-transcript-dock-title { font-size: 13px; margin-bottom: 8px; padding-bottom: 6px; }
     .card-avatar { flex-shrink: 0; }
-    /* 主持形象：仪表化 UI（状态徽章 + 声场圆环 + 口型条），避免复杂 CSS 人脸的廉价感 */
-    .avatar-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+    .avatar-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
     .avatar-card-top .panel-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; flex: 1; min-width: 0; }
     .avatar-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 4px 10px; border-radius: 999px; background: #eceff1; color: #546e7a; border: 1px solid #cfd8dc; }
     .avatar-badge[data-badge="speaking"] { background: #e8eaf6; color: #3949ab; border-color: #9fa8da; animation: avatar-badge-pulse 1.8s ease-in-out infinite; }
     @keyframes avatar-badge-pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(57,73,171,.25);} 50%{ box-shadow: 0 0 0 6px rgba(57,73,171,0);} }
-    .avatar-stage { display: flex; flex-direction: column; align-items: center; padding: 8px 0 2px; }
-    .avatar-orbit { position: relative; width: 168px; height: 168px; display: flex; align-items: center; justify-content: center; }
-    .avatar-glow {
-      position: absolute; inset: 0; border-radius: 50%;
-      background: conic-gradient(from 200deg, rgba(100,181,246,.35), rgba(129,212,250,.15), rgba(66,165,245,.4), rgba(100,181,246,.35));
-      opacity: .55; filter: blur(10px); transform: scale(0.92);
-      transition: opacity .35s ease, transform .35s ease;
-    }
-    .avatar-stage[data-state="speaking"] .avatar-glow { opacity: .85; transform: scale(1); animation: avatar-orbit-spin 8s linear infinite; }
-    @keyframes avatar-orbit-spin { to { transform: scale(1) rotate(360deg); } }
-    .avatar-core {
-      position: relative; width: 132px; height: 132px; border-radius: 50%;
-      background: radial-gradient(circle at 35% 28%, #fafafa 0%, #e3f2fd 38%, #bbdefb 72%, #90caf9 100%);
+    .avatar-stage { display: flex; flex-direction: column; align-items: center; padding: 4px 0 0; }
+    /* 单层圆形虚拟主持：一体渐变 + 内阴影，口型仅底部一条，避免多环拼接感 */
+    .avatar-figure {
+      position: relative;
+      width: 152px;
+      height: 152px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      background:
+        radial-gradient(circle at 34% 22%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.14) 22%, transparent 38%),
+        radial-gradient(circle at 50% 118%, rgba(25,118,210,.3) 0%, transparent 50%),
+        linear-gradient(158deg, #eef7fc 0%, #c5e3f6 42%, #64b5f6 88%, #42a5f5 100%);
       box-shadow:
-        0 1px 2px rgba(0,0,0,.06),
-        inset 0 0 0 1px rgba(255,255,255,.9),
-        inset 0 -12px 28px rgba(25,118,210,.12);
-      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
-      padding-bottom: 22px;
+        0 4px 16px rgba(25,118,210,.24),
+        inset 0 0 0 1px rgba(255,255,255,.65),
+        inset 0 -26px 52px rgba(13,71,161,.11);
+      transition: box-shadow 0.35s ease;
     }
-    .avatar-core-inner {
-      position: absolute; width: 52px; height: 52px; border-radius: 50%; top: 28%; left: 50%; margin-left: -26px;
-      background: radial-gradient(circle at 32% 28%, #fff 0%, #e1f5fe 45%, #4fc3f7 100%);
-      box-shadow: 0 4px 14px rgba(3,155,229,.25), inset 0 -4px 10px rgba(1,87,155,.15);
-      opacity: .95;
+    .avatar-stage[data-state="speaking"] .avatar-figure {
+      animation: avatar-figure-breathe 2s ease-in-out infinite;
+      box-shadow:
+        0 8px 24px rgba(57,73,171,.28),
+        inset 0 0 0 1px rgba(255,255,255,.72),
+        inset 0 -26px 52px rgba(25,118,210,.16),
+        0 0 0 3px rgba(129,212,250,.4);
     }
-    .avatar-core-inner::after {
-      content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%; right: 12px; top: 14px;
-      background: rgba(255,255,255,.85);
+    @keyframes avatar-figure-breathe {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.035); }
     }
-    .avatar-mouth-bar-wrap {
-      position: relative; z-index: 2; height: 14px; display: flex; align-items: center; justify-content: center;
+    .avatar-mouth-slot {
+      position: absolute;
+      left: 50%;
+      bottom: 17%;
+      transform: translateX(-50%);
+      width: 56px;
+      height: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2;
     }
     #avatarMouth {
-      width: 52px; height: 10px; border-radius: 6px;
-      background: linear-gradient(180deg, #5c6bc0, #3949ab);
-      transform: scaleY(0.35); transform-origin: center center;
-      transition: none; will-change: transform;
-      box-shadow: 0 2px 6px rgba(57,73,171,.35);
+      width: 48px;
+      height: 9px;
+      border-radius: 999px;
+      background: linear-gradient(180deg, #5c6bc0, #283593);
+      transform: scaleY(0.35);
+      transform-origin: center center;
+      transition: none;
+      will-change: transform;
+      box-shadow: inset 0 1px 2px rgba(255,255,255,.28), 0 2px 6px rgba(40,53,147,.4);
     }
     .avatar-caption {
       margin-top: 14px; text-align: center; max-width: 100%; font-size: 12px; line-height: 1.5; color: #616161;
@@ -215,13 +227,9 @@
           <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
         </div>
         <div class="avatar-stage" id="avatarStage" data-state="idle">
-          <div class="avatar-orbit" aria-hidden="true">
-            <div class="avatar-glow"></div>
-            <div class="avatar-core">
-              <div class="avatar-core-inner"></div>
-              <div class="avatar-mouth-bar-wrap">
-                <div id="avatarMouth"></div>
-              </div>
+          <div class="avatar-figure" aria-hidden="true">
+            <div class="avatar-mouth-slot">
+              <div id="avatarMouth"></div>
             </div>
           </div>
           <p class="avatar-caption" id="avatarCaption">等待中</p>
