@@ -134,7 +134,7 @@ meeting:
 # OpenClaw AI Agent 配置（方案B：通过OpenClaw调用小栈）
 # ============================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:true}
+  enabled: ${OPENCLAW_ENABLED:false}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
   # sessionKey 格式：agent:{agentId}:{mode}:{userId}
   # 实际使用时需传入完整sessionKey，或通过环境变量配置

@@ -46,6 +46,10 @@ public class XfyunRealtimeClient {
     @Value("${meeting.asr.xfyun.feature-ids:}")
     private String featureIdsConfig;
 
+    /** 握手成功后阻塞等待的毫秒数（0=不等待）；过大影响首字延迟，代码内上限 60000。 */
+    @Value("${meeting.asr.xfyun.post-open-wait-ms:0}")
+    private int postOpenWaitMs;
+
     private WebSocketClient client;
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean firstFrame = new AtomicBoolean(true);
@@ -81,19 +85,25 @@ public class XfyunRealtimeClient {
             URI uri = new URI(authUrl);
             log.info("Connecting to Xfyun ASR: {}", maskUrl(uri.toString()));
 
+            final int waitAfterOpenMs = Math.max(0, Math.min(postOpenWaitMs, 60_000));
+            if (postOpenWaitMs != waitAfterOpenMs) {
+                log.warn("post-open-wait-ms={} clamped to {}", postOpenWaitMs, waitAfterOpenMs);
+            }
+
             CountDownLatch latch = new CountDownLatch(1);
 
             client = new WebSocketClient(uri) {
                 @Override
                 public void onOpen(ServerHandshake handshake) {
-                    log.info("【ASR连接成功】status={}, 等待服务端初始化（1.5秒）...", handshake.getHttpStatus());
+                    log.info("【ASR连接成功】status={}, postOpenWaitMs={}", handshake.getHttpStatus(), waitAfterOpenMs);
                     connected.set(true);
                     firstFrame.set(true);
-                    // 参考官方Demo：等待1.5秒让服务端初始化
-                    try {
-                        Thread.sleep(1500);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
+                    if (waitAfterOpenMs > 0) {
+                        try {
+                            Thread.sleep(waitAfterOpenMs);
+                        } catch (InterruptedException e) {
+                            Thread.currentThread().interrupt();
+                        }
                     }
                     log.info("【ASR就绪】开始接收消息");
                     latch.countDown();

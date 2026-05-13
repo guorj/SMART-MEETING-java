@@ -1,5 +1,8 @@
 # 与 application-dev.yml 叠加使用（@ActiveProfiles({"dev", "test"})，test 在后覆盖）
 # 此处只保留「跑集成测试」所需增量，其余飞书/讯飞/LLM/JWT 等沿用 dev 真实配置
+#
+# 数据源：由 BaseTest 的 @DynamicPropertySource 注册（默认 Testcontainers MySQL，或见 BaseTest 类注释中的外部 JDBC）。
+# 切勿在「开发用 intelligence 库」上跑集成测试；旧版 BaseTest 曾在 @BeforeEach 全表 delete，已移除。
 
 spring:
   autoconfigure:

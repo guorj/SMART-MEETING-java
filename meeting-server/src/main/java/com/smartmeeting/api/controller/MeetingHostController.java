@@ -72,6 +72,24 @@ public class MeetingHostController {
         return ApiResponse.ok(meetingHostSessionService.getStateJson(meetingId));
     }
 
+    @PostMapping("/{meetingId}/roll-call/start")
+    public ApiResponse<JsonNode> rollCallStart(
+            @PathVariable String meetingId,
+            @RequestHeader("Authorization") String authorization) {
+        jwtUtil.verifyRecordingPageToken(bearer(authorization), meetingId);
+        meetingHostSessionService.startRollCall(meetingId);
+        return ApiResponse.ok(meetingHostSessionService.getStateJson(meetingId));
+    }
+
+    @PostMapping("/{meetingId}/roll-call/skip-current")
+    public ApiResponse<JsonNode> rollCallSkipCurrent(
+            @PathVariable String meetingId,
+            @RequestHeader("Authorization") String authorization) {
+        jwtUtil.verifyRecordingPageToken(bearer(authorization), meetingId);
+        meetingHostSessionService.skipCurrentRollCall(meetingId);
+        return ApiResponse.ok(meetingHostSessionService.getStateJson(meetingId));
+    }
+
     private static String bearer(String authorization) {
         if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
             throw new BusinessException(401, "缺少 Authorization: Bearer 凭证");

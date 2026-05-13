@@ -103,6 +103,8 @@ meeting:
       send-max-retries: 2
       ws-handshake-timeout: 10
       receive-timeout: 30
+      # WebSocket 握手成功后额外等待再视为「就绪」（旧版 Demo 曾用 1500ms 避首帧异常）；默认 0 以降低首字延迟，不稳时再调大
+      post-open-wait-ms: ${XFYUN_POST_OPEN_WAIT_MS:0}
       reconnect:
         max-retries: 5
         backoff-ms: 1000
@@ -122,6 +124,11 @@ meeting:
     reminder:
       topic-minutes-left: 3
       meeting-minutes-left: "10,5"
+    roll-call:
+      # 每人「请某某答到」话术推送完成后的基础作答秒数（至少 5 生效）
+      window-seconds: ${MEETING_HOST_ROLL_CALL_WINDOW_SEC:12}
+      # 定稿常晚于实际开口：叠在 window 之上；与未到超时、答到判定共用 deadline（计时在点名话术播完后起算）
+      asr-grace-seconds: ${MEETING_HOST_ROLL_CALL_ASR_GRACE_SEC:6}
 
   isv:
     enabled: ${ISV_ENABLED:false}
@@ -175,7 +182,7 @@ meeting:
 # OpenClaw AI Agent 配置（方案B：通过OpenClaw调用小栈）
 # ============================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:true}
+  enabled: ${OPENCLAW_ENABLED:false}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
   # sessionKey 格式：agent:{agentId}:{mode}:{userId}
   # 实际使用时需传入完整sessionKey，或通过环境变量配置

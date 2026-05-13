@@ -6,100 +6,231 @@
   <title>智能会议</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: system-ui, sans-serif; background: #0f1419; color: #e6edf3; min-height: 100vh; padding: 16px; }
-    h1 { font-size: 1.1rem; margin-bottom: 12px; }
-    h2 { font-size: 0.95rem; color: #8b949e; margin-bottom: 10px; font-weight: 600; }
-    .card { background: #161b22; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #30363d; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
-    button { padding: 10px 14px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
-    .btn-primary { background: #238636; color: #fff; }
-    .btn-secondary { background: #21262d; color: #e6edf3; border: 1px solid #30363d; }
-    .btn-danger { background: #da3633; color: #fff; }
-    .muted { color: #8b949e; font-size: 13px; margin-top: 8px; line-height: 1.5; }
-    .timer { font-size: 1.25rem; font-weight: 700; margin: 6px 0; font-variant-numeric: tabular-nums; }
-    .err { color: #f85149; font-size: 13px; margin-top: 8px; }
-    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.45} }
-    .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.45; margin-top: 8px; border: 1px solid #30363d; border-radius: 8px; padding: 8px; background: #0d1117; }
-    .transcript-host-live { margin-top: 8px; border: 1px solid #30363d; border-radius: 8px; padding: 8px; background: #0d1117; font-size: 13px; line-height: 1.45; }
-    .transcript-host-viewport { height: calc(13px * 1.45 * 3); overflow-y: auto; overflow-x: hidden; scroll-behavior: smooth; }
-    .transcript-host-viewport .transcript-line { padding: 2px 0 4px; border-bottom: 1px solid #21262d; }
+    body.host-page { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f0f2f5; color: #1a1a1a; min-height: 100vh; padding: 16px 20px 24px; }
+    .host-header { margin-bottom: 12px; }
+    .host-header h1 { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 4px; }
+    .host-header .sub { font-size: 14px; color: #555; line-height: 1.4; }
+    .ios-banner { font-size: 13px; color: #856404; background: #fff3cd; border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
+    .err { color: #c62828; font-size: 13px; margin: 8px 0 12px; padding: 8px 12px; background: #ffebee; border-radius: 8px; border: 1px solid #ffcdd2; }
+    .card-light { background: #fff; border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 16px; }
+    .host-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: stretch; min-height: calc(100vh - 200px); }
+    .host-col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
+    .host-col-right { min-height: 0; display: flex; flex-direction: column; }
+    .card-agenda-progress { flex-shrink: 0; }
+    .card-transcript { flex: 1; min-height: 200px; display: flex; flex-direction: column; }
+    .card-avatar { flex-shrink: 0; }
+    /* 主持形象：仪表化 UI（状态徽章 + 声场圆环 + 口型条），避免复杂 CSS 人脸的廉价感 */
+    .avatar-card-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 4px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
+    .avatar-card-top .panel-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; flex: 1; min-width: 0; }
+    .avatar-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 4px 10px; border-radius: 999px; background: #eceff1; color: #546e7a; border: 1px solid #cfd8dc; }
+    .avatar-badge[data-badge="speaking"] { background: #e8eaf6; color: #3949ab; border-color: #9fa8da; animation: avatar-badge-pulse 1.8s ease-in-out infinite; }
+    @keyframes avatar-badge-pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(57,73,171,.25);} 50%{ box-shadow: 0 0 0 6px rgba(57,73,171,0);} }
+    .avatar-stage { display: flex; flex-direction: column; align-items: center; padding: 8px 0 2px; }
+    .avatar-orbit { position: relative; width: 168px; height: 168px; display: flex; align-items: center; justify-content: center; }
+    .avatar-glow {
+      position: absolute; inset: 0; border-radius: 50%;
+      background: conic-gradient(from 200deg, rgba(100,181,246,.35), rgba(129,212,250,.15), rgba(66,165,245,.4), rgba(100,181,246,.35));
+      opacity: .55; filter: blur(10px); transform: scale(0.92);
+      transition: opacity .35s ease, transform .35s ease;
+    }
+    .avatar-stage[data-state="speaking"] .avatar-glow { opacity: .85; transform: scale(1); animation: avatar-orbit-spin 8s linear infinite; }
+    @keyframes avatar-orbit-spin { to { transform: scale(1) rotate(360deg); } }
+    .avatar-core {
+      position: relative; width: 132px; height: 132px; border-radius: 50%;
+      background: radial-gradient(circle at 35% 28%, #fafafa 0%, #e3f2fd 38%, #bbdefb 72%, #90caf9 100%);
+      box-shadow:
+        0 1px 2px rgba(0,0,0,.06),
+        inset 0 0 0 1px rgba(255,255,255,.9),
+        inset 0 -12px 28px rgba(25,118,210,.12);
+      display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+      padding-bottom: 22px;
+    }
+    .avatar-core-inner {
+      position: absolute; width: 52px; height: 52px; border-radius: 50%; top: 28%; left: 50%; margin-left: -26px;
+      background: radial-gradient(circle at 32% 28%, #fff 0%, #e1f5fe 45%, #4fc3f7 100%);
+      box-shadow: 0 4px 14px rgba(3,155,229,.25), inset 0 -4px 10px rgba(1,87,155,.15);
+      opacity: .95;
+    }
+    .avatar-core-inner::after {
+      content: ""; position: absolute; width: 10px; height: 10px; border-radius: 50%; right: 12px; top: 14px;
+      background: rgba(255,255,255,.85);
+    }
+    .avatar-mouth-bar-wrap {
+      position: relative; z-index: 2; height: 14px; display: flex; align-items: center; justify-content: center;
+    }
+    #avatarMouth {
+      width: 52px; height: 10px; border-radius: 6px;
+      background: linear-gradient(180deg, #5c6bc0, #3949ab);
+      transform: scaleY(0.35); transform-origin: center center;
+      transition: none; will-change: transform;
+      box-shadow: 0 2px 6px rgba(57,73,171,.35);
+    }
+    .avatar-caption {
+      margin-top: 14px; text-align: center; max-width: 100%; font-size: 12px; line-height: 1.5; color: #616161;
+      min-height: 2.8em; padding: 0 6px;
+    }
+    .card-agenda-detail { flex: 1; display: flex; flex-direction: column; min-height: 200px; }
+    .panel-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
+    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .row-primary { align-items: center; }
     .row-primary .btn-danger { margin-left: auto; }
-    @media (max-width: 520px) {
-      .row-primary .btn-danger { margin-left: 0; width: 100%; }
+    button { padding: 9px 14px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
+    .btn-primary { background: #2e7d32; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #1b5e20; }
+    .btn-secondary { background: #fff; color: #333; border: 1px solid #ccc; }
+    .btn-secondary:hover:not(:disabled) { background: #f5f5f5; }
+    .btn-danger { background: #c62828; color: #fff; }
+    .btn-danger:hover:not(:disabled) { background: #b71c1c; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .timers { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .timer { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #1565c0; }
+    .agenda-detail-body { flex: 1; overflow-y: auto; font-size: 14px; line-height: 1.5; min-height: 120px; }
+    .topic { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; color: #333; border-radius: 8px; margin-bottom: 6px; background: #fafafa; border: 1px solid #eee; }
+    .topic:last-child { margin-bottom: 0; }
+    .topic.PENDING { color: #555; }
+    .topic.RUNNING { color: #1565c0; background: #e3f2fd; border-color: #90caf9; font-weight: 600; }
+    .topic.COMPLETED { color: #2e7d32; text-decoration: line-through; opacity: 0.75; }
+    .topic.SKIPPED { color: #e65100; }
+    .roll-call-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
+    .roll-call-wrap h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #333; }
+    .rc-countdown { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #6a1b9a; margin: 6px 0 10px; }
+    .rc-list { font-size: 13px; line-height: 1.45; max-height: 200px; overflow-y: auto; }
+    .rc-row { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: #fafafa; border: 1px solid #eee; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    .rc-row.current { border-color: #ce93d8; background: #f3e5f5; }
+    .rc-row .rc-name { font-weight: 600; color: #333; }
+    .rc-row .rc-st { font-size: 12px; color: #616161; flex-shrink: 0; }
+    .rc-row.ANSWERED .rc-st { color: #2e7d32; }
+    .rc-row.MISSED .rc-st { color: #c62828; }
+    .rc-row.SKIPPED .rc-st { color: #e65100; }
+    .muted { color: #757575; font-size: 13px; line-height: 1.5; }
+    .transcript-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 4px; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; overflow: hidden; }
+    /* 约三句定稿转写高度（每条含发言人一行 + 正文），超出滚动 */
+    .transcript-host-viewport {
+      flex: none;
+      height: 14rem;
+      min-height: 14rem;
+      max-height: 14rem;
+      overflow-y: auto;
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+      padding: 10px 12px;
+      font-size: 13px;
+      line-height: 1.5;
     }
-    .timer-block { margin-top: 12px; padding-top: 12px; border-top: 1px solid #30363d; }
-    .timer-block .timer { margin: 4px 0; }
-    .section-live { margin-top: 14px; padding-top: 14px; border-top: 1px solid #30363d; }
-    .section-live h2 { margin-bottom: 6px; }
+    .transcript-line { padding: 8px 0; border-bottom: 1px solid #e8e8e8; }
+    .transcript-line:last-child { border-bottom: none; }
+    .transcript-line.interim .transcript-body { color: #757575; font-style: italic; }
+    .speaker { font-weight: 600; color: #1565c0; }
+    .card-matter { margin-top: 16px; }
+    #progressErr { font-size: 13px; color: #c62828; margin-bottom: 8px; min-height: 0; }
     #matterProgressCard #progressReportBody { min-height: 200px; }
-    .transcript-line { padding: 6px 0; border-bottom: 1px solid #21262d; }
-    .transcript-line.interim { color: #8b949e; }
-    .speaker { font-weight: 600; color: #58a6ff; }
-    .divider { height: 1px; background: #30363d; margin: 14px 0; }
     .progress-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
-    .tts-btn-host { flex-shrink: 0; width: 44px; height: 44px; border: 1px solid #30363d; border-radius: 10px; background: #21262d; color: #58a6ff; font-size: 20px; line-height: 1; cursor: pointer; }
-    .tts-btn-host:hover:not(:disabled) { background: #30363d; }
+    .tts-btn-host { flex-shrink: 0; width: 44px; height: 44px; border: 1px solid #ccc; border-radius: 10px; background: #fff; color: #1565c0; font-size: 20px; line-height: 1; cursor: pointer; }
+    .tts-btn-host:hover:not(:disabled) { background: #e3f2fd; }
     .tts-btn-host:disabled { opacity: 0.45; cursor: not-allowed; }
-    .tts-btn-host.tts-playing { background: #1f6feb; color: #fff; animation: pulse 1.2s ease-in-out infinite; }
-    .md-body-host { font-size: 13px; line-height: 1.55; color: #c9d1d9; word-break: break-word; }
-    .md-body-host h1 { font-size: 1.2rem; margin: 10px 0 6px; color: #e6edf3; font-weight: 700; }
-    .md-body-host h2 { font-size: 1.05rem; margin: 12px 0 6px; color: #e6edf3; font-weight: 600; border-bottom: 1px solid #30363d; padding-bottom: 4px; }
-    .md-body-host h3 { font-size: 1rem; margin: 8px 0 4px; color: #c9d1d9; font-weight: 600; }
+    .tts-btn-host.tts-playing { background: #1565c0; color: #fff; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.72} }
+    .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.55; margin-top: 8px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; background: #fafafa; }
+    .md-body-host { font-size: 14px; line-height: 1.6; color: #333; word-break: break-word; }
+    .md-body-host h1 { font-size: 1.2rem; margin: 10px 0 6px; color: #111; font-weight: 700; }
+    .md-body-host h2 { font-size: 1.05rem; margin: 12px 0 6px; color: #222; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
+    .md-body-host h3 { font-size: 1rem; margin: 8px 0 4px; color: #333; font-weight: 600; }
     .md-body-host p { margin: 6px 0; }
     .md-body-host ul, .md-body-host ol { margin: 6px 0; padding-left: 1.25rem; }
     .md-body-host li { margin: 3px 0; }
-    .md-body-host code { background: #21262d; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
-    .md-body-host pre { background: #0d1117; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 6px 0; border: 1px solid #30363d; }
+    .md-body-host code { background: #eceff1; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
+    .md-body-host pre { background: #fff; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 6px 0; border: 1px solid #e0e0e0; }
     .md-body-host pre code { background: transparent; padding: 0; }
     .md-body-host table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
-    .md-body-host th, .md-body-host td { border: 1px solid #30363d; padding: 6px 4px; text-align: left; }
-    .md-body-host th { background: #21262d; font-weight: 600; }
+    .md-body-host th, .md-body-host td { border: 1px solid #e0e0e0; padding: 6px 4px; text-align: left; }
+    .md-body-host th { background: #f5f5f5; font-weight: 600; }
+    @media (max-width: 900px) {
+      .host-workspace { grid-template-columns: 1fr; min-height: auto; }
+      .host-col-right { order: 3; }
+      .row-primary .btn-danger { margin-left: 0; }
+    }
   </style>
 </head>
-<body>
-  <h1>智能会议</h1>
-  <p class="muted" id="titleLine">加载中…</p>
-  <div class="err" id="err" style="margin-bottom:10px"></div>
+<body class="host-page">
+  <header class="host-header">
+    <h1>智能会议</h1>
+    <p class="sub" id="titleLine">加载中…</p>
+    <p class="ios-banner" id="iosNoticeHost" style="display:none">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
+  </header>
+  <div class="err" id="err" style="display:none"></div>
 
-  <div class="card" id="mainMeetingCard">
-    <p class="muted" id="iosNoticeHost" style="display:none;margin-top:0">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
-
-    <div class="row row-primary" style="margin-top:0">
-      <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
-      <button class="btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
-      <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
-      <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
-    </div>
-    <div class="row">
-      <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
-      <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
-    </div>
-
-    <div class="timer-block">
-      <div class="timer" id="topicTimer">议题剩余 —:—</div>
-      <div class="timer" id="meetTimer">会议剩余 —:—</div>
-    </div>
-    <div class="section-live">
-      <h2>现场录音与转写</h2>
-      <div class="transcript-host-live" id="transcriptHost">
-        <div class="muted" style="margin-bottom:6px;font-size:12px">实时转写</div>
-        <div class="transcript-host-viewport" id="transcriptViewport">
-          <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">转写将显示在此</p></div>
+  <div class="host-workspace">
+    <div class="host-col-left">
+      <section class="card-light card-agenda-progress">
+        <h2 class="panel-title">议程进度</h2>
+        <div class="row row-primary" style="margin-top:0">
+          <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
+          <button class="btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
+          <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
+          <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
         </div>
-      </div>
+        <div class="row">
+          <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
+          <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
+        </div>
+        <div class="timers">
+          <div class="timer" id="topicTimer">议题剩余 —:—</div>
+          <div class="timer" id="meetTimer">会议剩余 —:—</div>
+        </div>
+        <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
+          <h3>会议检点</h3>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：主持开场会统一说明一次规则；随后仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
+          <div class="row" style="margin-top:0">
+            <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
+            <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
+          </div>
+          <div class="rc-countdown" id="rollCallCountdown"></div>
+          <div class="rc-list" id="rollCallList"></div>
+        </div>
+      </section>
+      <section class="card-light card-transcript">
+        <h2 class="panel-title">语音转写</h2>
+        <div class="transcript-inner" id="transcriptHost">
+          <div class="transcript-host-viewport" id="transcriptViewport">
+            <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">实时转写显示在此；灰色斜体为识别中，定稿后变为正常样式。</p></div>
+          </div>
+        </div>
+      </section>
     </div>
+    <aside class="host-col-right">
+      <section class="card-light card-avatar">
+        <div class="avatar-card-top">
+          <h2 class="panel-title">主持数字人</h2>
+          <span class="avatar-badge" id="avatarBadge" data-badge="idle">待机</span>
+        </div>
+        <div class="avatar-stage" id="avatarStage" data-state="idle">
+          <div class="avatar-orbit" aria-hidden="true">
+            <div class="avatar-glow"></div>
+            <div class="avatar-core">
+              <div class="avatar-core-inner"></div>
+              <div class="avatar-mouth-bar-wrap">
+                <div id="avatarMouth"></div>
+              </div>
+            </div>
+          </div>
+          <p class="avatar-caption" id="avatarCaption">等待主持语音…</p>
+        </div>
+      </section>
+      <section class="card-light card-agenda-detail">
+        <h2 class="panel-title">议程详情</h2>
+        <div id="topics" class="agenda-detail-body"></div>
+      </section>
+    </aside>
   </div>
 
-  <div class="card" id="matterProgressCard">
-    <h2>事项进度通报</h2>
+  <section class="card-light card-matter" id="matterProgressCard">
+    <h2 class="panel-title">事项进度通报</h2>
     <div class="progress-head">
-      <span class="muted">进入页面后自动拉取（需有效 token）</span>
       <button type="button" class="tts-btn-host" id="progressReportTtsBtn" title="语音播报" disabled>🔊</button>
     </div>
-    <div class="err" id="progressErr" style="margin-bottom:8px"></div>
+    <div id="progressErr" style="margin-bottom:8px"></div>
     <div class="transcript-box md-body-host" id="progressReportBody"></div>
-  </div>
+  </section>
 
   <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
   <script src="/static/vendor/marked.min.js?v=sm-20260512-7"></script>
@@ -113,14 +244,200 @@
       const meetingId = parts[parts.length - 1] || '';
 
       let recorder = null;
+      /** 当前一条「进行中」转写行：同发言人连续 partial 在此行内刷新，定稿后清空以便下一句新开一行。 */
+      let hostTranscriptLiveSlot = null;
       let meetingLive = false;
-      /** 从会议/预设解析的议程，仅用于开始会议 POST body，不在页面上展示 */
+      /** 从会议/预设解析；未开始时右侧议程详情为预览，开始后为实时状态 */
       let plannedTopicsCache = [];
+
+      /** 主持 TTS（PCM）+ 虚拟形象口型：Analyser RMS，指数平滑时间常数 300ms（体感同步档） */
+      var hostTtsAvatar = (function () {
+        var LIP_SYNC_TAU_MS = 300;
+        var audioCtx = null;
+        var analyser = null;
+        var rafId = null;
+        var mouthSmoothed = 0;
+        var lastFrameTime = 0;
+        var activeSource = null;
+        var currentUtteranceId = null;
+        var pcmChunks = [];
+
+        function ensureCtx() {
+          if (!audioCtx) {
+            var AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            audioCtx = new AC();
+          }
+          return audioCtx;
+        }
+
+        function setAvatarState(state, caption) {
+          var stage = document.getElementById('avatarStage');
+          if (stage) stage.setAttribute('data-state', state);
+          var badge = document.getElementById('avatarBadge');
+          if (badge) {
+            badge.setAttribute('data-badge', state === 'speaking' ? 'speaking' : 'idle');
+            badge.textContent = state === 'speaking' ? '播报中' : '待机';
+          }
+          var cap = document.getElementById('avatarCaption');
+          if (cap && caption != null) cap.textContent = caption;
+        }
+
+        function stopLipLoop() {
+          if (rafId) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          mouthSmoothed = 0;
+          lastFrameTime = 0;
+          var m = document.getElementById('avatarMouth');
+          if (m) m.style.transform = 'scaleY(0.28)';
+        }
+
+        function lipLoop() {
+          rafId = requestAnimationFrame(lipLoop);
+          var now = performance.now();
+          var dt = Math.min(120, (lastFrameTime ? now - lastFrameTime : 16));
+          lastFrameTime = now;
+          if (!analyser) return;
+          var buf = new Float32Array(analyser.fftSize);
+          analyser.getFloatTimeDomainData(buf);
+          var sum = 0;
+          for (var i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+          var rms = Math.sqrt(sum / buf.length);
+          var target = Math.min(1, rms * 10);
+          var k = 1 - Math.exp(-dt / LIP_SYNC_TAU_MS);
+          mouthSmoothed += (target - mouthSmoothed) * k;
+          var mouth = document.getElementById('avatarMouth');
+          if (mouth) {
+            var open = 0.18 + mouthSmoothed * 0.92;
+            mouth.style.transform = 'scaleY(' + open.toFixed(3) + ')';
+          }
+        }
+
+        function stopPlayback() {
+          if (activeSource) {
+            try { activeSource.stop(0); } catch (e) { /* ignore */ }
+            activeSource = null;
+          }
+          if (analyser) {
+            try { analyser.disconnect(); } catch (e2) { /* ignore */ }
+            analyser = null;
+          }
+          stopLipLoop();
+        }
+
+        function handleMeta(o) {
+          stopPlayback();
+          pcmChunks = [];
+          currentUtteranceId = o.utteranceId || null;
+          if (!currentUtteranceId) {
+            setAvatarState('idle', '待机');
+            return;
+          }
+          if (o.encoding === 'none' || !o.encoding) {
+            setAvatarState('idle', '本段无音频');
+            return;
+          }
+          setAvatarState('speaking', '播报中…');
+          var cap = document.getElementById('avatarCaption');
+          if (cap && o.text) {
+            var t = String(o.text);
+            cap.textContent = t.length > 48 ? t.slice(0, 48) + '…' : t;
+          }
+        }
+
+        function handleChunk(o) {
+          if (!currentUtteranceId || o.utteranceId !== currentUtteranceId || !o.base64) return;
+          try {
+            var bin = atob(o.base64);
+            var u8 = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i) & 0xff;
+            pcmChunks.push(u8);
+          } catch (e) { console.warn('tts chunk', e); }
+        }
+
+        function pcmChunksToInt16(chunks) {
+          var totalBytes = 0;
+          for (var j = 0; j < chunks.length; j++) totalBytes += chunks[j].length;
+          if (totalBytes < 2) return new Int16Array(0);
+          if (totalBytes % 2) totalBytes--;
+          var samples = totalBytes / 2;
+          var out = new Int16Array(samples);
+          var o = 0;
+          for (var c = 0; c < chunks.length; c++) {
+            var chunk = chunks[c];
+            for (var i = 0; i + 1 < chunk.length && o < samples; i += 2) {
+              var v = chunk[i] | (chunk[i + 1] << 8);
+              if (v >= 0x8000) v -= 0x10000;
+              out[o++] = v;
+            }
+          }
+          return o === samples ? out : out.subarray(0, o);
+        }
+
+        function handleEnd(o) {
+          if (!o.utteranceId || o.utteranceId !== currentUtteranceId) return;
+          var chunks = pcmChunks;
+          pcmChunks = [];
+          currentUtteranceId = null;
+          if (!chunks.length) {
+            setAvatarState('idle', '待机');
+            return;
+          }
+          var int16 = pcmChunksToInt16(chunks);
+          if (!int16.length) {
+            setAvatarState('idle', '待机');
+            return;
+          }
+          var ctx = ensureCtx();
+          if (!ctx) {
+            setAvatarState('idle', '浏览器不支持 Web Audio');
+            return;
+          }
+          ctx.resume().then(function () {
+            var buf = ctx.createBuffer(1, int16.length, 16000);
+            var ch = buf.getChannelData(0);
+            for (var i = 0; i < int16.length; i++) ch[i] = int16[i] / 32768;
+            var src = ctx.createBufferSource();
+            src.buffer = buf;
+            analyser = ctx.createAnalyser();
+            analyser.fftSize = 512;
+            analyser.smoothingTimeConstant = 0.45;
+            src.connect(analyser);
+            analyser.connect(ctx.destination);
+            stopLipLoop();
+            mouthSmoothed = 0;
+            lastFrameTime = performance.now();
+            lipLoop();
+            activeSource = src;
+            src.onended = function () {
+              if (activeSource === src) activeSource = null;
+              stopLipLoop();
+              try { analyser.disconnect(); } catch (e) { /* ignore */ }
+              analyser = null;
+              setAvatarState('idle', '待机');
+            };
+            try {
+              src.start(0);
+            } catch (e) {
+              console.warn('tts play', e);
+              setAvatarState('idle', '播放失败');
+            }
+          }).catch(function () {
+            setAvatarState('idle', '无法启动音频上下文');
+          });
+        }
+
+        return { handleMeta: handleMeta, handleChunk: handleChunk, handleEnd: handleEnd, dispose: stopPlayback };
+      })();
 
       const authHeader = () => ({ 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' });
 
       function showErr(msg) {
-        document.getElementById('err').textContent = msg || '';
+        var el = document.getElementById('err');
+        el.textContent = msg || '';
+        el.style.display = msg ? 'block' : 'none';
       }
 
       function showProgressErr(msg) {
@@ -249,6 +566,22 @@
         return null;
       }
 
+      function renderTopicsPreviewFromCache() {
+        var el = document.getElementById('topics');
+        if (!el) return;
+        if (!plannedTopicsCache || !plannedTopicsCache.length) {
+          el.innerHTML = '<p class="muted" style="padding:4px 0">暂无议程，请确认会议已绑定类型或主持会序。</p>';
+          return;
+        }
+        var totalMin = plannedTopicsCache.reduce(function (a, t) {
+          return a + (t.minutes != null && t.minutes > 0 ? t.minutes : 10);
+        }, 0);
+        var head = '<p class="muted" style="margin-bottom:10px">共 ' + plannedTopicsCache.length + ' 项 · 合计约 ' + totalMin + ' 分钟（开始会议后将显示实时进度）</p>';
+        el.innerHTML = head + plannedTopicsCache.map(function (t, i) {
+          return '<div class="topic PENDING">' + (i + 1) + '. ' + (t.title || '') + '（' + (t.minutes != null ? t.minutes : 10) + ' 分钟）</div>';
+        }).join('');
+      }
+
       function fmtMs(ms) {
         ms = Math.max(0, ms | 0);
         const s = Math.floor(ms / 1000);
@@ -258,48 +591,129 @@
         return pad(h) + ':' + pad(m % 60) + ':' + pad(s % 60);
       }
 
+      function rollCallStatusLabel(st) {
+        if (st === 'ANSWERED') return '已到';
+        if (st === 'MISSED') return '未到';
+        if (st === 'SKIPPED') return '已跳过';
+        return '待答到';
+      }
+
       function renderHostState(obj) {
         var active = obj && (obj.active === true || obj.active === 'true');
+        var rcw = document.getElementById('rollCallWrap');
         if (!active) {
           document.getElementById('topicTimer').textContent = '议题剩余 —:—';
           document.getElementById('meetTimer').textContent = '会议剩余 —:—';
+          renderTopicsPreviewFromCache();
+          if (rcw) rcw.style.display = 'none';
           return;
         }
+        if (rcw) rcw.style.display = 'block';
         document.getElementById('topicTimer').textContent = '议题剩余 ' + fmtMs(obj.topicLeftMs);
         document.getElementById('meetTimer').textContent = '会议剩余 ' + fmtMs(obj.meetingLeftMs);
         const topics = obj.topics || [];
         plannedTopicsCache = topics.map(function (t) {
           return { title: t.title, minutes: t.minutes != null ? t.minutes : 10 };
         });
+        var el = document.getElementById('topics');
+        if (el) {
+          if (!topics.length) {
+            el.innerHTML = '<p class="muted">暂无议程项</p>';
+          } else {
+            el.innerHTML = topics.map(function (t, i) {
+              const cur = i === obj.currentTopicIndex ? ' ▶' : '';
+              return '<div class="topic ' + (t.status || 'PENDING') + '">' + (i + 1) + '. ' + t.title + '（' + t.minutes + ' 分钟）' + cur + '</div>';
+            }).join('');
+          }
+        }
+        var rc = obj.rollCall || {};
+        var phase = rc.phase || 'NONE';
+        var people = rc.people || [];
+        var rcList = document.getElementById('rollCallList');
+        var rcCd = document.getElementById('rollCallCountdown');
+        var btnRs = document.getElementById('btnRollCallStart');
+        var btnRk = document.getElementById('btnRollCallSkip');
+        if (rcList && rcCd && btnRs && btnRk) {
+          if (!people.length && phase === 'NONE') {
+            rcList.innerHTML = '<p class="muted" style="padding:4px 0">开始检点后，将按预设与会人名单依次点名。</p>';
+          } else {
+            rcList.innerHTML = people.map(function (p, i) {
+              var cur = phase === 'ACTIVE' && i === (rc.currentIndex | 0);
+              var st = p.status || 'PENDING';
+              return '<div class="rc-row ' + st + (cur ? ' current' : '') + '"><span class="rc-name">' + (i + 1) + '. ' + (p.name || '') + '</span><span class="rc-st">' + rollCallStatusLabel(st) + '</span></div>';
+            }).join('');
+          }
+          if (phase === 'ACTIVE' && (rc.deadlineMs | 0) > 0) {
+            var leftMs = Math.max(0, (rc.deadlineMs | 0) - Date.now());
+            var sec = Math.max(0, Math.ceil(leftMs / 1000));
+            rcCd.textContent = '当前答到窗口剩余 ' + sec + ' 秒';
+          } else if (phase === 'ACTIVE') {
+            rcCd.textContent = '主持播报点名中，答到计时即将开始';
+          } else if (phase === 'DONE') {
+            rcCd.textContent = '本轮检点已结束，可再次开始检点';
+          } else {
+            rcCd.textContent = '';
+          }
+          btnRs.disabled = !meetingLive || phase === 'ACTIVE';
+          btnRk.disabled = !meetingLive || phase !== 'ACTIVE';
+        }
       }
 
-      function addTranscriptLine(result) {
-        if (result.type && result.type !== 'transcript') return;
-        const list = document.getElementById('transcriptListHost');
-        const ph = list.querySelector('.placeholder-muted');
-        if (ph) ph.remove();
-        const speaker = result.speaker || result.speaker_id || '未知';
-        const text = result.text || '';
-        if (!String(text).trim()) return;
+      function scrollTranscriptViewport() {
+        var viewport = document.getElementById('transcriptViewport');
+        if (viewport) viewport.scrollTop = viewport.scrollHeight;
+      }
+
+      function appendTranscriptRow(list, speaker, text, interim) {
         const line = document.createElement('div');
-        const isFinal = result.isFinal === true || result.is_final === true;
-        line.className = 'transcript-line' + (isFinal ? '' : ' interim');
+        line.className = interim ? 'transcript-line interim' : 'transcript-line';
         const head = document.createElement('div');
         const sp = document.createElement('span');
         sp.className = 'speaker';
         sp.textContent = speaker;
         const tm = document.createElement('span');
-        tm.style.color = '#8b949e';
-        tm.textContent = ' (' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) + ')';
+        tm.style.color = '#757575';
+        tm.textContent = ' (' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + ')';
         head.appendChild(sp);
         head.appendChild(tm);
         const body = document.createElement('div');
+        body.className = 'transcript-body';
         body.textContent = text;
         line.appendChild(head);
         line.appendChild(body);
         list.appendChild(line);
-        var viewport = document.getElementById('transcriptViewport');
-        if (viewport) viewport.scrollTop = viewport.scrollHeight;
+        return { lineEl: line, bodyEl: body, speaker: speaker, interim: interim };
+      }
+
+      function addTranscriptLine(result) {
+        if (result.type && result.type !== 'transcript') return;
+        var isFinal = result.isFinal === true || result.is_final === true;
+        const list = document.getElementById('transcriptListHost');
+        const ph = list.querySelector('.placeholder-muted');
+        if (ph) ph.remove();
+        const speaker = result.speaker || result.speaker_id || '未知';
+        const text = String(result.text || '').trim();
+        if (!text) return;
+
+        if (!isFinal) {
+          if (hostTranscriptLiveSlot && hostTranscriptLiveSlot.interim && hostTranscriptLiveSlot.speaker === speaker) {
+            hostTranscriptLiveSlot.bodyEl.textContent = text;
+          } else {
+            hostTranscriptLiveSlot = appendTranscriptRow(list, speaker, text, true);
+          }
+          scrollTranscriptViewport();
+          return;
+        }
+
+        if (hostTranscriptLiveSlot && hostTranscriptLiveSlot.interim && hostTranscriptLiveSlot.speaker === speaker) {
+          hostTranscriptLiveSlot.bodyEl.textContent = text;
+          hostTranscriptLiveSlot.lineEl.classList.remove('interim');
+          hostTranscriptLiveSlot.interim = false;
+          hostTranscriptLiveSlot = null;
+        } else {
+          appendTranscriptRow(list, speaker, text, false);
+        }
+        scrollTranscriptViewport();
       }
 
       async function prefillHostAgendaFromServer() {
@@ -335,6 +749,7 @@
             }
           }
           plannedTopicsCache = items && items.length ? items : [];
+          renderTopicsPreviewFromCache();
         } catch (e) {
           console.warn('prefillHostAgendaFromServer', e);
         }
@@ -394,6 +809,9 @@
           try {
             const o = JSON.parse(ev.data);
             if (o.type === 'host_state') renderHostState(o);
+            else if (o.type === 'tts_meta') hostTtsAvatar.handleMeta(o);
+            else if (o.type === 'tts_audio_chunk') hostTtsAvatar.handleChunk(o);
+            else if (o.type === 'tts_audio_end') hostTtsAvatar.handleEnd(o);
           } catch (e) { console.warn(e); }
         };
         sock.onclose = function () { setTimeout(connectHostWs, 2000); };
@@ -452,8 +870,8 @@
               return { title: t.title, minutes: t.minutes != null ? t.minutes : 10 };
             });
           }
-          renderHostState(st);
           meetingLive = true;
+          renderHostState(st);
           setMeetingPausedUI(false);
           btn.textContent = '会议进行中';
         } catch (e) {
@@ -503,6 +921,17 @@
         try { renderHostState(await hostApi('/skip-topic', { method: 'POST' })); } catch (e) { showErr(e.message); }
       };
 
+      document.getElementById('btnRollCallStart').onclick = async function () {
+        if (!meetingLive) return;
+        showErr('');
+        try { renderHostState(await hostApi('/roll-call/start', { method: 'POST' })); } catch (e) { showErr(e.message); }
+      };
+      document.getElementById('btnRollCallSkip').onclick = async function () {
+        if (!meetingLive) return;
+        showErr('');
+        try { renderHostState(await hostApi('/roll-call/skip-current', { method: 'POST' })); } catch (e) { showErr(e.message); }
+      };
+
       document.getElementById('btnEnd').onclick = async function () {
         if (!confirm('确定结束会议并生成纪要？')) return;
         showErr('');
@@ -517,6 +946,7 @@
             try { recorder.stop(); } catch (e) { console.warn(e); }
             recorder = null;
           }
+          try { hostTtsAvatar.dispose(); } catch (e2) { /* ignore */ }
           const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end', {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token }
