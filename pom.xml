@@ -28,7 +28,7 @@
     <version>0.1.0</version>
     <packaging>pom</packaging>
     <name>Smart Meeting Java</name>
-    <description>智能会议纪要系统 - Java版</description>
+    <description>智能会议系统 - Java版</description>
 
     <modules>
         <module>meeting-server</module>

@@ -1,5 +1,5 @@
 /**
- * OpenClaw智能会议纪要系统 - AudioWorklet录音引擎
+ * OpenClaw智能会议系统 - AudioWorklet录音引擎
  * 含自动重采样（设备采样率→16kHz）
  */
 class PCMProcessor extends AudioWorkletProcessor {

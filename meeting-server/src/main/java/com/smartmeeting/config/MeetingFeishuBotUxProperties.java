@@ -22,7 +22,7 @@ public class MeetingFeishuBotUxProperties {
     /**
      * 进群欢迎纯文本（建议简短；详细操作可由配置 {@link #instructionCardOnFirstStart} 的说明卡片补充，默认关闭）
      */
-    private String welcomeText = "大家好，我是「智能会议纪要」助手。\n"
+    private String welcomeText = "大家好，我是「智能会议」助手。\n"
             + "请使用机器人下方「快捷菜单」发送「开始会议」，或直接在群内输入「开始会议」即可。";
 
     /** 用户在本群首次发送「开始会议」（仅菜单入口、不含数字）时是否先发一张常驻说明卡片；默认 false，避免与类型选择卡片叠放 */

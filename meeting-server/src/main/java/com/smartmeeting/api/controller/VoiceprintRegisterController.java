@@ -114,7 +114,7 @@ public class VoiceprintRegisterController {
         html.append("<div class=\"header\"><h1>声纹注册</h1><p>请朗读以下句子完成注册</p></div>\n");
         html.append("<div class=\"user-info\"><div class=\"name\">").append(userName).append("</div></div>\n");
         html.append("<div class=\"phrases\">\n");
-        html.append("1. 我是智能会议纪要系统的用户，现在正在进行声纹注册<br/>\n");
+        html.append("1. 我是智能会议系统的用户，现在正在进行声纹注册<br/>\n");
         html.append("2. 今天天气真不错，适合出去散散步放松一下心情<br/>\n");
         html.append("3. 科技创新改变生活，人工智能让工作变得更加高效\n");
         html.append("</div>\n");
