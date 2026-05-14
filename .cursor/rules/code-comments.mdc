@@ -1,0 +1,19 @@
+---
+description: 非测试业务代码须含简明中文注释，便于维护与协作
+globs:
+  - "**/meeting-server/src/main/**/*.java"
+  - "**/meeting-server/src/main/resources/static/**/*.{html,js}"
+alwaysApply: true
+---
+
+# 注释约定（测试代码除外）
+
+- **不要求**在以下路径刻意加注释：`**/src/test/**`、`**/*Test.java`、`**/*Tests.java`、`**/test/**`。
+- **`meeting-server/src/main`** 下的 Java 与主持相关静态资源：
+  - **类**：用类级 JavaDoc 说明职责、主要依赖、与前端或外部系统的约定。
+  - **public 方法**：JavaDoc 写清用途；**必须**使用 `@param` / `@return`（无返回值用 `@return void` 可省略，但 void 方法仍应对关键 `@param` 说明）描述参数与返回值；必要时 `@throws`。
+  - **复杂私有方法**（状态机、定时窗口、WebSocket 载荷、多段异步串联）：同样建议 `@param` / `@return`，并说明设计意图与关键不变量。
+  - **与前端约定的 JSON 字段**、魔法字符串、秒/毫秒时间语义：在赋值处或字段旁简短注释。
+- **避免**：为 obvious 的 getter/setter、单 obvious 行写长文；不要与代码完全重复的中英双份描述。
+
+生成或修改上述范围内的代码时，默认遵守本规则。

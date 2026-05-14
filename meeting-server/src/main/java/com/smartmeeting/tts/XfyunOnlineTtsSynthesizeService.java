@@ -20,7 +20,10 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 讯飞在线语音合成（流式 WebSocket v2/tts），单次会话合成一段文本。
+ * 讯飞在线语音合成（流式 WebSocket v2/tts），单次短连接合成一段文本。
+ * <p>
+ * 输出 16kHz、s16le 裸 PCM，供 {@link com.smartmeeting.service.host.MeetingHostSessionService} 分片下发主持端播放。
+ * 鉴权与 {@code meeting.asr.xfyun} 共用 app-id / api-key / api-secret；发音人见 {@code meeting.tts.vcn}。
  * 文档：https://www.xfyun.cn/doc/tts/online_tts/API.html
  */
 @Slf4j
@@ -55,7 +58,10 @@ public class XfyunOnlineTtsSynthesizeService {
     private int maxTextUtf8Bytes;
 
     /**
-     * @return 16k raw PCM s16le 拼接；失败返回空数组。超长文本自动按 UTF-8 与句读切段后多次合成再拼接。
+     * 合成整段文本为 PCM：超长时按 UTF-8 与句读切段后多次调用讯飞再拼接。
+     *
+     * @param text 待朗读全文；null 或空白返回空数组
+     * @return 16kHz、s16le 裸 PCM 字节拼接；占位鉴权或失败时返回空数组
      */
     public byte[] synthesizeToPcm(String text) {
         if (text == null || text.isBlank()) {
@@ -88,6 +94,14 @@ public class XfyunOnlineTtsSynthesizeService {
         }
     }
 
+    /**
+     * 阻塞式拉完一整段文本的 PCM：建 WS、发单帧 text、收齐 audio 直至 status=2 或异常。
+     * 与 {@link #synthesizeToPcm} 不同，本方法只处理已切段后的一段。
+     *
+     * @param text 单段不超过 {@link #maxTextUtf8Bytes} 约束的原文（由上层切段保证）
+     * @return 单段 PCM 字节；连接失败、业务错误码且无音频时为 empty
+     * @throws Exception 建连、解析等异常向上抛出，由 {@link #synthesizeToPcm} 捕获
+     */
     private byte[] synthesizeBlocking(String text) throws Exception {
         String ws = XfyunSignatureUtil.assembleAuthUrl(ttsWsUrl, apiKey, apiSecret);
         ByteArrayOutputStream pcm = new ByteArrayOutputStream();
@@ -164,6 +178,13 @@ public class XfyunOnlineTtsSynthesizeService {
         return pcm.toByteArray();
     }
 
+    /**
+     * 组装讯飞 v2 TTS 首帧 JSON：business 指定 raw PCM、采样率、发音人及语速音量。
+     *
+     * @param text 原文（已在上层 strip）
+     * @return JSON 字符串，作为 WebSocket 首条业务帧发送
+     * @throws Exception JSON 序列化等异常
+     */
     private String buildRequestJson(String text) throws Exception {
         String textB64 = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
         ObjectNode root = objectMapper.createObjectNode();
@@ -172,6 +193,7 @@ public class XfyunOnlineTtsSynthesizeService {
         business.put("aue", "raw");
         business.put("auf", "audio/L16;rate=16000");
         business.put("vcn", vcn);
+        // 讯飞文档：语速/音量常用 0～100，50 为默认档
         business.put("speed", 50);
         business.put("volume", 50);
         business.put("tte", "UTF8");
