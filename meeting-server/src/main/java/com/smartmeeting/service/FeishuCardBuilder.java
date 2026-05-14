@@ -76,7 +76,7 @@ public class FeishuCardBuilder {
         ObjectNode header = card.putObject("header");
         ObjectNode headerTitle = header.putObject("title");
         headerTitle.put("tag", "plain_text");
-        headerTitle.put("content", "📖 智能会议纪要 · 操作说明");
+        headerTitle.put("content", "📖 智能会议 · 操作说明");
         header.put("template", "blue");
 
         ArrayNode elements = card.putArray("elements");

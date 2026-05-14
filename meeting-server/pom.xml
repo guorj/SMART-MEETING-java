@@ -13,7 +13,7 @@
     <artifactId>meeting-server</artifactId>
     <packaging>jar</packaging>
     <name>Meeting Server</name>
-    <description>智能会议纪要服务 - Spring Boot 3.x</description>
+    <description>智能会议服务 - Spring Boot 3.x</description>
 
     <dependencies>
         <!-- Spring Boot Starters -->
