@@ -144,6 +144,10 @@ public class MeetingTypePresetService {
                 HostAgendaItemDto dto = new HostAgendaItemDto();
                 dto.setTitle(title);
                 dto.setMinutes(n.path("minutes").asInt(10));
+                String detail = n.path("detail").asText("").trim();
+                if (!detail.isEmpty()) {
+                    dto.setDetail(detail);
+                }
                 out.add(dto);
             }
             return out.isEmpty() ? null : out;

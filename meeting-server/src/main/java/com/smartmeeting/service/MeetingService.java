@@ -404,6 +404,9 @@ public class MeetingService {
                 n.put("title", dto.getTitle().trim());
                 int min = dto.getMinutes() != null && dto.getMinutes() > 0 ? dto.getMinutes() : 10;
                 n.put("minutes", min);
+                if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
+                    n.put("detail", dto.getDetail().trim());
+                }
             }
             if (arr.isEmpty()) {
                 return null;
@@ -434,6 +437,10 @@ public class MeetingService {
                 HostAgendaItemDto dto = new HostAgendaItemDto();
                 dto.setTitle(title);
                 dto.setMinutes(n.path("minutes").asInt(10));
+                String detail = n.path("detail").asText("").trim();
+                if (!detail.isEmpty()) {
+                    dto.setDetail(detail);
+                }
                 out.add(dto);
             }
             return out.isEmpty() ? null : out;
