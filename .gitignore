@@ -31,10 +31,17 @@ buildNumber.properties
 .DS_Store
 Thumbs.db
 
-# Logs
+# Logs & runtime data
 *.log
 logs/
 /data/
+meeting-server/data/
+*.pcm
+
+# Probe / local tooling output
+meeting-server/target/prod-schema-snapshot.json
+meeting-server/target/cp.runtime.txt
+meeting-server/target/probe-classes/
 
 # Environment
 .env

@@ -403,7 +403,16 @@ smart-meeting-java/
 ├── sql/                                   # 手工/增量迁移（全量建表 DDL 仅维护 meeting-server/src/main/resources/schema.sql）
 │   └── migration_*.sql
 │
-├── docker-compose.yml                     # 容器编排（后端+MySQL+Redis+Kafka+Nginx+Nacos）
+├── deploy/nginx/nginx.conf                # 生产 HTTPS 反代示例（compose 未内置 Nginx 服务）
+│
+├── docs/                                  # 文档索引见 docs/README.md
+│   ├── PRD-Java-二期.md
+│   ├── product/                           # 产品形态、AI 主持 PRD
+│   ├── assessments/                       # 阶段性评估归档
+│   ├── assets/                            # PPT、PDF 等对外材料
+│   └── ref/                               # 第三方 SDK 参考源码（不参与构建）
+│
+├── docker-compose.yml                     # 容器编排（后端 + MySQL + Redis + Kafka）
 └── README.md                              # 项目说明（快速启动/环境依赖/开发指南）
 ```
 
