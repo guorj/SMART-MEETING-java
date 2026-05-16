@@ -51,7 +51,6 @@ spring:
     listener:
       concurrency: 3
       ack-mode: manual
-
   web:
     resources:
       # 录音前端仅维护 meeting-server/src/main/resources/static/（打包进 classpath）

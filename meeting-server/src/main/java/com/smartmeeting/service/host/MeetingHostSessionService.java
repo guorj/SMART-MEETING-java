@@ -24,6 +24,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -74,6 +75,9 @@ public class MeetingHostSessionService {
     /** 在基础窗口之上追加的秒数，缓解定稿滞后导致的漏记；与答到判定、未到超时共用同一 deadline */
     @Value("${meeting.host.roll-call.asr-grace-seconds:6}")
     private int hostRollCallAsrGraceSeconds;
+
+    /** 主持页「议题加时」可选分钟数 */
+    private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
 
     /** 每会议一把锁：检点与 ASR 回调与 tick 并发修改同一 {@link HostRuntime} 时串行化 */
     private final Map<String, Object> runtimeLocks = new ConcurrentHashMap<>();
@@ -398,6 +402,35 @@ public class MeetingHostSessionService {
     }
 
     /**
+     * 为当前议题与整场会议同步加时：延长 {@code topicEndMs}、{@code meetingEndMs}，并累加当前项预计分钟数。
+     *
+     * @param meetingId 会议主键
+     * @param minutes     加时分钟，须为 1、3、5、10 之一
+     * @throws BusinessException 未开启会话、无进行中议题、分钟数非法等
+     */
+    public void extendTopicTime(String meetingId, int minutes) {
+        if (!ALLOWED_TOPIC_EXTEND_MINUTES.contains(minutes)) {
+            throw new BusinessException(400, "加时分钟数仅支持：1、3、5、10");
+        }
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null) {
+            throw new BusinessException(400, "未开启主持会话");
+        }
+        if (rt.currentIndex < 0 || rt.currentIndex >= rt.topics.size()) {
+            throw new BusinessException(400, "当前无进行中的议题");
+        }
+        long addMs = minutes * 60_000L;
+        rt.topicEndMs += addMs;
+        rt.meetingEndMs += addMs;
+        HostTopic cur = rt.topics.get(rt.currentIndex);
+        cur.minutes = Math.max(1, cur.minutes) + minutes;
+        rt.topicTimeUpAnnounced = false;
+        rt.lastTopicLeftSec = Integer.MAX_VALUE;
+        speakAsync(meetingId, "已为当前议题延长 " + minutes + " 分钟。");
+        pushHostState(meetingId);
+    }
+
+    /**
      * 开始会议检点：从预设 participants_names 生成冻结名单，按序点名；答到仅以 ASR 定稿且匹配答到语为准（单麦、无声纹，流程信任）。
      *
      * @param meetingId 会议主键
@@ -669,8 +702,7 @@ public class MeetingHostSessionService {
      */
     private static String buildRollCallIntroText(int peopleCount, int baseWindowSec, int asrGraceSec) {
         int total = Math.max(5, baseWindowSec) + Math.max(0, asrGraceSec);
-        return "会议检点开始，应到 " + peopleCount + " 人。请听到「请某某答到」后，尽快语音答到，尽量使用到了、我在、在的作答。"
-                + "每人作答窗口最长 " + total + " 秒。下面依次点名。";
+        return "会议检点开始，应到 " + peopleCount + " 人。请听到「请某某答到」后，尽快语音答到，尽量使用到了、我在作答。下面依次点名。";
     }
 
     /**

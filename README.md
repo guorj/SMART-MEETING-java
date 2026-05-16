@@ -38,7 +38,7 @@ smart-meeting-java/
 | 编码规范 | [docs/coding-standards.md](docs/coding-standards.md) |
 | 库表分析 | [docs/数据库表结构冗余与字段合理性分析.md](docs/数据库表结构冗余与字段合理性分析.md) |
 | 产品/形态/主持 | [docs/product/](docs/product/) |
-| 评估报告归档 | [docs/assessments/](docs/assessments/) |
+| 评估报告归档 | [docs/assessments/](docs/assessments/)（含 **10+ 并发生产可行性**） |
 | 汇报 PPT/PDF | [docs/assets/](docs/assets/) |
 
 ## 构建

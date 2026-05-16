@@ -2,6 +2,7 @@ package com.smartmeeting.api.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.smartmeeting.api.dto.ApiResponse;
+import com.smartmeeting.api.dto.host.HostExtendTopicRequest;
 import com.smartmeeting.api.dto.host.HostStartRequest;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.service.host.MeetingHostSessionService;
@@ -61,6 +62,17 @@ public class MeetingHostController {
             @RequestHeader("Authorization") String authorization) {
         jwtUtil.verifyRecordingPageToken(bearer(authorization), meetingId);
         meetingHostSessionService.skipTopic(meetingId);
+        return ApiResponse.ok(meetingHostSessionService.getStateJson(meetingId));
+    }
+
+    @PostMapping("/{meetingId}/extend-topic")
+    public ApiResponse<JsonNode> extendTopic(
+            @PathVariable String meetingId,
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody(required = false) HostExtendTopicRequest body) {
+        jwtUtil.verifyRecordingPageToken(bearer(authorization), meetingId);
+        int minutes = (body != null && body.getMinutes() != null) ? body.getMinutes() : 1;
+        meetingHostSessionService.extendTopicTime(meetingId, minutes);
         return ApiResponse.ok(meetingHostSessionService.getStateJson(meetingId));
     }
 
