@@ -11,6 +11,8 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import com.smartmeeting.service.feishu.FeishuResourceKind;
+import com.smartmeeting.service.feishu.FeishuResourceRef;
 
 import java.util.*;
 
@@ -389,6 +391,133 @@ public class FeishuService {
         } while (pageToken != null);
 
         return out.toString().trim();
+    }
+
+    /**
+     * 按资源类型拉取纯文本：docx 块遍历、wiki 转 docx、base 导出表格行（需 URL 含 table=）。
+     */
+    public String fetchResourcePlainText(FeishuResourceRef ref) {
+        if (ref == null) {
+            throw new IllegalArgumentException("飞书资源引用为空");
+        }
+        return switch (ref.kind()) {
+            case DOCX -> fetchDocxPlainText(ref.primaryToken());
+            case WIKI -> fetchWikiPlainText(ref);
+            case BASE -> fetchBitablePlainText(ref.primaryToken(), ref.tableId());
+            case UNKNOWN -> throw new RuntimeException(
+                    "无法识别飞书链接类型，请使用 /docx/、/wiki/ 或 /base/?table= 的完整 HTTPS 链接");
+        };
+    }
+
+    /**
+     * 知识库节点：get_node 取得 obj_token 后，docx 类型走 {@link #fetchDocxPlainText}。
+     */
+    public String fetchWikiPlainText(FeishuResourceRef ref) {
+        if (ref == null || ref.primaryToken() == null || ref.primaryToken().isBlank()) {
+            throw new IllegalArgumentException("wiki node_token 为空");
+        }
+        String wikiNodeToken = ref.primaryToken().trim();
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/wiki/v2/spaces/get_node?token=" + wikiNodeToken;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
+        JsonNode json = response.getBody();
+        if (json == null) {
+            throw new RuntimeException("飞书 wiki get_node 响应为空");
+        }
+        int code = json.path("code").asInt(-1);
+        if (code != 0) {
+            throw new RuntimeException("飞书 wiki get_node code=" + code + " msg=" + json.path("msg").asText(""));
+        }
+        JsonNode node = json.path("data").path("node");
+        String objType = node.path("obj_type").asText("");
+        String objToken = node.path("obj_token").asText("");
+        if (objToken.isBlank()) {
+            throw new RuntimeException("飞书 wiki 节点无 obj_token");
+        }
+        if ("docx".equalsIgnoreCase(objType) || objType.isEmpty()) {
+            return fetchDocxPlainText(objToken);
+        }
+        if ("bitable".equalsIgnoreCase(objType)) {
+            String tableId = ref.tableId();
+            if (tableId == null || tableId.isBlank()) {
+                throw new RuntimeException("知识库内嵌多维表格链接须带 ?table=tbl… 参数");
+            }
+            return fetchBitablePlainText(objToken, tableId);
+        }
+        throw new RuntimeException("暂不支持在主持页内嵌展示该 Wiki 节点类型: " + objType
+                + "，请点击主持页「在飞书中打开」查看");
+    }
+
+    /**
+     * 多维表格：导出前若干行记录为纯文本（URL 须含 {@code table=tbl...}）。
+     */
+    public String fetchBitablePlainText(String appToken, String tableId) {
+        if (appToken == null || appToken.isBlank()) {
+            throw new IllegalArgumentException("base app_token 为空");
+        }
+        if (tableId == null || tableId.isBlank()) {
+            throw new IllegalArgumentException("多维表格链接缺少 table 参数，请使用 .../base/{app}?table=tblXXX");
+        }
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken.trim()
+                + "/tables/" + tableId.trim() + "/records/search?page_size=50";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(tenantToken);
+
+        Map<String, Object> body = Map.of("automatic_fields", false);
+        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+        ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
+        JsonNode json = response.getBody();
+        if (json == null) {
+            throw new RuntimeException("飞书 bitable search 响应为空");
+        }
+        int code = json.path("code").asInt(-1);
+        if (code != 0) {
+            throw new RuntimeException("飞书 bitable search code=" + code + " msg=" + json.path("msg").asText(""));
+        }
+        JsonNode items = json.path("data").path("items");
+        StringBuilder out = new StringBuilder();
+        out.append("【多维表格摘要，最多 50 条】\n\n");
+        if (!items.isArray() || items.isEmpty()) {
+            out.append("（无记录）");
+            return out.toString().trim();
+        }
+        int row = 0;
+        for (JsonNode item : items) {
+            row++;
+            out.append("--- 记录 ").append(row).append(" ---\n");
+            JsonNode fields = item.path("fields");
+            if (fields.isObject()) {
+                Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
+                while (it.hasNext()) {
+                    Map.Entry<String, JsonNode> e = it.next();
+                    out.append(e.getKey()).append(": ").append(fieldValueAsText(e.getValue())).append('\n');
+                }
+            }
+            out.append('\n');
+        }
+        return out.toString().trim();
+    }
+
+    private static String fieldValueAsText(JsonNode v) {
+        if (v == null || v.isNull()) {
+            return "";
+        }
+        if (v.isTextual()) {
+            return v.asText();
+        }
+        if (v.isNumber() || v.isBoolean()) {
+            return v.asText();
+        }
+        return v.toString();
     }
 
     /**

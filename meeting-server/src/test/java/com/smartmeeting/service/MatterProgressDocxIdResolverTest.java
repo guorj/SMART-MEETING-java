@@ -11,34 +11,25 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class MatterProgressDocxIdResolverTest {
 
     @Test
-    void prefersTokenOverUrl() {
-        MatterProgressDocConfig c = new MatterProgressDocConfig();
-        c.setFeishuDocToken("doxcAAA");
-        c.setFeishuDocUrl("https://x.feishu.cn/docx/doxcBBB");
-        assertEquals("doxcAAA", MatterProgressDocxIdResolver.resolveDocumentId(c));
-    }
-
-    @Test
     void parsesDocxFromUrl() {
         MatterProgressDocConfig c = new MatterProgressDocConfig();
-        c.setFeishuDocUrl("https://sample.feishu.cn/docx/doxcnZZZ?from=from_copylink");
+        c.setFeishuDocUrl("https://x.feishu.cn/docx/doxcnZZZ?from=from_copylink");
         assertEquals("doxcnZZZ", MatterProgressDocxIdResolver.resolveDocumentId(c));
     }
 
     @Test
-    void wikiUrlNotParsedAsDocx() {
+    void wikiUrlResolvesNodeToken() {
         MatterProgressDocConfig c = new MatterProgressDocConfig();
         c.setFeishuDocUrl("https://sample.feishu.cn/wiki/wikiTnXxXx");
-        assertNull(MatterProgressDocxIdResolver.resolveDocumentId(c));
+        assertEquals("wikiTnXxXx", MatterProgressDocxIdResolver.resolveDocumentId(c));
         assertTrue(MatterProgressDocxIdResolver.hasFeishuFields(c));
     }
 
     @Test
-    void blankTokenFallsBackToUrl() {
+    void baseUrlResolvesAppToken() {
         MatterProgressDocConfig c = new MatterProgressDocConfig();
-        c.setFeishuDocToken("   ");
-        c.setFeishuDocUrl("https://a.cn/docx/doxcOK");
-        assertEquals("doxcOK", MatterProgressDocxIdResolver.resolveDocumentId(c));
+        c.setFeishuDocUrl("https://sample.feishu.cn/base/bascnApp01?table=tblXXX&view=vewYYY");
+        assertEquals("bascnApp01", MatterProgressDocxIdResolver.resolveDocumentId(c));
     }
 
     @Test

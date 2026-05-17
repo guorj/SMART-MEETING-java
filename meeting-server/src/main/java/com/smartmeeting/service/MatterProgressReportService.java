@@ -106,7 +106,7 @@ public class MatterProgressReportService {
             source = "feishu_docx";
         } else if (MatterProgressDocxIdResolver.hasFeishuFields(cfg)) {
             throw new BusinessException(400,
-                    "已填写飞书文档链接但无法解析 document_id：请补全 feishu_doc_token，或使用包含 /docx/{document_id} 的云文档链接");
+                    "已填写飞书文档链接但无法解析：请使用包含 /docx/、/wiki/ 或 /base/?table= 的完整 HTTPS 链接");
         } else if (allowClasspathFallback) {
             bodyText = readClasspathSample();
             if (bodyText == null || bodyText.isBlank()) {
@@ -115,7 +115,7 @@ public class MatterProgressReportService {
             source = "classpath_fallback";
         } else {
             throw new BusinessException(400,
-                    "未配置可用的飞书 Docx：请在 int_matter_progress_doc_config 填写 feishu_doc_token（document_id）或带 /docx/ 的 feishu_doc_url；"
+                    "未配置可用的飞书资料：请在 int_matter_progress_doc_config 填写 feishu_doc_url（docx/wiki/base 完整链接）；"
                             + "本地测试可设置 meeting.matter-progress.allow-classpath-fallback=true");
         }
 

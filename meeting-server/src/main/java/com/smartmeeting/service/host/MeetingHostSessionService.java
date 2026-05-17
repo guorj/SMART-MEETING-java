@@ -11,8 +11,14 @@ import com.smartmeeting.api.config.MeetingHostWebSocketHandler;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.exception.BusinessException;
+import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
+import com.smartmeeting.api.dto.FeishuDocRefDto;
+import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.service.feishu.FeishuDocRefs;
+import com.smartmeeting.service.feishu.FeishuResourceRef;
+import com.smartmeeting.service.feishu.FeishuResourceResolver;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +60,7 @@ public class MeetingHostSessionService {
 
     private final MeetingMapper meetingMapper;
     private final MeetingTypePresetMapper presetMapper;
+    private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingHostFeishuMuteRegistry muteRegistry;
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
@@ -102,12 +109,14 @@ public class MeetingHostSessionService {
      */
     public MeetingHostSessionService(MeetingMapper meetingMapper,
                                      MeetingTypePresetMapper presetMapper,
+                                     PresetAgendaDocService presetAgendaDocService,
                                      MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
                                      ObjectMapper objectMapper) {
         this.meetingMapper = meetingMapper;
         this.presetMapper = presetMapper;
+        this.presetAgendaDocService = presetAgendaDocService;
         this.muteRegistry = muteRegistry;
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
@@ -135,6 +144,59 @@ public class MeetingHostSessionService {
     }
 
     /**
+     * 主持进行中：返回指定会序已绑定的飞书 Docx 引用（供拉取正文 API 使用）。
+     */
+  /** 会序下全部飞书资料（主持页 / agenda-doc-content API） */
+    public List<FeishuDocRefDto> getAgendaDocRefs(String meetingId, int agendaIndex) {
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt != null && agendaIndex >= 0 && agendaIndex < rt.topics.size()) {
+            List<FeishuDocRefDto> fromTopic = topicToDocRefDtos(rt.topics.get(agendaIndex));
+            if (!fromTopic.isEmpty()) {
+                return fromTopic;
+            }
+        }
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return List.of();
+        }
+        return presetAgendaDocService.listDocRefsForAgenda(meeting, agendaIndex);
+    }
+
+    /** @deprecated 请使用 {@link #getAgendaDocRefs} */
+    public AgendaDocRef getAgendaDocRef(String meetingId, int agendaIndex) {
+        List<FeishuDocRefDto> refs = getAgendaDocRefs(meetingId, agendaIndex);
+        if (refs.isEmpty()) {
+            return null;
+        }
+        FeishuDocRefDto first = refs.get(0);
+        return new AgendaDocRef(
+                first.getUrl() != null ? first.getUrl() : "",
+                first.getKind() != null ? first.getKind() : "");
+    }
+
+    private static List<FeishuDocRefDto> topicToDocRefDtos(HostTopic t) {
+        if (t == null) {
+            return List.of();
+        }
+        if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
+            return t.feishuDocs.stream()
+                    .map(b -> FeishuDocRefDto.builder().kind(b.kind).url(b.url).build())
+                    .toList();
+        }
+        if (t.feishuDocUrl == null || t.feishuDocUrl.isBlank()) {
+            return List.of();
+        }
+        return List.of(FeishuDocRefDto.builder()
+                .kind(t.feishuDocKind)
+                .url(t.feishuDocUrl.trim())
+                .build());
+    }
+
+    /** 会序绑定的飞书资料引用（docx / wiki / base） */
+    public record AgendaDocRef(String feishuDocUrl, String feishuDocKind) {
+    }
+
+    /**
      * 开启主持会话：加载议程、静音飞书群、启动 tick、播报开场白；若预设有应到名单则开场播完后调度自动检点。
      *
      * @param meetingId 会议主键，须与 JWT/主持 token 中会议一致
@@ -156,6 +218,8 @@ public class MeetingHostSessionService {
         if (topics.isEmpty()) {
             throw new BusinessException(400, "议题为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
         }
+        sanitizeTopicsFeishuRefs(topics);
+        mergePresetAgendaDocs(meeting.getPresetTypeCode(), topics, meetingId);
 
         muteRegistry.muteChat(meeting.getChatId());
 
@@ -895,6 +959,15 @@ public class MeetingHostSessionService {
             if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
                 t.detail = dto.getDetail().trim();
             }
+            if (dto.getFeishuDocs() != null && !dto.getFeishuDocs().isEmpty()) {
+                for (FeishuDocRefDto doc : dto.getFeishuDocs()) {
+                    appendDocDtoToTopic(t, doc);
+                }
+            } else if (dto.getFeishuDocUrl() != null && !dto.getFeishuDocUrl().isBlank()) {
+                t.feishuDocUrl = dto.getFeishuDocUrl().trim();
+                applyFeishuRefToHostTopic(t);
+            }
+            syncPrimaryUrlFromDocs(t);
             out.add(t);
         }
         return out;
@@ -929,6 +1002,26 @@ public class MeetingHostSessionService {
                     if (!detail.isEmpty()) {
                         t.detail = detail;
                     }
+                    JsonNode docsArr = n.path("feishuDocs");
+                    if (docsArr.isArray() && docsArr.size() > 0) {
+                        for (JsonNode d : docsArr) {
+                            appendDocNodeToTopic(t, d);
+                        }
+                    } else {
+                        String docUrl = n.path("feishuDocUrl").asText("").trim();
+                        if (docUrl.isEmpty()) {
+                            String legacyId = n.path("feishuDocToken").asText("").trim();
+                            docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                            if (docUrl == null) {
+                                docUrl = "";
+                            }
+                        }
+                        if (!docUrl.isEmpty()) {
+                            t.feishuDocUrl = docUrl;
+                            applyFeishuRefToHostTopic(t);
+                        }
+                    }
+                    syncPrimaryUrlFromDocs(t);
                     out.add(t);
                 }
             }
@@ -936,6 +1029,136 @@ public class MeetingHostSessionService {
             log.warn("Parse host_agenda JSON failed: {}", e.getMessage());
         }
         return out;
+    }
+
+    private static void applyFeishuRefToHostTopic(HostTopic t) {
+        if (t == null) {
+            return;
+        }
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(t.feishuDocUrl);
+        if (ref == null) {
+            return;
+        }
+        appendResourceRefToTopic(t, ref);
+        syncPrimaryUrlFromDocs(t);
+    }
+
+    private static void appendDocDtoToTopic(HostTopic t, FeishuDocRefDto doc) {
+        if (t == null || doc == null) {
+            return;
+        }
+        appendResourceRefToTopic(t, FeishuResourceResolver.resolve(doc.getUrl()));
+    }
+
+    private static void appendDocNodeToTopic(HostTopic t, JsonNode d) {
+        if (t == null || d == null || d.isNull()) {
+            return;
+        }
+        String url = d.path("url").asText("").trim();
+        if (url.isEmpty()) {
+            url = d.path("feishuDocUrl").asText("").trim();
+        }
+        if (url.isEmpty()) {
+            String legacyId = d.path("token").asText("").trim();
+            if (legacyId.isEmpty()) {
+                legacyId = d.path("feishuDocToken").asText("").trim();
+            }
+            url = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+            if (url == null) {
+                url = "";
+            }
+        }
+        appendResourceRefToTopic(t, FeishuResourceResolver.resolve(url));
+    }
+
+    private static void appendResourceRefToTopic(HostTopic t, FeishuResourceRef ref) {
+        if (t == null || ref == null || !ref.showOnHostPage()) {
+            return;
+        }
+        if (t.feishuDocs == null) {
+            t.feishuDocs = new ArrayList<>();
+        }
+        String openUrl = ref.defaultOpenUrl();
+        FeishuDocBinding binding = new FeishuDocBinding();
+        binding.kind = ref.kind().name();
+        binding.url = openUrl != null ? openUrl : "";
+        String key = binding.kind + "|" + binding.url;
+        for (FeishuDocBinding existing : t.feishuDocs) {
+            String ek = existing.kind + "|" + existing.url;
+            if (ek.equals(key)) {
+                return;
+            }
+        }
+        t.feishuDocs.add(binding);
+    }
+
+    private static void syncPrimaryUrlFromDocs(HostTopic t) {
+        if (t == null || t.feishuDocs == null || t.feishuDocs.isEmpty()) {
+            return;
+        }
+        FeishuDocBinding first = t.feishuDocs.get(0);
+        t.feishuDocKind = first.kind;
+        t.feishuDocUrl = first.url;
+    }
+
+    /**
+     * 将 int_matter_progress_doc_config 中 preset+agenda_index 的文档合并进运行时议题（不覆盖 JSON 已填 token/url）。
+     */
+    private static void sanitizeTopicsFeishuRefs(List<HostTopic> topics) {
+        if (topics == null) {
+            return;
+        }
+        for (HostTopic t : topics) {
+            sanitizeTopicFeishuRefs(t);
+        }
+    }
+
+    private static void sanitizeTopicFeishuRefs(HostTopic t) {
+        if (t == null) {
+            return;
+        }
+        if (t.feishuDocUrl != null && !FeishuResourceResolver.isRecognizedFeishuDocUrl(t.feishuDocUrl)) {
+            t.feishuDocUrl = null;
+            t.feishuDocKind = null;
+        }
+        if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
+            t.feishuDocs.removeIf(d -> d == null || d.url == null
+                    || !FeishuResourceResolver.isRecognizedFeishuDocUrl(d.url));
+            if (t.feishuDocs.isEmpty()) {
+                t.feishuDocs = null;
+            }
+        }
+        syncPrimaryUrlFromDocs(t);
+    }
+
+    private void mergePresetAgendaDocs(Integer presetTypeCode, List<HostTopic> topics, String meetingId) {
+        if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5) {
+            if (meetingId != null) {
+                log.debug("mergePresetAgendaDocs skipped: presetTypeCode={} meetingId={}", presetTypeCode, meetingId);
+            }
+            return;
+        }
+        if (topics == null || topics.isEmpty()) {
+            return;
+        }
+        for (MatterProgressDocConfig cfg : presetAgendaDocService.listEnabledByPreset(presetTypeCode)) {
+            if (cfg.getAgendaIndex() == null) {
+                continue;
+            }
+            int idx = cfg.getAgendaIndex();
+            if (idx < 0 || idx >= topics.size()) {
+                log.warn("mergePresetAgendaDocs: agenda_index {} out of range (topics={}) preset={} config={}",
+                        idx, topics.size(), presetTypeCode, cfg.getConfigName());
+                continue;
+            }
+            HostTopic t = topics.get(idx);
+            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
+            if (ref == null) {
+                continue;
+            }
+            appendResourceRefToTopic(t, ref);
+            syncPrimaryUrlFromDocs(t);
+        }
     }
 
     /**
@@ -969,6 +1192,11 @@ public class MeetingHostSessionService {
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null) {
             return;
+        }
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting != null) {
+            sanitizeTopicsFeishuRefs(rt.topics);
+            mergePresetAgendaDocs(meeting.getPresetTypeCode(), rt.topics, meetingId);
         }
         try {
             ObjectNode root = buildStateNode(rt);
@@ -1004,6 +1232,16 @@ public class MeetingHostSessionService {
             o.put("minutes", t.minutes);
             o.put("status", t.status);
             o.put("detail", t.detail == null ? "" : t.detail);
+            o.put("feishuDocUrl", t.feishuDocUrl == null ? "" : t.feishuDocUrl);
+            o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
+            ArrayNode docsArr = o.putArray("feishuDocs");
+            if (t.feishuDocs != null) {
+                for (FeishuDocBinding b : t.feishuDocs) {
+                    ObjectNode doc = docsArr.addObject();
+                    doc.put("kind", b.kind == null ? "" : b.kind);
+                    doc.put("url", b.url == null ? "" : b.url);
+                }
+            }
         }
         ObjectNode rollCall = root.putObject("rollCall");
         rollCall.put("phase", rt.rollCallPhase);
@@ -1176,5 +1414,16 @@ public class MeetingHostSessionService {
         String status = "PENDING";
         /** 可选 Markdown 文本，下发给主持页「当前议程」展示 */
         String detail;
+        /** 首条飞书资料链接（兼容旧前端字段） */
+        String feishuDocUrl;
+        /** DOCX / WIKI / BASE / UNKNOWN（首条，兼容旧字段） */
+        String feishuDocKind;
+        /** 同一会序多条飞书资料 */
+        List<FeishuDocBinding> feishuDocs;
+    }
+
+    private static final class FeishuDocBinding {
+        String kind;
+        String url;
     }
 }

@@ -49,6 +49,7 @@ public class MeetingService {
     private final MeetingTypePresetService meetingTypePresetService;
     private final AiAgentService aiAgentService;
     private final MeetingProgressAIEnhancer progressAIEnhancer;
+    private final PresetAgendaDocService presetAgendaDocService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Kafka 生产者（生产环境，开发环境可选）
@@ -60,7 +61,8 @@ public class MeetingService {
                           LocalEventBus localEventBus,
                           MeetingTypePresetService meetingTypePresetService,
                           AiAgentService aiAgentService,
-                          MeetingProgressAIEnhancer progressAIEnhancer) {
+                          MeetingProgressAIEnhancer progressAIEnhancer,
+                          PresetAgendaDocService presetAgendaDocService) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.todoMapper = todoMapper;
@@ -69,6 +71,7 @@ public class MeetingService {
         this.meetingTypePresetService = meetingTypePresetService;
         this.aiAgentService = aiAgentService;
         this.progressAIEnhancer = progressAIEnhancer;
+        this.presetAgendaDocService = presetAgendaDocService;
     }
 
     @Transactional
@@ -339,6 +342,12 @@ public class MeetingService {
                 resp.setHostAgendaItems(fromPreset);
             }
         }
+        if (resp.getHostAgendaItems() != null
+                && meeting.getPresetTypeCode() != null
+                && meeting.getPresetTypeCode() >= 1
+                && meeting.getPresetTypeCode() <= 5) {
+            presetAgendaDocService.enrichHostAgendaItems(meeting.getPresetTypeCode(), resp.getHostAgendaItems());
+        }
         resp.setCompany(meeting.getCompany());
         resp.setDepartment(meeting.getDepartment());
         resp.setGroupName(meeting.getGroupName());
@@ -407,6 +416,21 @@ public class MeetingService {
                 if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
                     n.put("detail", dto.getDetail().trim());
                 }
+                if (dto.getFeishuDocs() != null && !dto.getFeishuDocs().isEmpty()) {
+                    var docs = n.putArray("feishuDocs");
+                    for (com.smartmeeting.api.dto.FeishuDocRefDto ref : dto.getFeishuDocs()) {
+                        if (ref == null || ref.getUrl() == null || ref.getUrl().isBlank()) {
+                            continue;
+                        }
+                        var d = docs.addObject();
+                        if (ref.getKind() != null && !ref.getKind().isBlank()) {
+                            d.put("kind", ref.getKind());
+                        }
+                        d.put("url", ref.getUrl().trim());
+                    }
+                } else if (dto.getFeishuDocUrl() != null && !dto.getFeishuDocUrl().isBlank()) {
+                    n.put("feishuDocUrl", dto.getFeishuDocUrl().trim());
+                }
             }
             if (arr.isEmpty()) {
                 return null;
@@ -440,6 +464,37 @@ public class MeetingService {
                 String detail = n.path("detail").asText("").trim();
                 if (!detail.isEmpty()) {
                     dto.setDetail(detail);
+                }
+                JsonNode docsNode = n.path("feishuDocs");
+                if (docsNode.isArray() && docsNode.size() > 0) {
+                    List<com.smartmeeting.api.dto.FeishuDocRefDto> refs = new ArrayList<>();
+                    for (JsonNode d : docsNode) {
+                        String url = d.path("url").asText("").trim();
+                        if (url.isEmpty()) {
+                            url = d.path("feishuDocUrl").asText("").trim();
+                        }
+                        if (url.isEmpty()) {
+                            continue;
+                        }
+                        String kind = d.path("kind").asText("").trim();
+                        refs.add(com.smartmeeting.api.dto.FeishuDocRefDto.builder().kind(kind).url(url).build());
+                    }
+                    if (!refs.isEmpty()) {
+                        dto.setFeishuDocs(refs);
+                        dto.setFeishuDocUrl(refs.get(0).getUrl());
+                    }
+                } else {
+                    String docUrl = n.path("feishuDocUrl").asText("").trim();
+                    if (docUrl.isEmpty()) {
+                        String legacyId = n.path("feishuDocToken").asText("").trim();
+                        docUrl = com.smartmeeting.service.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                        if (docUrl == null) {
+                            docUrl = "";
+                        }
+                    }
+                    if (!docUrl.isEmpty()) {
+                        dto.setFeishuDocUrl(docUrl);
+                    }
                 }
                 out.add(dto);
             }

@@ -26,6 +26,7 @@ public class MeetingTypePresetService {
 
     private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
+    private final PresetAgendaDocService presetAgendaDocService;
 
     public List<MeetingPresetResponse> listPresets() {
         return presetMapper.selectList(null).stream()
@@ -125,7 +126,11 @@ public class MeetingTypePresetService {
         if (p == null) {
             return null;
         }
-        return hostAgendaItemsFromPresetJson(p.getHostAgenda());
+        List<HostAgendaItemDto> items = hostAgendaItemsFromPresetJson(p.getHostAgenda());
+        if (items != null && !items.isEmpty()) {
+            presetAgendaDocService.enrichHostAgendaItems(code, items);
+        }
+        return items;
     }
 
     private List<HostAgendaItemDto> hostAgendaItemsFromPresetJson(String json) {
@@ -147,6 +152,17 @@ public class MeetingTypePresetService {
                 String detail = n.path("detail").asText("").trim();
                 if (!detail.isEmpty()) {
                     dto.setDetail(detail);
+                }
+                String docUrl = n.path("feishuDocUrl").asText("").trim();
+                if (docUrl.isEmpty()) {
+                    String legacyId = n.path("feishuDocToken").asText("").trim();
+                    docUrl = com.smartmeeting.service.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                    if (docUrl == null) {
+                        docUrl = "";
+                    }
+                }
+                if (!docUrl.isEmpty()) {
+                    dto.setFeishuDocUrl(docUrl);
                 }
                 out.add(dto);
             }

@@ -1,5 +1,6 @@
 package com.smartmeeting.api.controller;
 
+import com.smartmeeting.api.dto.AgendaDocContentResponse;
 import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MatterProgressReportResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
@@ -8,11 +9,15 @@ import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.PreviousProgressResponse;
 import com.smartmeeting.api.dto.TodoBoardResponse;
 import com.smartmeeting.service.FeishuMeetingStartCoordinator;
+import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.exception.BusinessException;
+import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.MatterProgressReportService;
 import com.smartmeeting.service.MeetingRecordingSessionEndService;
 import com.smartmeeting.service.MeetingService;
+import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.service.host.MeetingHostSessionService;
 import com.smartmeeting.service.TodoService;
-import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.util.JwtUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -31,6 +36,9 @@ public class MeetingController {
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
     private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
     private final MatterProgressReportService matterProgressReportService;
+    private final PresetAgendaDocService presetAgendaDocService;
+    private final MeetingMapper meetingMapper;
+    private final MeetingHostSessionService meetingHostSessionService;
 
     @PostMapping
     public ApiResponse<MeetingResponse> createMeeting(@Valid @RequestBody MeetingCreateRequest request) {
@@ -84,6 +92,42 @@ public class MeetingController {
         String token = bearerToken(authorization);
         jwtUtil.verifyRecordingPageToken(token, id);
         return ApiResponse.ok(matterProgressReportService.analyzeForMeeting(id));
+    }
+
+    /**
+     * 按会序拉取飞书 Docx 纯文本，供主持页只读展示（不经过 LLM）。
+     */
+    @GetMapping("/{id}/agenda-doc-content")
+    public ApiResponse<AgendaDocContentResponse> agendaDocContent(
+            @PathVariable String id,
+            @RequestParam int agendaIndex,
+            @RequestHeader("Authorization") String authorization) {
+        String token = bearerToken(authorization);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        if (agendaIndex < 0) {
+            throw new BusinessException(400, "agendaIndex 不能为负");
+        }
+        Meeting meeting = meetingMapper.selectById(id);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + id);
+        }
+        java.util.List<com.smartmeeting.api.dto.FeishuDocRefDto> runtimeDocs = null;
+        if (meetingHostSessionService.isActive(id)) {
+            runtimeDocs = meetingHostSessionService.getAgendaDocRefs(id, agendaIndex);
+        }
+        String title = resolveAgendaTitle(meeting, agendaIndex);
+        return ApiResponse.ok(presetAgendaDocService.buildAgendaDocContent(
+                meeting, agendaIndex, title, runtimeDocs));
+    }
+
+    private String resolveAgendaTitle(Meeting meeting, int agendaIndex) {
+        List<com.smartmeeting.api.dto.host.HostAgendaItemDto> items =
+                meetingService.getMeeting(meeting.getId()).getHostAgendaItems();
+        if (items != null && agendaIndex >= 0 && agendaIndex < items.size()
+                && items.get(agendaIndex).getTitle() != null) {
+            return items.get(agendaIndex).getTitle();
+        }
+        return "";
     }
 
     private static String bearerToken(String authorization) {

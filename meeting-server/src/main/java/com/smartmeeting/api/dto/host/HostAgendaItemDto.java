@@ -1,6 +1,9 @@
 package com.smartmeeting.api.dto.host;
 
+import com.smartmeeting.api.dto.FeishuDocRefDto;
 import lombok.Data;
+
+import java.util.List;
 
 /**
  * 主持会序中的一项：与 DB 字段 {@code host_agenda}、主持开始请求 {@code HostStartRequest#items} 的 JSON 形态一致。
@@ -13,4 +16,8 @@ public class HostAgendaItemDto {
     private Integer minutes;
     /** 可选：本项补充说明（Markdown），对应 JSON {@code items[].detail}，下发主持页「当前议程」 */
     private String detail;
+    /** 可选：飞书资料链接（docx/wiki/base）；可与 int_matter_progress_doc_config 按 preset+会序合并 */
+    private String feishuDocUrl;
+    /** 可选：同一会序多条资料（base/docx/wiki），优先级高于单条 token/url */
+    private List<FeishuDocRefDto> feishuDocs;
 }

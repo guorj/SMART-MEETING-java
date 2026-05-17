@@ -72,6 +72,15 @@
         .tts-btn:disabled{opacity:.45;cursor:not-allowed}
         .tts-btn.tts-playing{background:#1565c0;color:#fff;animation:tts-pulse 1.2s ease-in-out infinite}
         @keyframes tts-pulse{0%,100%{opacity:1}50%{opacity:.72}}
+        /* 会序飞书资料链接 */
+        .agenda-feishu-section{margin-top:16px}
+        .agenda-feishu-item{padding:12px 0;border-bottom:1px solid #f0f0f0}
+        .agenda-feishu-item:last-child{border-bottom:none}
+        .agenda-feishu-title{font-size:15px;font-weight:600;margin-bottom:6px}
+        .agenda-feishu-link{display:block;font-size:13px;color:#1565c0;word-break:break-all;text-decoration:none;margin-top:4px}
+        .agenda-feishu-link:hover{text-decoration:underline}
+        .agenda-feishu-kind{display:inline-block;font-size:11px;color:#666;background:#f0f4f8;border-radius:4px;padding:2px 6px;margin-right:6px}
+        .agenda-feishu-empty{color:#999;font-size:13px;padding:8px 0}
     </style>
 </head>
 <body>
@@ -100,10 +109,19 @@
                 <button class="btn btn-success" id="resumeBtn" onclick="resumeRecording()" style="display:none">▶️ 继续</button>
             </div>
 
-            <div class="transcript-section" id="progressReportSection" style="margin-top:16px">
+            <div class="transcript-section agenda-feishu-section" id="agendaFeishuSection" style="margin-top:16px">
+                <h2>📎 会序飞书资料</h2>
+                <p class="agenda-feishu-empty" id="agendaFeishuHint">正在加载会序资料链接…</p>
+                <div id="agendaFeishuBody"></div>
+            </div>
+
+            <div class="transcript-section" id="progressReportSection" style="margin-top:16px;display:none">
                 <div class="progress-report-head">
-                    <h2>📊 事项进度通报</h2>
+                    <h2>📊 事项进度通报（AI）</h2>
                     <button type="button" class="tts-btn" id="progressReportTtsBtn" title="语音播报" aria-label="语音播报" disabled onclick="toggleProgressReportTts()">🔊</button>
+                </div>
+                <div style="margin-bottom:10px">
+                    <button type="button" class="btn btn-secondary" id="loadProgressReportBtn" onclick="loadMatterProgressReport()" style="width:100%;padding:10px">生成 AI 事项进度通报</button>
                 </div>
                 <div class="transcript-list md-body" id="progressReportBody" style="max-height:420px"></div>
             </div>
@@ -247,7 +265,7 @@
             document.getElementById('endMeetingBtn').disabled = true;
             showError('录音链接无效，请从飞书机器人重新获取');
         } else {
-            loadMatterProgressReport();
+            loadMeetingAgendaFeishuLinks();
         }
 
         if (window.speechSynthesis) {
@@ -305,6 +323,114 @@
         document.getElementById('pauseBtn').style.display = 'inline-block';
     }
 
+    function isFeishuDocUrl(url) {
+        var u = url != null ? String(url).trim() : '';
+        if (!u) return false;
+        return /\/(docx|wiki|base)\/[^/?#]+/i.test(u);
+    }
+
+    function feishuKindLabel(kind, url) {
+        var k = kind != null ? String(kind).trim().toUpperCase() : '';
+        if (k === 'WIKI') return '知识库';
+        if (k === 'BASE') return '多维表格';
+        if (k === 'DOCX') return '云文档';
+        var u = url != null ? String(url) : '';
+        if (/\/wiki\//i.test(u)) return '知识库';
+        if (/\/base\//i.test(u)) return '多维表格';
+        if (/\/docx\//i.test(u)) return '云文档';
+        return '飞书资料';
+    }
+
+    function collectFeishuRefsFromAgendaItem(item) {
+        var refs = [];
+        var seen = {};
+        function add(url, kind) {
+            var u = url != null ? String(url).trim() : '';
+            if (!u || !isFeishuDocUrl(u) || seen[u]) return;
+            seen[u] = true;
+            refs.push({ url: u, kind: kind || '' });
+        }
+        if (!item) return refs;
+        if (item.feishuDocs && item.feishuDocs.length) {
+            item.feishuDocs.forEach(function (d) {
+                if (!d) return;
+                add(d.url, d.kind);
+            });
+        }
+        add(item.feishuDocUrl, item.feishuDocKind);
+        return refs;
+    }
+
+    function renderAgendaFeishuLinks(items) {
+        var body = document.getElementById('agendaFeishuBody');
+        var hint = document.getElementById('agendaFeishuHint');
+        if (!body) return;
+        body.innerHTML = '';
+        if (!items || !items.length) {
+            if (hint) {
+                hint.textContent = '暂无会序资料';
+                hint.style.display = 'block';
+            }
+            return;
+        }
+        var hasAny = false;
+        items.forEach(function (it, idx) {
+            var refs = collectFeishuRefsFromAgendaItem(it);
+            if (!refs.length) return;
+            hasAny = true;
+            var block = document.createElement('div');
+            block.className = 'agenda-feishu-item';
+            var title = document.createElement('div');
+            title.className = 'agenda-feishu-title';
+            title.textContent = (idx + 1) + '. ' + (it.title || ('会序 ' + (idx + 1)));
+            block.appendChild(title);
+            refs.forEach(function (ref) {
+                var row = document.createElement('div');
+                row.style.marginTop = '6px';
+                var badge = document.createElement('span');
+                badge.className = 'agenda-feishu-kind';
+                badge.textContent = feishuKindLabel(ref.kind, ref.url);
+                row.appendChild(badge);
+                var link = document.createElement('a');
+                link.className = 'agenda-feishu-link';
+                link.href = ref.url;
+                link.target = '_blank';
+                link.rel = 'noopener noreferrer';
+                link.textContent = ref.url;
+                row.appendChild(link);
+                block.appendChild(row);
+            });
+            body.appendChild(block);
+        });
+        if (hint) {
+            if (hasAny) {
+                hint.textContent = '本页为会议录音入口；会序资料请在飞书中打开下方链接（如「前期项目汇报」对应多维表格）。';
+                hint.style.display = 'block';
+            } else {
+                hint.textContent = '当前会序未配置飞书资料链接';
+                hint.style.display = 'block';
+            }
+        }
+    }
+
+    async function loadMeetingAgendaFeishuLinks() {
+        if (!token || !meetingId) return;
+        try {
+            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId), {
+                headers: { 'Authorization': 'Bearer ' + token }
+            });
+            const j = await res.json();
+            if (j.code !== 0 || !j.data) throw new Error(j.message || '加载会议失败');
+            renderAgendaFeishuLinks(j.data.hostAgendaItems || []);
+            var sec = document.getElementById('progressReportSection');
+            if (sec) sec.style.display = 'block';
+        } catch (e) {
+            var hint = document.getElementById('agendaFeishuHint');
+            if (hint) hint.textContent = '会序资料加载失败：' + (e.message || e);
+            showError('会序资料加载失败：' + (e.message || e));
+        }
+    }
+
     async function loadMatterProgressReport() {
         if (!token || !meetingId) {
             showError('录音链接无效');
@@ -312,6 +438,7 @@
         }
         const sec = document.getElementById('progressReportSection');
         const body = document.getElementById('progressReportBody');
+        if (sec) sec.style.display = 'block';
         body.className = 'transcript-list md-body';
         body.textContent = '智能体正在生成待办进度通报，请稍候…';
         setProgressReportTtsEnabled(false);
