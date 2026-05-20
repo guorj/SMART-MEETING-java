@@ -14,10 +14,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 飞书卡片构建器
- * 
- * 构建飞书 Interactive Card JSON 结构
- * 参考 Python 版 feishu/message.py 的 build_*_card 函数
+ * 飞书 Interactive Card JSON 构建器，对应 Python 版 feishu/message.py 的 build_*_card 函数。
+ * <p>
+ * 主要协作组件：{@link ObjectMapper}（构建卡片 JSON 节点）。
  */
 @Slf4j
 @Service
@@ -28,7 +27,12 @@ public class FeishuCardBuilder {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
-     * 会议已在服务端启动后，向群内发送「会议已开始」通知（无「开始录音」按钮；发起人在 Web 录音页拾音）。
+     * 构建「会议已开始」通知卡片（无「开始录音」按钮；发起人在 Web 录音页拾音）。
+     *
+     * @param meetingId    会议 ID
+     * @param title        会议主题
+     * @param recordingUrl 备用录音页链接（可为 null）
+     * @return 卡片 JSON 字符串
      */
     public String buildMeetingStartedNotifyCard(String meetingId, String title, String recordingUrl) {
         ObjectNode card = objectMapper.createObjectNode();
@@ -65,7 +69,45 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 常驻操作说明卡片（首次在本群触发「开始会议」时发送，可配合机器人欢迎语与快捷菜单）
+     * 构建线上参会人个人入会链接卡片（单聊推送，打开即登记到场、不推流）。
+     *
+     * @param meetingTitle    会议主题
+     * @param participantName 参会人姓名
+     * @param joinUrl         个人入会链接
+     * @return 卡片 JSON 字符串
+     */
+    public String buildPersonalOnlineJoinCard(String meetingTitle, String participantName, String joinUrl) {
+        ObjectNode card = objectMapper.createObjectNode();
+
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "📲 线上到会确认");
+        header.put("template", "turquoise");
+
+        ArrayNode elements = card.putArray("elements");
+        addMarkdownElement(elements,
+                "**会议**：" + (meetingTitle != null ? meetingTitle : "") + "\n"
+                        + "**参会人**：" + (participantName != null ? participantName : "") + "\n\n"
+                        + "请点击下方按钮打开**个人链接**完成线上到场登记（无需麦克风）。");
+        addDividerElement(elements);
+        if (joinUrl != null && !joinUrl.isBlank()) {
+            addActionButton(elements, "打开个人入会链接", joinUrl, "primary");
+        }
+        addNoteElement(elements, List.of(
+                "请勿转发本链接；登记后由现场设备负责录音。",
+                "若按钮无法打开，请复制链接到浏览器：" + (joinUrl != null ? joinUrl : "")
+        ));
+        return card.toString();
+    }
+
+    /**
+     * 构建常驻操作说明卡片（首次在本群触发「开始会议」时发送）。
+     *
+     * @return 卡片 JSON 字符串
      */
     public String buildOnboardingInstructionCard() {
         ObjectNode card = objectMapper.createObjectNode();
@@ -99,7 +141,10 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 会议类型入口卡片：主按钮打开内嵌 Web（URL 中含短期 JWT），在页面上选类型；不依赖飞书卡片回传。
+     * 构建会议类型入口卡片：主按钮打开内嵌 Web（URL 中含短期 JWT），在页面上选类型。
+     *
+     * @param entryUrl 会务选会页面 URL
+     * @return 卡片 JSON 字符串
      */
     public String buildMeetingTypeWebEntryCard(String entryUrl) {
         ObjectNode card = objectMapper.createObjectNode();
@@ -124,15 +169,15 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建纪要完成卡片
-     * 
-     * @param title 会议主题
-     * @param duration 时长（如"1小时15分钟"）
-     * @param speakerCount 发言人数量
-     * @param docUrl 飞书文档URL
-     * @param todoCount 待办数量
-     * @param assigneeStats 责任人统计（如"张三(2项), 李四(1项)"）
-     * @return 卡片JSON字符串
+     * 构建纪要完成卡片（含文档链接与待办统计）。
+     *
+     * @param title          会议主题
+     * @param duration       会议时长（如「1小时15分钟」）
+     * @param speakerCount   识别到的发言人数量
+     * @param docUrl         飞书文档 URL
+     * @param todoCount      待办数量
+     * @param assigneeStats  责任人统计（如「张三(2项), 李四(1项)」）
+     * @return 卡片 JSON 字符串
      */
     public String buildMinutesCard(String title, String duration, int speakerCount,
                                    String docUrl, int todoCount, String assigneeStats) {
@@ -180,14 +225,14 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建进度通报卡片（上次会议待办进度）
-     * 
-     * @param title 上次会议标题
-     * @param completed 已完成数量
-     * @param inProgress 进行中数量
-     * @param delayed 已延期数量
-     * @param delayedItems 延期项详情列表
-     * @return 卡片JSON字符串
+     * 构建上次会议待办进度通报卡片。
+     *
+     * @param title        上次会议标题
+     * @param completed    已完成数量
+     * @param inProgress   进行中数量
+     * @param delayed      已延期数量
+     * @param delayedItems 延期项详情列表（含 content、assigneeName、blockReason）
+     * @return 卡片 JSON 字符串
      */
     public String buildProgressCard(String title, int completed, int inProgress, int delayed,
                                     List<Map<String, String>> delayedItems) {
@@ -236,11 +281,11 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建声纹注册卡片
-     * 
+     * 构建声纹注册引导卡片。
+     *
      * @param userName 用户姓名
-     * @param regUrl 注册链接
-     * @return 卡片JSON字符串
+     * @param regUrl   声纹注册链接
+     * @return 卡片 JSON 字符串
      */
     public String buildVoiceprintRegisterCard(String userName, String regUrl) {
         ObjectNode card = objectMapper.createObjectNode();
@@ -283,7 +328,10 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建处理中卡片（纪要生成进行中）
+     * 构建「纪要生成中」处理状态卡片。
+     *
+     * @param title 会议主题
+     * @return 卡片 JSON 字符串
      */
     public String buildProcessingCard(String title) {
         ObjectNode card = objectMapper.createObjectNode();
@@ -305,7 +353,11 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建错误卡片
+     * 构建操作失败错误提示卡片。
+     *
+     * @param title    操作标题或上下文
+     * @param errorMsg 错误信息
+     * @return 卡片 JSON 字符串
      */
     public String buildErrorCard(String title, String errorMsg) {
         ObjectNode card = objectMapper.createObjectNode();

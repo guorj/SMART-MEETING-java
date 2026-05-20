@@ -49,7 +49,8 @@ services:
       MYSQL_PASSWORD: ${DB_PASSWORD}
     volumes:
       - mysql-data:/var/lib/mysql
-      - ./meeting-server/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+      - ./meeting-server/src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./meeting-server/src/main/resources/schema-data.sql:/docker-entrypoint-initdb.d/02-schema-data.sql
     ports:
       - "3306:3306"
     healthcheck:

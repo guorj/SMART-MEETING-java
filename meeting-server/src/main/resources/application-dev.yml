@@ -19,8 +19,16 @@ spring:
 
   sql:
     init:
+      # 禁止启动时执行 schema-data.sql，避免覆盖库内飞书 URL（校验见 DatabaseSeedStartupValidator）
       mode: never
 
+  data:
+    redis:
+      host: 60.205.1.17
+      port: 6379
+      password: jq@2026
+      database: 10
+      timeout: 5000ms
 # ============================================================
 # 业务配置 — 所有参数从 .env 迁移至此
 # ============================================================

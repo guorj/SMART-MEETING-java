@@ -14,19 +14,17 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * AI Agent 服务 — 通过 OpenClaw Gateway HTTP API 调用 Agent（小栈）进行智能分析。
- *
- * <p>传输方式优先级：
- * <ol>
- *   <li>{@code transport=http}：Gateway HTTP API（推荐，无进程启动开销）</li>
- *   <li>{@code transport=cli}：openclaw CLI 子进程（旧方案，每次 fork 3-5s）</li>
- * </ol>
+ * OpenClaw AI Agent 调用门面 — 通过 Gateway HTTP API 调用 Agent，支持 MCP + Skill 模式。
  *
  * <p>介入场景：
- * <ol>
- *   <li>会议开始：上次会议待办进度深度分析</li>
- *   <li>会议结束：纪要质量优化增强</li>
- * </ol>
+ * <ul>
+ *   <li>会议开始 — 上次待办进度 JSON 分析（{@link #analyzePreviousProgress}）</li>
+ *   <li>录音页 — 综合管理会事项进度 Markdown（{@link #runMatterProgressReportViaOpenclaw}）</li>
+ *   <li>纪要生成 — 初版纪要质量优化（{@link #enhanceMeetingMinutes}）</li>
+ * </ul>
+ *
+ * <p>{@code skill-mode=true} 时 prompt 仅传业务数据，输出格式与 MCP 工具步骤由 {@code skills/} 定义；
+ * 由配置 {@code openclaw.enabled} 总开关控制，关闭时各方法快速返回 {@code null} 或原文。
  */
 @Slf4j
 @Service
@@ -65,6 +63,9 @@ public class AiAgentService {
     @Value("${openclaw.skill-mode:true}")
     private boolean skillMode;
 
+    /**
+     * @param restTemplate HTTP 客户端，用于 Gateway {@code /api/v1/sessions/send}
+     */
     public AiAgentService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
@@ -83,7 +84,7 @@ public class AiAgentService {
      * @param todoStats 待办统计（完成数、进行中数、延期数）
      * @param delayedItems 延期项详情列表
      * @param feishuMultitableDirective 非空时附加在任务最前（Skill 模式下改为 MCP 工具参数，此参数将逐步弃用）
-     * @return 智能分析报告（JSON格式）
+     * @return Agent 回复文本（通常为 JSON）；未启用或调用失败时返回 {@code null}
      */
     public String analyzePreviousProgress(
             String meetingId,
@@ -150,7 +151,8 @@ public class AiAgentService {
      * 录音页「事项进度通报」 — Skill 模式下由 {@code skills/matter-progress/SKILL.md} 定义流程与输出格式。
      *
      * @param meeting 当前会议
-     * @param bitableDirective 旧方案 prompt 指令（Skill 模式下忽略，改由 MCP 工具 + Skill 定义）
+     * @param bitableDirective 多维表读取指令（兼容模式下来自 {@link OpenclawComprehensiveBitableBranch}）
+     * @return Markdown 正文；未启用、指令为空或调用失败时返回 {@code null}
      */
     public String runMatterProgressReportViaOpenclaw(Meeting meeting, String bitableDirective) {
         if (!enabled) {
@@ -191,7 +193,7 @@ public class AiAgentService {
      * @param meetingType 会议类型（1-6）
      * @param participants 参会人列表
      * @param transcriptText 转写原文（可选，用于校验）
-     * @return 优化后的纪要 + 质量检查报告
+     * @return Agent 返回的 JSON 字符串；未启用时返回 {@code rawMinute}
      */
     public String enhanceMeetingMinutes(
             String meetingId,
@@ -265,7 +267,7 @@ public class AiAgentService {
      *
      * @param prompt 任务描述；若以 "/skill:" 开头则触发 Skill 热加载（Phase 4）
      * @param taskType 任务类型（用于日志）
-     * @return Agent 回复文本
+     * @return 解析后的回复文本；超时或调用失败时返回 {@code null}
      */
     private String callAgent(String prompt, String taskType) {
         log.info("调用AI Agent: taskType={}, promptLength={}, mode=http", taskType, prompt.length());
@@ -310,7 +312,11 @@ public class AiAgentService {
      * 解析 Agent 回复 — 支持 CLI JSON 格式与 HTTP API 格式
      *
      * <p>CLI 格式: {"status":"ok","result":{"payloads":[{"text":"..."}]}}
-     * <p>HTTP 格式: {"reply":"..."} 或 {"content":"..."} 或直接文本
+     * <p>HTTP 格式: {@code reply} / {@code content} / {@code message} / {@code response} 或直接文本
+     *
+     * @param responseBody 原始响应体
+     * @param taskType     任务类型（日志）
+     * @return 提取的文本内容；status 非 ok 且无已知字段时返回 {@code null} 或原文兜底
      */
     private String parseAgentReply(String responseBody, String taskType) {
         try {
@@ -349,16 +355,18 @@ public class AiAgentService {
     }
 
     /**
-     * 异步调用（不阻塞主流程）
+     * 异步包装 {@link #callAgent}（不阻塞调用线程）。
+     *
+     * @param prompt   任务提示词
+     * @param taskType 任务类型
+     * @return 已完成 Future，值为 Agent 回复或 {@code null}
      */
     @org.springframework.scheduling.annotation.Async
     public CompletableFuture<String> callAgentAsync(String prompt, String taskType) {
         return CompletableFuture.completedFuture(callAgent(prompt, taskType));
     }
 
-    /**
-     * 获取会议类型名称
-     */
+    /** 将预设类型编码转为中文展示名。 */
     private String getMeetingTypeName(Integer typeCode) {
         if (typeCode == null) {
             return "其他会议";
@@ -375,7 +383,9 @@ public class AiAgentService {
     }
 
     /**
-     * 检查 Agent 是否可用
+     * 检查 Agent 是否已配置为可用（当前仅反映 {@code openclaw.enabled}）。
+     *
+     * @return 开关开启时为 {@code true}
      */
     public boolean isAgentAvailable() {
         if (!enabled) {

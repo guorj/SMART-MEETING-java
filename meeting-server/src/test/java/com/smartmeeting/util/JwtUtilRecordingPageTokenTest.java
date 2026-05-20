@@ -11,12 +11,13 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * 录音页 / 主持页 URL 共用 {@link JwtUtil#verifyRecordingPageToken(String, String)}。
+ * 录音页 / 主持页 URL 共用 {@link JwtUtil#verifyRecordingPageToken(String, String)} 的单元测试。
  */
 class JwtUtilRecordingPageTokenTest {
 
     private JwtUtil jwtUtil;
 
+    /** 初始化 JwtUtil 并注入测试用密钥与过期配置。 */
     @BeforeEach
     void setUp() {
         jwtUtil = new JwtUtil();
@@ -25,6 +26,7 @@ class JwtUtilRecordingPageTokenTest {
         ReflectionTestUtils.setField(jwtUtil, "feishuWebEntryExpireMinutes", 30);
     }
 
+    /** subject 与 meetingId claim 一致时应通过校验。 */
     @Test
     @DisplayName("subject + meetingId claim 与 path 一致则通过")
     void validToken_matchingMeetingId() {
@@ -34,6 +36,7 @@ class JwtUtilRecordingPageTokenTest {
         assertDoesNotThrow(() -> jwtUtil.verifyRecordingPageToken(token, mid));
     }
 
+    /** type=host 的令牌应可通过录音页校验。 */
     @Test
     @DisplayName("type=host 的令牌可通过校验")
     void validHostType() {
@@ -43,6 +46,7 @@ class JwtUtilRecordingPageTokenTest {
         assertDoesNotThrow(() -> jwtUtil.verifyRecordingPageToken(token, mid));
     }
 
+    /** 会议 ID 与 subject/claim 均不一致时应抛出 403。 */
     @Test
     @DisplayName("会议 ID 与 subject/claim 均不一致 → 403")
     void wrongMeetingId_throws403() {
@@ -55,6 +59,7 @@ class JwtUtilRecordingPageTokenTest {
         assertEquals(403, ex.getCode());
     }
 
+    /** type 非 recording/host 时应抛出 403。 */
     @Test
     @DisplayName("type 非 recording/host → 403")
     void invalidType_throws403() {
@@ -68,6 +73,7 @@ class JwtUtilRecordingPageTokenTest {
         assertEquals(403, ex.getCode());
     }
 
+    /** 伪造或损坏的 JWT 应抛出 401。 */
     @Test
     @DisplayName("伪造或损坏的 JWT → 401")
     void garbageToken_throws401() {

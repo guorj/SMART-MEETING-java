@@ -16,6 +16,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.when;
 
+/**
+ * {@link MeetingService} 集成测试：覆盖会议创建、启动、结束、查询及 host_agenda 拆分。
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class MeetingServiceTest extends BaseTest {
 
@@ -26,11 +29,13 @@ class MeetingServiceTest extends BaseTest {
     @MockBean
     private FeishuService feishuService;
 
+    /** Mock 飞书卡片发送，避免测试期间对外发请求。 */
     @BeforeEach
     void stubFeishuCard() {
         when(feishuService.sendCardMessage(anyString(), anyString(), anyList())).thenReturn(true);
     }
 
+    /** 创建会议应写入基本信息并返回 ISSUE_COLLECTING 状态。 */
     @Test
     @Order(1)
     @DisplayName("F-MID-01: 创建会议")
@@ -56,6 +61,7 @@ class MeetingServiceTest extends BaseTest {
         assertEquals("张三", response.getParticipants().get(0).getName());
     }
 
+    /** 无上次会议时启动应进入 STARTED 状态。 */
     @Test
     @Order(2)
     @DisplayName("F-MID-02: 启动会议（无上次会议）")
@@ -67,6 +73,7 @@ class MeetingServiceTest extends BaseTest {
         assertNotNull(started.getActualStartTime());
     }
 
+    /** 有上次会议时启动应进入 REVIEWING 状态并关联 previousMeetingId。 */
     @Test
     @Order(3)
     @DisplayName("F-MID-02: 启动会议（有上次会议 → REVIEWING）")
@@ -87,6 +94,7 @@ class MeetingServiceTest extends BaseTest {
         assertEquals(previous.getId(), started.getPreviousMeetingId());
     }
 
+    /** 结束会议应进入 PROCESSING 并记录实际结束时间与时长。 */
     @Test
     @Order(4)
     @DisplayName("F-MID-03: 结束会议")
@@ -101,6 +109,7 @@ class MeetingServiceTest extends BaseTest {
         assertTrue(ended.getDurationSeconds() >= 0);
     }
 
+    /** 按 ID 查询应返回完整会议详情。 */
     @Test
     @Order(5)
     @DisplayName("F-MID-04: 查询会议详情")
@@ -112,6 +121,7 @@ class MeetingServiceTest extends BaseTest {
         assertEquals("测试会议", detail.getTitle());
     }
 
+    /** 查询不存在的会议应抛出 BusinessException。 */
     @Test
     @Order(6)
     @DisplayName("F-MID-04: 查询不存在的会议")
@@ -120,6 +130,7 @@ class MeetingServiceTest extends BaseTest {
                 meetingService.getMeeting("non-existent-id"));
     }
 
+    /** 列表查询应返回多条会议记录。 */
     @Test
     @Order(7)
     @DisplayName("F-MID-05: 查询会议列表")
@@ -131,6 +142,7 @@ class MeetingServiceTest extends BaseTest {
         assertTrue(list.size() >= 2);
     }
 
+    /** 按状态筛选列表应只返回匹配状态的会议。 */
     @Test
     @Order(8)
     @DisplayName("F-MID-05: 按状态筛选会议列表")
@@ -143,6 +155,7 @@ class MeetingServiceTest extends BaseTest {
         assertEquals("STARTED", started.get(0).getStatus());
     }
 
+    /** 启动不存在的会议应抛出 BusinessException。 */
     @Test
     @Order(9)
     @DisplayName("异常测试: 启动不存在的会议")
@@ -151,6 +164,7 @@ class MeetingServiceTest extends BaseTest {
                 meetingService.startMeeting("non-existent-id"));
     }
 
+    /** 建会时 host_agenda 与 agenda 应拆分写入并在详情中正确回读。 */
     @Test
     @Order(10)
     @DisplayName("host_agenda 与 agenda 拆分：建会写入并详情回读")

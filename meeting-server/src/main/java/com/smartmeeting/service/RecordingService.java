@@ -27,8 +27,16 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 录音状态管理服务
- * 状态机: STARTED → RECORDING → PAUSED ↔ RECORDING → STOPPED → PROCESSING
+ * 会议录音生命周期与状态机管理服务。
+ *
+ * <p>内存态跟踪 {@link RecordingState}（RECORDING / PAUSED），持久化会议状态与音频路径；
+ * 停止录音后将会议置为 PROCESSING 并通过 {@link com.smartmeeting.mq.KafkaProducer} 或
+ * {@link com.smartmeeting.mq.LocalEventBus} 触发纪要生成链。
+ *
+ * <p>状态流转：STARTED/REVIEWING → RECORDING ⇄ PAUSED →（停止）PROCESSING。
+ *
+ * <p>主要协作：{@link com.smartmeeting.repository.MeetingMapper}、
+ * {@link com.smartmeeting.repository.ParticipantMapper}。
  */
 @Slf4j
 @Service
@@ -56,8 +64,11 @@ public class RecordingService {
     private final Map<String, RecordingState> recordingStates = new ConcurrentHashMap<>();
 
     /**
-     * 开始录音
-     * 状态: STARTED/REVIEWING → RECORDING
+     * 开始或恢复录音；若内存态为 PAUSED 则等同 {@link #resumeRecording}。
+     *
+     * @param meetingId 会议 ID
+     * @return 音频文件绝对/相对路径
+     * @throws BusinessException 会议不存在（404）、状态不允许（400）或已在录音中（400）
      */
     @Transactional
     public String startRecording(String meetingId) {
@@ -104,8 +115,10 @@ public class RecordingService {
     }
 
     /**
-     * 暂停录音
-     * 状态: RECORDING → PAUSED
+     * 暂停录音（仅更新内存态，会议 DB 状态仍为 RECORDING）。
+     *
+     * @param meetingId 会议 ID
+     * @throws BusinessException 会议不存在（404）或未在录音中（400）
      */
     @Transactional
     public void pauseRecording(String meetingId) {
@@ -124,8 +137,11 @@ public class RecordingService {
     }
 
     /**
-     * 继续录音
-     * 状态: PAUSED → RECORDING
+     * 从暂停恢复录音。
+     *
+     * @param meetingId 会议 ID
+     * @return 既有音频路径
+     * @throws BusinessException 会议不存在（404）或未处于暂停态（400）
      */
     @Transactional
     public String resumeRecording(String meetingId) {
@@ -145,9 +161,11 @@ public class RecordingService {
     }
 
     /**
-     * 停止录音
-     * 状态: RECORDING/PAUSED → PROCESSING
-     * 触发: 更新会议状态 → 发送 Kafka/LocalEventBus 事件 → 触发纪要生成链
+     * 停止录音：写回 PROCESSING、计算时长并发送纪要生成事件。
+     *
+     * @param meetingId 会议 ID
+     * @return 含 {@code meetingId}、{@code status}、{@code audioPath}、{@code durationSeconds}、{@code fileSize} 的 Map
+     * @throws BusinessException 会议不存在（404）或未开始录音（400）
      */
     @Transactional
     public Map<String, Object> stopRecording(String meetingId) {
@@ -209,7 +227,11 @@ public class RecordingService {
     }
 
     /**
-     * 发送纪要生成事件到 Kafka 或 LocalEventBus
+     * 向 Kafka 或本地事件总线投递纪要生成消息（优先 Kafka）。
+     *
+     * @param meetingId  会议 ID
+     * @param audioPath  音频路径
+     * @param featureIds 参会人声纹特征 ID 列表
      */
     private void sendMinuteGenerateEvent(String meetingId, String audioPath, List<String> featureIds) {
         MinuteGenerateMessage message = MinuteGenerateMessage.builder()
@@ -243,33 +265,37 @@ public class RecordingService {
     }
 
     /**
-     * 获取录音状态
+     * 获取内存中的录音会话状态。
+     *
+     * @param meetingId 会议 ID
+     * @return 当前状态；未开始录音时返回 {@code null}
      */
     public RecordingState getRecordingState(String meetingId) {
         return recordingStates.get(meetingId);
     }
 
-    /**
-     * 生成音频文件路径
-     */
+    /** 按缓存根目录、当日日期与会议 ID 生成 PCM 文件路径。 */
     private String generateAudioPath(String meetingId) {
         String dateStr = LocalDate.now().toString();
         return audioCacheDir + "/" + dateStr + "/" + meetingId + ".pcm";
     }
 
     /**
-     * 获取音频文件路径
+     * 从数据库读取会议已记录的音频路径。
+     *
+     * @param meetingId 会议 ID
+     * @return 音频路径；会议不存在时返回 {@code null}
      */
     public String getAudioPath(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         return meeting != null ? meeting.getAudioPath() : null;
     }
 
-    /**
-     * 录音内部状态
-     */
+    /** 进程内录音会话状态（与 DB {@code Meeting.status} 配合使用）。 */
     public enum RecordingState {
-        RECORDING,   // 正在录音
-        PAUSED       // 已暂停
+        /** 正在录音 */
+        RECORDING,
+        /** 已暂停（可 resume） */
+        PAUSED
     }
 }

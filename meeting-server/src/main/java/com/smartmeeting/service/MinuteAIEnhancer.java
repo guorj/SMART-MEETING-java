@@ -9,10 +9,13 @@ import org.springframework.stereotype.Component;
 import java.util.Map;
 
 /**
- * 会议纪要 - AI增强处理器
+ * 会议纪要的 AI 增强处理器（纪要生成环节）。
  *
- * 【环节2介入】在纪要生成环节，调用AI Agent优化LLM生成的初版纪要，
- * 进行质量检查、信息完整性验证、重点标注等
+ * <p>在 LLM 产出初版纪要后，调用 {@link AiAgentService#enhanceMeetingMinutes} 做质量优化与结构化校验；
+ * 解析失败或 Agent 不可用时原样返回初版纪要。可选方法用于从 AI 完整 JSON 中提取质量报告、
+ * 待办高亮与发言人要点。
+ *
+ * <p>主要协作：{@link AiAgentService}。
  */
 @Slf4j
 @Component
@@ -30,8 +33,8 @@ public class MinuteAIEnhancer {
      * @param meetingTitle 会议主题
      * @param meetingType 会议类型（1-6）
      * @param participants 参会人列表（逗号分隔）
-     * @param transcriptText 转写原文（用于校验）
-     * @return 优化后的纪要内容（如果AI失败则返回原纪要）
+     * @param transcriptText 转写原文（用于校验，可为空）
+     * @return 优化后的纪要正文；AI 失败、解析失败或未返回有效字段时返回 {@code rawMinute}
      */
     public String enhanceMinute(
             String meetingId,
@@ -108,8 +111,8 @@ public class MinuteAIEnhancer {
     /**
      * 获取纪要质量检查报告（可选）
      *
-     * @param aiResult AI返回的完整结果
-     * @return 质量检查报告Map
+     * @param aiResult AI 返回的完整 JSON 字符串
+     * @return 含 {@code score}、{@code issues} 的报告 Map；无质量块或解析失败时返回 {@code null}
      */
     public Map<String, Object> extractQualityCheckReport(String aiResult) {
         if (aiResult == null || aiResult.isEmpty()) {
@@ -147,8 +150,8 @@ public class MinuteAIEnhancer {
     /**
      * 提取重点待办标注（可选）
      *
-     * @param aiResult AI返回的完整结果
-     * @return 重点待办列表
+     * @param aiResult AI 返回的完整 JSON 字符串
+     * @return 重点待办列表，每项含 {@code content}、{@code priority}、{@code assignee}；无数据时返回空列表
      */
     public java.util.List<Map<String, String>> extractTodoHighlights(String aiResult) {
         if (aiResult == null || aiResult.isEmpty()) {
@@ -183,8 +186,8 @@ public class MinuteAIEnhancer {
     /**
      * 提取各发言人发言要点归类（可选）
      *
-     * @param aiResult AI返回的完整结果
-     * @return 发言人要点归类
+     * @param aiResult AI 返回的完整 JSON 字符串
+     * @return 发言人要点列表，每项含 {@code speaker}、{@code key_points}；无数据时返回空列表
      */
     public java.util.List<Map<String, Object>> extractSpeakerSummary(String aiResult) {
         if (aiResult == null || aiResult.isEmpty()) {

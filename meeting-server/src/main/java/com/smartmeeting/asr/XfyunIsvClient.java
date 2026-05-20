@@ -15,19 +15,18 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * 讯飞 ISV 声纹识别客户端
+ * 讯飞 ISV 私有化声纹识别 HTTP 客户端。
+ * <p>
+ * 封装注册、识别、删除、查询声纹组等 REST 调用，请求体签名由
+ * {@link com.smartmeeting.util.XfyunSignatureUtil#generateSignatureForObject} 完成；
+ * 与 {@link RestTemplate}、{@link ObjectMapper} 协作，并在进程内维护 userId ↔ featureId 缓存。
+ * </p>
+ * <p>
+ * 官方文档：<a href="https://www.xfyun.cn/doc/isv/isv/API.html">ISV API</a>。
+ * 默认声纹组 ID 为配置项 {@code meeting.asr.xfyun.isv-group-id}（如 smart_meeting_vp）。
+ * </p>
  *
- * API 文档: https://www.xfyun.cn/doc/isv/isv/API.html
- *
- * 功能:
- * - registerVoiceprint: 注册声纹特征
- * - identifyVoiceprint: 识别声纹（返回说话人）
- * - deleteVoiceprint: 删除声纹
- * - listVoiceprint: 查询声纹组成员
- *
- * 声纹组:
- * - group_id: smart_meeting_vp（配置项）
- * - 每个用户注册一个 feature_id，有效期通常90天
+ * @see VoiceprintMember
  */
 @Slf4j
 @Component
@@ -57,12 +56,12 @@ public class XfyunIsvClient {
     private final Map<String, String> featureIdToUserId = new HashMap<>();
 
     /**
-     * 注册声纹
+     * 向声纹组注册新用户的声纹特征（data.status=2）。
      *
-     * @param userId 用户标识（OA userId）
-     * @param userName 用户姓名
-     * @param audioData 音频数据（PCM格式，建议5-10秒）
-     * @return featureId 声纹特征ID，失败返回null
+     * @param userId    OA 用户唯一标识
+     * @param userName  展示用姓名，写入 vcnUserName
+     * @param audioData PCM 音频字节，建议 5～10 秒有效语音
+     * @return 成功时返回讯飞 featureId；HTTP/业务失败或异常时返回 null
      */
     public String registerVoiceprint(String userId, String userName, byte[] audioData) {
         log.info("Registering voiceprint: userId={}, userName={}, audioLen={}bytes", userId, userName, audioData.length);
@@ -121,10 +120,10 @@ public class XfyunIsvClient {
     }
 
     /**
-     * 识别声纹 - 从音频片段识别说话人
+     * 从短音频片段识别声纹（data.status=3），返回最匹配 featureId 或降级标识。
      *
-     * @param audioData 音频数据（PCM格式，建议3-5秒）
-     * @return 识别结果：featureId（或 speaker_N 降级标识）
+     * @param audioData PCM 音频，建议 3～5 秒
+     * @return 置信度 &gt; 0.6 时返回 featureId；否则或失败时返回 {@code speaker_unknown}
      */
     public String identifyVoiceprint(byte[] audioData) {
         log.debug("Identifying voiceprint from audio: {} bytes", audioData.length);
@@ -188,10 +187,10 @@ public class XfyunIsvClient {
     }
 
     /**
-     * 删除声纹
+     * 按 featureId 删除声纹特征（data.status=4），并同步清理本地缓存。
      *
-     * @param featureId 声纹特征ID
-     * @return 是否成功
+     * @param featureId 注册时返回的声纹特征 ID
+     * @return 删除成功返回 true；请求或业务错误返回 false
      */
     public boolean deleteVoiceprint(String featureId) {
         log.info("Deleting voiceprint: featureId={}", featureId);
@@ -246,9 +245,9 @@ public class XfyunIsvClient {
     }
 
     /**
-     * 查询声纹组成员
+     * 查询当前声纹组全部成员（data.status=1）。
      *
-     * @return 成员列表（featureId + userName）
+     * @return 成员列表；失败时返回空列表（非 null）
      */
     public List<VoiceprintMember> listVoiceprintGroup() {
         log.info("Listing voiceprint group: groupId={}", groupId);
@@ -309,28 +308,36 @@ public class XfyunIsvClient {
     }
 
     /**
-     * 获取声纹组ID
+     * 返回配置中的声纹组 ID。
+     *
+     * @return groupId，如 smart_meeting_vp
      */
     public String getGroupId() {
         return groupId;
     }
 
     /**
-     * 根据 featureId 获取 userId（从缓存）
+     * 根据 featureId 从本地缓存解析 userId。
+     *
+     * @param featureId 声纹特征 ID
+     * @return 对应 userId；未缓存时返回 null
      */
     public String getUserIdByFeatureId(String featureId) {
         return featureIdToUserId.get(featureId);
     }
 
     /**
-     * 根据 userId 获取 featureId（从缓存）
+     * 根据 userId 从本地缓存解析 featureId。
+     *
+     * @param userId OA 用户 ID
+     * @return 对应 featureId；未缓存时返回 null
      */
     public String getFeatureIdByUserId(String userId) {
         return userIdToFeatureId.get(userId);
     }
 
     /**
-     * 刷新缓存（从服务器同步）
+     * 调用 {@link #listVoiceprintGroup()} 全量拉取并重建 userId ↔ featureId 双向缓存。
      */
     public void refreshCache() {
         List<VoiceprintMember> members = listVoiceprintGroup();
@@ -345,11 +352,21 @@ public class XfyunIsvClient {
         log.info("Voiceprint cache refreshed: {} entries", userIdToFeatureId.size());
     }
 
-    // 内部类
+    /**
+     * 声纹组成员快照，对应查询接口返回的 vcnGroupMembers 元素。
+     */
     public static class VoiceprintMember {
+
+        /** 讯飞声纹特征 ID */
         public String featureId;
+
+        /** 注册时填写的用户姓名（vcnUserName） */
         public String userName;
+
+        /** 业务用户 ID（vcnUserId） */
         public String userId;
+
+        /** 注册时间字符串（createTime，格式由讯飞返回） */
         public String registeredAt;
     }
 }

@@ -7,6 +7,11 @@ import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
+/**
+ * 单条会议待办响应体。
+ * <p>
+ * 用于 {@code GET /api/v1/meetings/{id}/todos} 及待办更新接口的 {@code data} 字段。
+ */
 @Data
 @Builder
 @NoArgsConstructor
@@ -17,6 +22,7 @@ public class MeetingTodoResponse {
     private String content;
     private String assigneeId;
     private String assigneeName;
+    /** {@link com.smartmeeting.enums.TodoStatus} 枚举名 */
     private String status;
     private String priority;
     private LocalDateTime deadline;

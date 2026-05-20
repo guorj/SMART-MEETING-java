@@ -3,6 +3,9 @@ package com.smartmeeting.api.dto;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+/**
+ * 待办责任人指派请求体（{@code PUT /api/v1/todos/{tid}/assign}）。
+ */
 @Data
 public class TodoAssignRequest {
     @NotBlank(message = "assigneeId 不能为空")

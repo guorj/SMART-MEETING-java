@@ -18,6 +18,7 @@ spring:
 
   sql:
     init:
+      # 禁止启动时执行 schema-data.sql，避免覆盖库内飞书 URL（校验见 DatabaseSeedStartupValidator）
       mode: never
 
 meeting:

@@ -20,12 +20,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
 /**
- * 讯飞实时 ASR WebSocket 客户端
- * 
- * 协议:
- * - 握手: wss://...?authorization=...&date=...&host=...
- * - 帧格式: JSON + base64 音频
- * - 返回: 中间结果 + 最终结果
+ * 讯飞办公实时语音听写（AST）WebSocket 客户端。
+ * <p>
+ * 负责与讯飞 {@code office-api-ast} 建立 WSS 连接、发送 PCM 二进制帧、解析 JSON 转写结果并回调
+ * {@link AsrResult}。鉴权 URL 由 {@link com.smartmeeting.util.XfyunSignatureUtil#buildOfficeApiAuthUrl} 生成；
+ * 上层会议服务通过 {@link #setTranscriptCallback} 订阅转写流。
+ * </p>
+ * <p>
+ * 协议要点：握手查询参数含 authorization/date/host；音频为裸 PCM 流；服务端返回 action（sessionId）、
+ * result（中间/最终文本）及 error 等消息类型。
+ * </p>
+ *
+ * @see AsrResult
+ * @see com.smartmeeting.util.XfyunSignatureUtil
  */
 @Slf4j
 @Component
@@ -60,7 +67,13 @@ public class XfyunRealtimeClient {
     private String sessionId;  // 讯飞会话ID（参考官方Demo）
 
     /**
-     * 连接讯飞实时 ASR（参考 Python 版 xfyun_client.py）
+     * 建立与讯飞实时 ASR 的 WebSocket 连接。
+     * <p>
+     * 已连接时直接返回 false；连接过程最多等待 10 秒，成功后可选按 {@code post-open-wait-ms} 延迟就绪。
+     * </p>
+     *
+     * @param meetingId 当前会议标识，写入 {@link AsrResult#setMeetingId} 并用于结束帧 sessionId 降级
+     * @return 连接并握手成功返回 true；已连接、超时或异常返回 false
      */
     public synchronized boolean connect(String meetingId) {
         if (connected.get()) {
@@ -153,7 +166,9 @@ public class XfyunRealtimeClient {
     }
 
     /**
-     * 发送音频帧（直接发送二进制 PCM，参考 Python 版）
+     * 向讯飞发送一帧 PCM 音频数据（二进制 WebSocket 帧，非 JSON）。
+     *
+     * @param pcmData PCM 采样数据；未连接或客户端未打开时静默忽略
      */
     public synchronized void sendAudio(byte[] pcmData) {
         if (!connected.get() || client == null || !client.isOpen()) {
@@ -172,7 +187,10 @@ public class XfyunRealtimeClient {
     }
 
     /**
-     * 结束识别（参考 Python 版）
+     * 发送结束识别 JSON 帧，通知服务端本轮会话收尾。
+     * <p>
+     * 消息体为 {@code {"end": true, "sessionId": "..."}}，优先使用服务端下发的 sessionId。
+     * </p>
      */
     public synchronized void end() {
         if (client != null && client.isOpen()) {
@@ -188,7 +206,7 @@ public class XfyunRealtimeClient {
     }
 
     /**
-     * 断开连接
+     * 关闭 WebSocket 并清理连接状态、会议上下文。
      */
     public synchronized void disconnect() {
         if (client != null) {
@@ -207,25 +225,37 @@ public class XfyunRealtimeClient {
     }
 
     /**
-     * 注册转写结果回调
+     * 注册转写结果回调（可多次注册，CopyOnWrite 列表遍历通知）。
+     *
+     * @param callback 每解析出一条 {@link AsrResult} 时调用，不可为 null
      */
     public void setTranscriptCallback(Consumer<AsrResult> callback) {
         callbacks.add(callback);
     }
 
+    /**
+     * 当前是否已与讯飞 ASR 建立并成功打开连接。
+     *
+     * @return 已连接且 onOpen 已执行则为 true
+     */
     public boolean isConnected() {
         return connected.get();
     }
 
+    /**
+     * 获取最近一次 {@link #connect(String)} 传入的会议 ID。
+     *
+     * @return 会议标识；未连接或已 disconnect 时为 null
+     */
     public String getCurrentMeetingId() {
         return currentMeetingId;
     }
 
     /**
-     * 处理讯飞返回的识别结果
-     */
-    /**
-     * 处理讯飞返回的识别结果（参考 Python 版 + 官方Demo）
+     * 解析讯飞 WebSocket 文本帧：错误、sessionId、转写 result 等，并触发回调。
+     *
+     * @param message 服务端 JSON 字符串
+     * @throws Exception JSON 解析或字段访问异常
      */
     private void handleResponse(String message) throws Exception {
         // 打印所有收到的消息（INFO级别方便调试）
@@ -324,6 +354,13 @@ public class XfyunRealtimeClient {
             callback.accept(asrResult);
         }
     }
+
+    /**
+     * 日志脱敏：截断鉴权查询串，避免完整 signature 落盘。
+     *
+     * @param url 完整 WebSocket URL
+     * @return 脱敏后的 URL 片段
+     */
     private String maskUrl(String url) {
         int idx = url.indexOf("?");
         if (idx > 0) {

@@ -6,12 +6,22 @@ import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+/**
+ * Spring MVC Web 层配置。
+ * <p>
+ * 配置 REST API 与 WebSocket 的 CORS，以及录音页、静态资源、AudioWorklet 脚本等资源映射。
+ */
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
     @Value("${meeting.web.static-cache-seconds:300}")
     private int staticCacheSeconds;
 
+    /**
+     * 注册跨域规则：{@code /api/**} 与 {@code /ws/**} 允许任意来源与方法。
+     *
+     * @param registry CORS 注册器
+     */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/api/**")
@@ -27,6 +37,11 @@ public class WebConfig implements WebMvcConfigurer {
                 .allowedHeaders("*");
     }
 
+    /**
+     * 注册静态资源处理器：录音子目录、通用 static、worklet 脚本。
+     *
+     * @param registry 资源处理器注册器
+     */
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         // 录音页面: /recorder/{meetingId}

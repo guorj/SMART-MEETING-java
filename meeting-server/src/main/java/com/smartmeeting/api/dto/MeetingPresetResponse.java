@@ -7,11 +7,17 @@ import lombok.NoArgsConstructor;
 
 import java.util.List;
 
+/**
+ * 会务类型预设响应体（{@code GET /api/v1/meeting-type-presets} 列表项）。
+ * <p>
+ * 描述固定预设的展示名、组织信息、议程摘要及 AI 主持模板 JSON。
+ */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class MeetingPresetResponse {
+    /** 预设编号 1–6（6 为虚拟「其他会议」） */
     private Integer code;
     private String displayName;
     private String company;

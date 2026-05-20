@@ -28,7 +28,18 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 事项进度通报：综合管理会临时策略下由 OpenClaw CLI 读飞书多维表直接生成 Markdown；否则正文来自飞书 Docx 或 classpath，再经 meeting.llm。
+ * 事项进度通报服务。
+ *
+ * <p>按会议 ID 拉取或生成「事项进度通报」Markdown：优先走综合管理会多维表 + OpenClaw CLI 分支；
+ * 否则从飞书 Docx、classpath 样例等读取正文，再经配置的 LLM 生成结构化通报。
+ *
+ * <p>主要协作组件：
+ * <ul>
+ *   <li>{@link MeetingMapper}、{@link MatterProgressDocConfigMapper} — 会议与文档配置</li>
+ *   <li>{@link OpenclawComprehensiveBitableBranch}、{@link AiAgentService} — OpenClaw 多维表分支</li>
+ *   <li>{@link FeishuService}、{@link MatterProgressDocxIdResolver} — 飞书 Docx 正文与 ID 解析</li>
+ *   <li>{@link RestTemplate} — LLM Chat Completions 调用</li>
+ * </ul>
  */
 @Slf4j
 @Service
@@ -59,6 +70,15 @@ public class MatterProgressReportService {
     @Value("${meeting.matter-progress.classpath-sample:classpath:matter-progress/fallback-sample.txt}")
     private String classpathSampleLocation;
 
+    /**
+     * 为指定会议生成事项进度通报。
+     *
+     * <p>执行顺序：综合管理会 OpenClaw 多维表分支 → 飞书 Docx →（可选）classpath 样例 → LLM 分析。
+     *
+     * @param meetingId 会议主键 ID
+     * @return 通报 Markdown、数据来源标识及配置名称
+     * @throws BusinessException 会议不存在、未配置文档、飞书拉取失败或正文为空等（HTTP 状态码见异常）
+     */
     public MatterProgressReportResponse analyzeForMeeting(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -106,7 +126,7 @@ public class MatterProgressReportService {
             source = "feishu_docx";
         } else if (MatterProgressDocxIdResolver.hasFeishuFields(cfg)) {
             throw new BusinessException(400,
-                    "已填写飞书文档链接但无法解析 document_id：请补全 feishu_doc_token，或使用包含 /docx/{document_id} 的云文档链接");
+                    "已填写飞书文档链接但无法解析：请使用包含 /docx/、/wiki/ 或 /base/?table= 的完整 HTTPS 链接");
         } else if (allowClasspathFallback) {
             bodyText = readClasspathSample();
             if (bodyText == null || bodyText.isBlank()) {
@@ -115,7 +135,7 @@ public class MatterProgressReportService {
             source = "classpath_fallback";
         } else {
             throw new BusinessException(400,
-                    "未配置可用的飞书 Docx：请在 int_matter_progress_doc_config 填写 feishu_doc_token（document_id）或带 /docx/ 的 feishu_doc_url；"
+                    "未配置可用的飞书资料：请在 int_matter_progress_doc_config 填写 feishu_doc_url（docx/wiki/base 完整链接）；"
                             + "本地测试可设置 meeting.matter-progress.allow-classpath-fallback=true");
         }
 
@@ -127,6 +147,7 @@ public class MatterProgressReportService {
                 .build();
     }
 
+    /** 加载当前启用的事项进度文档配置（优先 enabled=1，否则回退 id=1）。 */
     private MatterProgressDocConfig loadActiveConfig() {
         LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
         q.eq(MatterProgressDocConfig::getEnabled, 1).orderByAsc(MatterProgressDocConfig::getId).last("LIMIT 1");
@@ -137,6 +158,7 @@ public class MatterProgressReportService {
         return configMapper.selectById(1L);
     }
 
+    /** 从 classpath 读取联调样例正文。 */
     private String readClasspathSample() {
         try {
             Resource r = resourceLoader.getResource(classpathSampleLocation);
@@ -150,6 +172,9 @@ public class MatterProgressReportService {
         }
     }
 
+    /**
+     * 调用 LLM 根据会议信息与文档正文生成通报；失败时返回离线摘要。
+     */
     private String callLlmForProgressReport(Meeting meeting, String documentBody) {
         String prompt = buildUserPrompt(meeting, documentBody);
         HttpHeaders headers = new HttpHeaders();
@@ -184,6 +209,7 @@ public class MatterProgressReportService {
         return fallbackReport(meeting.getTitle(), documentBody);
     }
 
+    /** 将配置的 API 地址规范为 Chat Completions 完整 URL。 */
     private String resolveChatCompletionsUrl() {
         String u = llmApiUrl != null ? llmApiUrl.trim() : "";
         if (u.contains("chat/completions")) {

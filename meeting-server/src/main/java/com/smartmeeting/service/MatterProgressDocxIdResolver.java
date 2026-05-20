@@ -2,47 +2,34 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.entity.MatterProgressDocConfig;
 
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
-
 /**
- * 事项进度通报：从配置解析飞书 Docx 的 {@code document_id}。
+ * 事项进度通报：从配置解析飞书资源主 token（docx / wiki / base）。
+ *
+ * <p>对 {@link MatterProgressDocConfig#getFeishuDocUrl()} 做薄封装，
+ * 实际解析委托 {@link com.smartmeeting.service.feishu.FeishuResourceResolver}。
  */
 public final class MatterProgressDocxIdResolver {
-
-    private static final Pattern DOCX_PATH = Pattern.compile("/docx/([^/?#]+)", Pattern.CASE_INSENSITIVE);
 
     private MatterProgressDocxIdResolver() {
     }
 
     /**
-     * 优先使用 {@code feishu_doc_token}（即文档 document_id）；否则从 {@code feishu_doc_url} 中匹配 {@code .../docx/{id}}。
+     * 从配置的 {@code feishu_doc_url} 解析主 token（docx document_id / wiki node / base app）。
      *
-     * @return document_id，无法解析时返回 null
+     * @param cfg 事项进度文档配置，可为 null
+     * @return 解析出的主 token；无法解析或未配置时返回 null
      */
     public static String resolveDocumentId(MatterProgressDocConfig cfg) {
-        if (cfg.getFeishuDocToken() != null) {
-            String t = cfg.getFeishuDocToken().trim();
-            if (!t.isEmpty()) {
-                return t;
-            }
-        }
-        String url = cfg.getFeishuDocUrl();
-        if (url == null || url.isBlank()) {
-            return null;
-        }
-        Matcher m = DOCX_PATH.matcher(url.trim());
-        if (m.find()) {
-            return m.group(1);
-        }
-        return null;
+        return com.smartmeeting.service.feishu.FeishuResourceResolver.resolveLegacyDocumentId(cfg);
     }
 
     /**
-     * 是否显式配置了飞书侧字段（URL 或 token 非空），用于区分「走飞书」与「仅 classpath」。
+     * 判断配置是否已填写飞书文档相关字段（用于区分「未配置」与「已填但解析失败」）。
+     *
+     * @param cfg 事项进度文档配置
+     * @return {@code feishu_doc_url} 非空时为 true
      */
     public static boolean hasFeishuFields(MatterProgressDocConfig cfg) {
-        return (cfg.getFeishuDocToken() != null && !cfg.getFeishuDocToken().isBlank())
-                || (cfg.getFeishuDocUrl() != null && !cfg.getFeishuDocUrl().isBlank());
+        return cfg.getFeishuDocUrl() != null && !cfg.getFeishuDocUrl().isBlank();
     }
 }

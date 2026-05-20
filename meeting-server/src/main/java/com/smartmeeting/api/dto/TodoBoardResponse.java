@@ -8,6 +8,11 @@ import lombok.NoArgsConstructor;
 import java.util.List;
 import java.util.Map;
 
+/**
+ * 会议待办看板响应体（{@code GET /api/v1/meetings/{id}/todo-board}）。
+ * <p>
+ * 聚合各状态计数与完整待办列表，便于前端分栏展示。
+ */
 @Data
 @Builder
 @NoArgsConstructor

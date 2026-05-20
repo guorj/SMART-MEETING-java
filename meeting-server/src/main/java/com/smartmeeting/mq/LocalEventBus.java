@@ -15,8 +15,19 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Consumer;
 
 /**
- * 本地内存事件总线 - 开发/测试环境替代 Kafka
- * 当 meeting.kafka.enabled=false 时使用
+ * 本地内存事件总线，在禁用 Kafka 时替代 {@link KafkaProducer} 与消费者链路。
+ * <p>
+ * 当 {@code meeting.kafka.enabled=false}（或未配置，默认 false）时生效，在单进程内异步执行：
+ * 会议结束 → 纪要生成 → 待办提取，行为与 {@link MinuteGenerateConsumer} +
+ * {@link TodoExtractConsumer} 串联近似，但不经过消息中间件。
+ * </p>
+ * <p>
+ * 关键协作组件：{@link MinuteGenerationService}、{@link TodoExtractionService}；
+ * 可选注册 {@link #addMinuteListener} / {@link #addTodoListener} 做扩展观测（当前发布路径未遍历监听器列表）。
+ * </p>
+ *
+ * @see KafkaProducer
+ * @see MinuteGenerateConsumer
  */
 @Slf4j
 @Component
@@ -27,13 +38,20 @@ public class LocalEventBus {
     private final MinuteGenerationService minuteGenerationService;
     private final TodoExtractionService todoExtractionService;
 
-    // 事件监听器
+    /** 纪要生成事件的本地订阅者（线程安全列表） */
     private final CopyOnWriteArrayList<Consumer<MinuteGenerateMessage>> minuteListeners = new CopyOnWriteArrayList<>();
+
+    /** 待办提取事件的本地订阅者（线程安全列表） */
     private final CopyOnWriteArrayList<Consumer<TodoExtractMessage>> todoListeners = new CopyOnWriteArrayList<>();
 
     /**
-     * 发送会议结束事件 → 触发纪要生成链
-     * 替代 Kafka meeting.events Topic
+     * 发布会议结束事件，触发纪要生成并在同链路内继续待办提取。
+     * <p>
+     * 等价于向 Kafka {@code meeting.events} 投递 {@link MinuteGenerateMessage} 后由消费者处理；
+     * 使用 {@code meetingTaskExecutor} 线程池异步执行，不阻塞调用方。
+     * </p>
+     *
+     * @param message 含 meetingId、audioPath 等字段的纪要生成请求
      */
     @Async("meetingTaskExecutor")
     public void publishMeetingEvent(MinuteGenerateMessage message) {
@@ -47,12 +65,7 @@ public class LocalEventBus {
             log.info("[LocalEventBus] Minute generation completed: meetingId={}", message.getMeetingId());
             
             // 触发待办提取（替代 todo.extract Topic）
-            TodoExtractMessage todoMsg = TodoExtractMessage.builder()
-                    .meetingId(message.getMeetingId())
-                    .minuteText("")  // TODO: 从纪要服务获取实际内容
-                    .sentAt(System.currentTimeMillis())
-                    .build();
-            publishTodoExtract(todoMsg);
+            todoExtractionService.extractTodos(message.getMeetingId());
             
         } catch (Exception e) {
             log.error("[LocalEventBus] Failed to process meeting event: meetingId={}", 
@@ -61,8 +74,13 @@ public class LocalEventBus {
     }
 
     /**
-     * 发送待办提取事件
-     * 替代 Kafka todo.extract Topic
+     * 发布待办提取事件，单独触发待办抽取（可携带已生成的纪要正文）。
+     * <p>
+     * 等价于向 Kafka {@code todo.extract} 投递消息；与 {@link #publishMeetingEvent} 内嵌的
+     * {@link TodoExtractionService#extractTodos(String)} 不同，本方法可传入 {@code minuteText}。
+     * </p>
+     *
+     * @param message 待办提取请求，含 meetingId，可选 minuteText
      */
     @Async("meetingTaskExecutor")
     public void publishTodoExtract(TodoExtractMessage message) {
@@ -78,14 +96,18 @@ public class LocalEventBus {
     }
 
     /**
-     * 注册纪要生成监听器
+     * 注册纪要生成事件的本地监听器（供测试或扩展埋点使用）。
+     *
+     * @param listener 收到 {@link MinuteGenerateMessage} 时的回调，不可为 null
      */
     public void addMinuteListener(Consumer<MinuteGenerateMessage> listener) {
         minuteListeners.add(listener);
     }
 
     /**
-     * 注册待办提取监听器
+     * 注册待办提取事件的本地监听器（供测试或扩展埋点使用）。
+     *
+     * @param listener 收到 {@link TodoExtractMessage} 时的回调，不可为 null
      */
     public void addTodoListener(Consumer<TodoExtractMessage> listener) {
         todoListeners.add(listener);

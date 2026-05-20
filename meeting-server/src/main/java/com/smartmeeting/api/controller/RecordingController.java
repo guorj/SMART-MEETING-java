@@ -11,6 +11,14 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+/**
+ * 录音页与主持页入口 URL 控制器。
+ * <p>
+ * 基础路径 {@code /api/v1/meetings}，为会议生成带 JWT 的 Web 页面链接并持久化到会议记录。
+ *
+ * @see JwtUtil
+ * @see MeetingWebPageUrls
+ */
 @RestController
 @RequestMapping("/api/v1/meetings")
 @RequiredArgsConstructor
@@ -21,8 +29,13 @@ public class RecordingController {
     private final MeetingWebPageUrls meetingWebPageUrls;
 
     /**
-     * 获取录音页面 URL + JWT token
-     * GET /api/v1/meetings/{id}/recording-url
+     * 获取录音页面 URL 与 JWT token。
+     * <p>
+     * {@code GET /api/v1/meetings/{id}/recording-url}
+     *
+     * @param id 会议 ID
+     * @return 含 url、token、meetingId、meetingTitle、expiresIn 的 Map
+     * @throws BusinessException 会议不存在时（404）
      */
     @GetMapping("/{id}/recording-url")
     public ApiResponse<Map<String, Object>> getRecordingUrl(@PathVariable String id) {
@@ -32,7 +45,7 @@ public class RecordingController {
         }
 
         // 生成 JWT token（包含 meetingId）
-        String token = jwtUtil.generateToken(id, Map.of("meetingId", id));
+        String token = jwtUtil.generateOperatorMeetingToken(id, JwtUtil.TYPE_RECORDING);
 
         String recordingUrl = meetingWebPageUrls.recordingPageUrl(id, token);
 
@@ -51,7 +64,11 @@ public class RecordingController {
     }
 
     /**
-     * AI 会议主持页 URL + JWT（type=host，与录音页共用结束会议接口凭证族）
+     * 获取 AI 会议主持页 URL 与 JWT（type=host，与录音页共用结束会议接口凭证族）。
+     *
+     * @param id 会议 ID
+     * @return 含 url、token、meetingId、meetingTitle、expiresIn 的 Map
+     * @throws BusinessException 会议不存在时（404）
      */
     @GetMapping("/{id}/host-url")
     public ApiResponse<Map<String, Object>> getHostUrl(@PathVariable String id) {
@@ -59,7 +76,7 @@ public class RecordingController {
         if (meeting == null) {
             throw new BusinessException(404, "会议不存在: " + id);
         }
-        String token = jwtUtil.generateToken(id, Map.of("meetingId", id, "type", "host"));
+        String token = jwtUtil.generateOperatorMeetingToken(id, JwtUtil.TYPE_HOST);
         String hostUrl = meetingWebPageUrls.hostPageUrl(id, token);
         return ApiResponse.ok(Map.of(
                 "url", hostUrl,

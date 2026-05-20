@@ -20,17 +20,12 @@ import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 声纹服务 - 封装讯飞ISV声纹识别能力
+ * 讯飞 ISV 声纹识别与转写说话人标注服务。
  *
- * 功能:
- * - registerVoiceprint: 注册用户声纹 → 写入 int_voiceprint 表
- * - identifySpeaker: 识别音频片段说话人 → 更新 TranscriptSegment.speakerName
- * - updateTranscriptSpeakers: 批量更新会议转录段的说话人姓名
+ * <p>能力：注册声纹入库、实时片段识别、批量回写转写段说话人姓名、Redis 特征缓存与过期清理。
  *
- * 流程:
- * 1. 会议开始前，为参会人预注册声纹（如有样本）
- * 2. 录音过程中，实时识别说话人 → 标记 speaker_N
- * 3. 离线校正时，批量调用声纹识别 → 更新为真实姓名
+ * <p>主要协作：{@link XfyunIsvClient}、{@link VoiceprintMapper}、
+ * {@link ParticipantMapper}、{@link TranscriptMapper}、可选 {@link RedisTemplate}。
  */
 @Slf4j
 @Service
@@ -42,6 +37,13 @@ public class VoiceprintService {
     private final TranscriptMapper transcriptMapper;
     private final RedisTemplate<String, String> redisTemplate;
 
+    /**
+     * @param isvClient           讯飞 ISV 客户端
+     * @param voiceprintMapper    声纹持久化
+     * @param participantMapper   参会人
+     * @param transcriptMapper    转写分段
+     * @param redisTemplate       可选 Redis 缓存（未注入时跳过缓存）
+     */
     public VoiceprintService(XfyunIsvClient isvClient, VoiceprintMapper voiceprintMapper,
                              ParticipantMapper participantMapper, TranscriptMapper transcriptMapper,
                              @org.springframework.beans.factory.annotation.Autowired(required = false) RedisTemplate<String, String> redisTemplate) {
@@ -61,7 +63,7 @@ public class VoiceprintService {
      * @param userId 用户标识（OA userId）
      * @param userName 用户姓名
      * @param audioSample 音频样本（PCM格式，建议5-10秒）
-     * @return 声纹特征ID，失败返回null
+     * @return 声纹特征 ID；ISV 或入库失败时返回 {@code null}
      */
     @Transactional
     public String registerVoiceprint(String userId, String userName, byte[] audioSample) {
@@ -102,7 +104,7 @@ public class VoiceprintService {
      *
      * @param meetingId 会议ID
      * @param audioSegment 音频片段（PCM格式，建议3-5秒）
-     * @return 说话人姓名（或 "speaker_N" 降级标识）
+     * @return 说话人姓名；无法识别时返回 {@code speaker_unknown} 或 {@code speaker_<featureId前缀>}
      */
     public String identifySpeaker(String meetingId, byte[] audioSegment) {
         log.debug("Identifying speaker for meeting: {}, audioLen={}bytes", meetingId, audioSegment.length);
@@ -142,8 +144,8 @@ public class VoiceprintService {
     /**
      * 批量更新会议转录段的说话人姓名
      *
-     * @param meetingId 会议ID
-     * @return 更新数量
+     * @param meetingId 会议 ID
+     * @return 实际更新条数
      */
     @Transactional
     public int updateTranscriptSpeakers(String meetingId) {
@@ -203,7 +205,11 @@ public class VoiceprintService {
     }
 
     /**
-     * 从缓存匹配说话人
+     * 根据 speakerId 前缀与 featureId 映射表尝试匹配真实姓名。
+     *
+     * @param speakerId         转写中的说话人占位 ID
+     * @param featureIdToName   会议参会人 featureId → 姓名
+     * @return 匹配到的姓名；无匹配时返回 {@code null}
      */
     private String matchSpeakerFromCache(String speakerId, Map<String, String> featureIdToName) {
         // 尝试解析 speakerId 是否包含 featureId 前缀
@@ -217,7 +223,10 @@ public class VoiceprintService {
     }
 
     /**
-     * 检查用户声纹是否已注册
+     * 检查 OA 用户声纹是否已注册且未过期（先 Redis 后 DB）。
+     *
+     * @param userId OA 用户 ID 字符串
+     * @return 有效声纹存在时为 {@code true}
      */
     public boolean isVoiceprintRegistered(String userId) {
         // 先查缓存（如果Redis可用）
@@ -247,7 +256,7 @@ public class VoiceprintService {
     }
 
     /**
-     * 刷新声纹缓存（从服务器同步）
+     * 从 ISV 声纹组列表全量刷新 Redis 特征缓存。
      */
     public void refreshVoiceprintCache() {
         List<VoiceprintMember> members = isvClient.listVoiceprintGroup();
@@ -263,7 +272,9 @@ public class VoiceprintService {
     }
 
     /**
-     * 删除过期声纹
+     * 删除数据库中已过期声纹，并同步从 ISV 与 Redis 移除。
+     *
+     * @return 删除条数
      */
     @Transactional
     public int cleanExpiredVoiceprints() {
@@ -292,8 +303,8 @@ public class VoiceprintService {
     /**
      * 获取会议参会人的声纹特征ID列表
      *
-     * @param meetingId 会议ID
-     * @return featureId列表（用于离线校正时批量识别）
+     * @param meetingId 会议 ID
+     * @return 已标记声纹就绪参会人的 featureId 列表
      */
     public List<String> getMeetingFeatureIds(String meetingId) {
         List<Participant> participants = participantMapper.selectList(

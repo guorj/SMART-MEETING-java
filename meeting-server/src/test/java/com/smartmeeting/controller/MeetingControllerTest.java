@@ -15,6 +15,9 @@ import com.smartmeeting.BaseTest;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.*;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
+/**
+ * {@code MeetingController} REST API 集成测试：覆盖会议 CRUD、启动/结束、预设与健康检查等端点。
+ */
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class MeetingControllerTest extends BaseTest {
 
@@ -40,6 +43,7 @@ class MeetingControllerTest extends BaseTest {
         return objectMapper.readTree(response).path("data").path("id").asText();
     }
 
+    /** 创建会议应返回 200 及 ISSUE_COLLECTING 状态。 */
     @Test
     @Order(1)
     @DisplayName("POST /api/v1/meetings - 创建会议")
@@ -58,6 +62,7 @@ class MeetingControllerTest extends BaseTest {
         Assertions.assertFalse(id.isEmpty(), "Meeting ID should not be empty");
     }
 
+    /** 空请求体创建会议应返回 400 校验错误。 */
     @Test
     @Order(2)
     @DisplayName("POST /api/v1/meetings - 验证失败")
@@ -69,6 +74,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(400));
     }
 
+    /** 启动会议后状态应变为 STARTED。 */
     @Test
     @Order(3)
     @DisplayName("POST /api/v1/meetings/{id}/start - 启动会议")
@@ -80,6 +86,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.status").value("STARTED"));
     }
 
+    /** 结束会议后状态应变为 PROCESSING 并返回时长。 */
     @Test
     @Order(4)
     @DisplayName("POST /api/v1/meetings/{id}/end - 结束会议")
@@ -93,6 +100,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.durationSeconds").isNumber());
     }
 
+    /** 按 ID 查询会议应返回对应详情。 */
     @Test
     @Order(5)
     @DisplayName("GET /api/v1/meetings/{id} - 查询详情")
@@ -104,6 +112,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.id").value(id));
     }
 
+    /** 列表查询应返回会议数组。 */
     @Test
     @Order(6)
     @DisplayName("GET /api/v1/meetings - 列表查询")
@@ -116,6 +125,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data").isArray());
     }
 
+    /** 查询不存在的会议应返回 404 业务码。 */
     @Test
     @Order(7)
     @DisplayName("GET /api/v1/meetings/{id} - 404")
@@ -125,6 +135,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(404));
     }
 
+    /** 会议类型预设接口应返回 6 种固定预设。 */
     @Test
     @Order(8)
     @DisplayName("GET /api/v1/meeting-type-presets - 固定会务预设")
@@ -137,6 +148,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data[5].code").value(6));
     }
 
+    /** 健康检查端点应返回 code=0。 */
     @Test
     @Order(9)
     @DisplayName("GET /api/v1/health - 健康检查")
@@ -146,6 +158,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(0));
     }
 
+    /** 录音页 JWT 结束会话应将 STARTED 会议转为 PROCESSING。 */
     @Test
     @Order(10)
     @DisplayName("POST /api/v1/meetings/{id}/recording-session/end - 录音页 JWT 结束（未开麦仅 STARTED）")
@@ -161,6 +174,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.status").value("PROCESSING"));
     }
 
+    /** 飞书 Web 入口 JWT 创建并启动会议应返回 STARTED 及录音链接。 */
     @Test
     @Order(11)
     @DisplayName("POST /api/v1/meetings/feishu-web/create-and-start - 带入口 JWT 创建并启动")
@@ -181,6 +195,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.recordingUrl").isNotEmpty());
     }
 
+    /** 事项进度通报接口应使用 classpath 联调样例返回分析 Markdown。 */
     @Test
     @Order(12)
     @DisplayName("POST /api/v1/meetings/{id}/matter-progress-report - 录音 JWT + classpath 联调样例")

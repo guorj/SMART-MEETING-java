@@ -11,6 +11,7 @@ import com.smartmeeting.enums.TodoStatus;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
+import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,14 +30,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 待办提取服务 - 从纪要文本中提取待办项
- *
- * 流程:
- * 1. 调用 LLM 提取待办项（JSON格式）
- * 2. 按 assigneeName → userId 在参会人中匹配责任人
- * 3. 写入 int_meeting_todo（status=PENDING）
- * 4. 更新 int_meeting_participant.todo_count
- * 5. 返回待办列表供飞书通知
+ * 待办提取服务：从会议纪要文本中识别 Action Items 并持久化。
+ * <p>
+ * 流程：调用 LLM 提取 JSON 格式待办 → 按姓名匹配参会人 userId → 写入 {@code int_meeting_todo}
+ * → 更新参会人 todo_count → 通过 {@link MeetingFeishuNotifier} 推送飞书通知。
+ * <p>
+ * 主要协作组件：{@link MeetingMapper}、{@link ParticipantMapper}、{@link TodoMapper}、
+ * {@link MeetingMinuteService}、{@link FeishuService}。
  */
 @Slf4j
 @Service
@@ -47,6 +47,8 @@ public class TodoExtractionService {
     private final ParticipantMapper participantMapper;
     private final TodoMapper todoMapper;
     private final FeishuService feishuService;
+    private final MeetingFeishuNotifier meetingFeishuNotifier;
+    private final MeetingMinuteService meetingMinuteService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -60,15 +62,31 @@ public class TodoExtractionService {
     private String llmModel;
 
     /**
-     * 从纪要文本提取待办并写入数据库
+     * 从库内纪要提取待办（纪要文本从 {@link MeetingMinuteService} 加载）。
      *
-     * @param meetingId 会议ID
-     * @param minuteText 纀要全文
-     * @return 提取的待办列表
+     * @param meetingId 会议 ID
+     * @return 已保存的待办列表；会议不存在或无纪要内容时返回空列表
+     */
+    @Transactional
+    public List<MeetingTodo> extractTodos(String meetingId) {
+        return extractTodos(meetingId, null);
+    }
+
+    /**
+     * 从纪要文本提取待办并写入数据库。
+     *
+     * @param meetingId  会议 ID
+     * @param minuteText 纪要全文；为空时从 {@code int_meeting_minute} 加载
+     * @return 已保存的待办列表；会议不存在或无纪要内容时返回空列表
      */
     @Transactional
     public List<MeetingTodo> extractTodos(String meetingId, String minuteText) {
-        log.info("Extracting todos for meeting: {}, minute length={}", meetingId, minuteText.length());
+        String resolved = resolveMinuteText(meetingId, minuteText);
+        log.info("Extracting todos for meeting: {}, minute length={}", meetingId, resolved.length());
+        if (resolved.isEmpty()) {
+            log.warn("No minute content for todo extraction: meetingId={}", meetingId);
+            return List.of();
+        }
 
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -88,7 +106,7 @@ public class TodoExtractionService {
         }
 
         // 调用 LLM 提取待办
-        List<TodoItem> todoItems = callLLMExtractTodos(minuteText, participants);
+        List<TodoItem> todoItems = callLLMExtractTodos(resolved, participants);
         log.info("LLM extracted {} todo items", todoItems.size());
 
         // 写入数据库
@@ -140,7 +158,11 @@ public class TodoExtractionService {
     }
 
     /**
-     * 调用 LLM 提取待办项
+     * 调用 LLM API 从纪要文本提取待办项；失败时降级为正则提取。
+     *
+     * @param minuteText   纪要全文
+     * @param participants 参会人列表（用于 Prompt 中的姓名约束）
+     * @return 解析后的待办项列表
      */
     private List<TodoItem> callLLMExtractTodos(String minuteText, List<Participant> participants) {
         // 构建参会人名单
@@ -179,6 +201,13 @@ public class TodoExtractionService {
         return List.of();
     }
 
+    /**
+     * 构建 LLM 待办提取 Prompt，约束输出为 JSON 数组格式。
+     *
+     * @param minuteText      纪要全文
+     * @param participantList 参会人名单文本
+     * @return 完整 Prompt 字符串
+     */
     private String buildExtractionPrompt(String minuteText, String participantList) {
         return """
 请从以下会议纪要中提取所有待办事项（Action Items），以JSON数组格式输出。
@@ -202,7 +231,10 @@ public class TodoExtractionService {
     }
 
     /**
-     * 解析 LLM 返回的 JSON
+     * 解析 LLM 响应体中的 JSON 待办数组，含三层容错（直接解析、正则提取、降级正则）。
+     *
+     * @param responseBody LLM HTTP 响应体
+     * @return 待办项列表；解析失败时返回空列表或降级结果
      */
     private List<TodoItem> parseLLMResponse(String responseBody) {
         try {
@@ -238,6 +270,12 @@ public class TodoExtractionService {
         }
     }
 
+    /**
+     * 将 JSON 数组节点逐条映射为 {@link TodoItem}，过滤 content 或 assigneeName 为空的项。
+     *
+     * @param array LLM 返回的待办 JSON 数组
+     * @return 有效待办项列表
+     */
     private List<TodoItem> parseJsonArray(JsonNode array) {
         List<TodoItem> items = new ArrayList<>();
         for (JsonNode node : array) {
@@ -262,7 +300,10 @@ public class TodoExtractionService {
     }
 
     /**
-     * 降级方案：正则提取待办
+     * 降级方案：通过正则从文本中提取「待办/Action + 责任人」模式。
+     *
+     * @param text 待解析文本
+     * @return 正则匹配到的待办项列表
      */
     private List<TodoItem> fallbackExtract(String text) {
         List<TodoItem> items = new ArrayList<>();
@@ -280,7 +321,11 @@ public class TodoExtractionService {
     }
 
     /**
-     * 模糊匹配责任人姓名
+     * 模糊匹配责任人姓名（子串包含关系）。
+     *
+     * @param name          LLM 返回的责任人姓名
+     * @param nameToUserId  参会人姓名 → userId 映射
+     * @return 匹配到的 userId；无匹配时返回 {@code null}
      */
     private String fuzzyMatchAssignee(String name, Map<String, String> nameToUserId) {
         for (Map.Entry<String, String> entry : nameToUserId.entrySet()) {
@@ -292,7 +337,10 @@ public class TodoExtractionService {
     }
 
     /**
-     * 发送飞书待办通知卡片
+     * 向会议群聊（或创建人）推送待办同步飞书卡片。
+     *
+     * @param meeting 会议实体
+     * @param todos   已保存的待办列表
      */
     private void sendTodoNotification(Meeting meeting, List<MeetingTodo> todos) {
         // 优先使用 chatId（群聊），否则降级使用 creatorId（可能失败）
@@ -317,11 +365,27 @@ public class TodoExtractionService {
         mainContent.put("content", content.toString());
         elements.add(mainContent);
 
-        feishuService.sendCardMessage(targetId, "📋 待办已同步", elements);
+        meetingFeishuNotifier.sendCardMessage(
+                targetId, "📋 待办已同步", elements,
+                "TODO_SYNC", meeting.getId(), "todo-sync:" + meeting.getId());
         log.info("Todo notification sent to: {}", targetId);
     }
 
-    // 内部类
+    /**
+     * 解析纪要文本：优先使用入参，否则从 {@link MeetingMinuteService} 加载。
+     *
+     * @param meetingId  会议 ID
+     * @param minuteText 外部传入的纪要文本（可为 null）
+     * @return 非空纪要文本，无内容时返回空字符串
+     */
+    private String resolveMinuteText(String meetingId, String minuteText) {
+        if (minuteText != null && !minuteText.isBlank()) {
+            return minuteText.trim();
+        }
+        return meetingMinuteService.getContentMarkdownOrEmpty(meetingId);
+    }
+
+    /** LLM 提取结果的内部数据结构。 */
     private static class TodoItem {
         String content;
         String assigneeName;

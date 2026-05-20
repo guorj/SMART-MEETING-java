@@ -3,7 +3,6 @@ package com.smartmeeting.api.config;
 import com.smartmeeting.service.AsrBridgeService;
 import com.smartmeeting.service.RecordingService;
 import com.smartmeeting.util.JwtUtil;
-import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.*;
@@ -13,8 +12,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * WebSocket 音频处理器 - 接收浏览器 PCM 音频帧
- * 路径: /ws/audio/{meetingId}?token=xxx
+ * WebSocket 音频处理器：接收浏览器 PCM 音频帧并桥接 ASR 与本地录音。
+ * <p>
+ * 连接路径：{@code /ws/audio/{meetingId}?token=xxx}。同一会议仅保留最新连接；
+ * 支持文本控制消息 pause/resume/stop/pong。
+ *
+ * @see AsrBridgeService
+ * @see RecordingService
  */
 @Slf4j
 @Component
@@ -24,15 +28,20 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     private final AsrBridgeService asrBridgeService;
     private final RecordingService recordingService;
 
-    // 会议ID → WebSocket Session 映射
+    /** 会议 ID → 当前活跃 WebSocket Session */
     private final Map<String, WebSocketSession> activeSessions = new ConcurrentHashMap<>();
 
-    // 会议ID → 音频帧序列号
+    /** 会议 ID → 已接收音频帧计数 */
     private final Map<String, Long> frameCounters = new ConcurrentHashMap<>();
 
-    // 会议ID → 是否暂停
+    /** 会议 ID → 是否处于暂停推流状态 */
     private final Map<String, Boolean> pausedMeetings = new ConcurrentHashMap<>();
 
+    /**
+     * @param jwtUtil           JWT 校验与参会 token 解析
+     * @param asrBridgeService  实时 ASR 桥接
+     * @param recordingService  本地录音服务
+     */
     public AudioWebSocketHandler(JwtUtil jwtUtil, AsrBridgeService asrBridgeService,
                                   RecordingService recordingService) {
         this.jwtUtil = jwtUtil;
@@ -40,6 +49,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         this.recordingService = recordingService;
     }
 
+    /**
+     * 连接建立：校验 token、启动 ASR 与录音，并向客户端下发 session 信息。
+     *
+     * @param session WebSocket 会话
+     * @throws Exception 发送初始消息失败时
+     */
     @Override
     public void afterConnectionEstablished(WebSocketSession session) throws Exception {
         String meetingId = extractMeetingId(session);
@@ -52,17 +67,16 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             return;
         }
 
-        // 验证 token 中的 meetingId
+        JwtUtil.ParticipantMeetingToken participantToken;
         try {
-            Claims claims = jwtUtil.parseToken(token);
-            String tokenMeetingId = claims.get("meetingId", String.class);
-            if (!meetingId.equals(tokenMeetingId)) {
-                log.warn("Token meetingId mismatch: expected={}, got={}", meetingId, tokenMeetingId);
-                session.close(CloseStatus.POLICY_VIOLATION.withReason("Token mismatch"));
-                return;
-            }
+            participantToken = jwtUtil.parseParticipantMeetingToken(token, meetingId);
         } catch (Exception e) {
             session.close(CloseStatus.POLICY_VIOLATION.withReason("Token parse error"));
+            return;
+        }
+        if (!participantToken.canPushAudio()) {
+            log.warn("Audio WS rejected: join-only token for meeting {}", meetingId);
+            session.close(CloseStatus.POLICY_VIOLATION.withReason("Online join link cannot push audio"));
             return;
         }
 
@@ -102,6 +116,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         }
     }
 
+    /**
+     * 处理入站消息：二进制帧转发 ASR；文本帧作为控制指令。
+     *
+     * @param session WebSocket 会话
+     * @param message 二进制 PCM 或文本控制 JSON
+     * @throws Exception 消息处理异常
+     */
     @Override
     public void handleMessage(WebSocketSession session, WebSocketMessage<?> message) throws Exception {
         String meetingId = extractMeetingId(session);
@@ -138,7 +159,11 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     }
 
     /**
-     * 处理控制消息 (pause/resume/stop/pong)
+     * 处理控制消息（pause / resume / stop / pong）。
+     *
+     * @param session   WebSocket 会话
+     * @param meetingId 会议 ID
+     * @param payload   文本 JSON 载荷
      */
     private void handleControlMessage(WebSocketSession session, String meetingId, String payload) {
         try {
@@ -185,12 +210,24 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         }
     }
 
+    /**
+     * 传输层错误回调。
+     *
+     * @param session   WebSocket 会话
+     * @param exception 异常
+     */
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.error("WS transport error: {}", session.getId(), exception);
     }
 
-        @Override
+    /**
+     * 连接关闭：清理会话映射并结束 ASR（不自动结束会议）。
+     *
+     * @param session     WebSocket 会话
+     * @param closeStatus 关闭状态
+     */
+    @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus closeStatus) {
         String meetingId = extractMeetingId(session);
         activeSessions.remove(meetingId);
@@ -211,19 +248,34 @@ public class AudioWebSocketHandler implements WebSocketHandler {
                 meetingId, closeStatus.getCode(), closeStatus.getReason());
     }
 
+    /**
+     * 不支持分片消息。
+     *
+     * @return 固定为 false
+     */
     @Override
     public boolean supportsPartialMessages() {
         return false;
     }
 
-    // --- 工具方法 ---
-
+    /**
+     * 从 WebSocket URI 路径解析会议 ID（{@code /ws/audio/{meetingId}}）。
+     *
+     * @param session WebSocket 会话
+     * @return 会议 ID，解析失败时为 null
+     */
     private String extractMeetingId(WebSocketSession session) {
         String path = session.getUri().getPath();
         String[] parts = path.split("/");
         return parts.length >= 4 ? parts[3] : null;
     }
 
+    /**
+     * 从查询参数解析 {@code token=} JWT。
+     *
+     * @param session WebSocket 会话
+     * @return token 字符串，缺失时为 null
+     */
     private String extractToken(WebSocketSession session) {
         String query = session.getUri().getQuery();
         if (query == null) return null;
@@ -235,6 +287,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         return null;
     }
 
+    /**
+     * 向客户端发送文本帧（连接已关闭时静默忽略）。
+     *
+     * @param session WebSocket 会话
+     * @param text    JSON 或纯文本
+     */
     private void sendText(WebSocketSession session, String text) {
         try {
             if (session.isOpen()) {
@@ -246,7 +304,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     }
 
     /**
-     * 发送实时转写结果到指定会议的所有客户端
+     * 向指定会议的活跃客户端推送实时转写结果。
+     *
+     * @param meetingId 会议 ID
+     * @param speaker   说话人标识
+     * @param text      转写文本
+     * @param isFinal   是否为最终结果句
      */
     public void sendTranscript(String meetingId, String speaker, String text, boolean isFinal) {
         WebSocketSession session = activeSessions.get(meetingId);
@@ -268,7 +331,9 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     }
 
     /**
-     * 发送心跳
+     * 向指定会议客户端发送心跳 ping。
+     *
+     * @param meetingId 会议 ID
      */
     public void sendPing(String meetingId) {
         WebSocketSession session = activeSessions.get(meetingId);
@@ -282,21 +347,28 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     }
 
     /**
-     * 获取活跃连接数
+     * 获取当前活跃 WebSocket 连接数。
+     *
+     * @return 活跃 session 数量
      */
     public int getActiveSessionCount() {
         return activeSessions.size();
     }
 
     /**
-     * 检查会议是否有活跃连接
+     * 检查指定会议是否存在活跃音频连接。
+     *
+     * @param meetingId 会议 ID
+     * @return 有活跃连接时为 true
      */
     public boolean hasActiveSession(String meetingId) {
         return activeSessions.containsKey(meetingId);
     }
 
     /**
-     * 优雅关闭WebSocket（等待ASR完成后调用）
+     * 在 ASR 完成后优雅关闭 WebSocket 连接。
+     *
+     * @param meetingId 会议 ID
      */
     public void closeSessionGracefully(String meetingId) {
         WebSocketSession session = activeSessions.get(meetingId);

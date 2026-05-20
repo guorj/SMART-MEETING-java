@@ -9,10 +9,21 @@ import com.smartmeeting.api.dto.host.HostStartRequest;
 import com.smartmeeting.constants.HostAgendaConstants;
 import com.smartmeeting.api.config.MeetingHostWebSocketHandler;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.Participant;
 import com.smartmeeting.entity.MeetingTypePreset;
+import com.smartmeeting.enums.AttendanceMode;
+import com.smartmeeting.enums.CheckInSource;
+import com.smartmeeting.repository.ParticipantMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.exception.BusinessException;
+import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
+import com.smartmeeting.api.dto.FeishuDocRefDto;
+import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.service.feishu.FeishuDocRefs;
+import com.smartmeeting.service.feishu.FeishuResourceRef;
+import com.smartmeeting.service.feishu.FeishuResourceResolver;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -24,6 +35,7 @@ import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -52,7 +64,9 @@ public class MeetingHostSessionService {
     private static final long HOST_TTS_CLIENT_PLAYBACK_TAIL_MS = 600L;
 
     private final MeetingMapper meetingMapper;
+    private final ParticipantMapper participantMapper;
     private final MeetingTypePresetMapper presetMapper;
+    private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingHostFeishuMuteRegistry muteRegistry;
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
@@ -75,6 +89,13 @@ public class MeetingHostSessionService {
     @Value("${meeting.host.roll-call.asr-grace-seconds:6}")
     private int hostRollCallAsrGraceSeconds;
 
+    /** 线上参会人打开个人链接盘点的等待秒数，结束后进入线下逐一点名 */
+    @Value("${meeting.host.roll-call.online-inventory-seconds:60}")
+    private int rollCallOnlineInventorySeconds;
+
+    /** 主持页「议题加时」可选分钟数 */
+    private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
+
     /** 每会议一把锁：检点与 ASR 回调与 tick 并发修改同一 {@link HostRuntime} 时串行化 */
     private final Map<String, Object> runtimeLocks = new ConcurrentHashMap<>();
 
@@ -89,21 +110,29 @@ public class MeetingHostSessionService {
     private final Map<String, HostRuntime> runtimes = new ConcurrentHashMap<>();
 
     /**
-     * @param meetingMapper        会议表，用于加载 chatId、host_agenda、preset 等
-     * @param presetMapper         会务类型预设（议程模板、应到名单 participants_names）
-     * @param muteRegistry         飞书群静音/恢复
-     * @param hostWebSocketHandler 主持端 WebSocket，推送 host_state 与 TTS 帧
-     * @param ttsSynthesizeService 讯飞在线合成，产出 16k s16le PCM
-     * @param objectMapper         JSON 序列化（状态、TTS 消息体）
+     * 构造主持会话服务，注入会议/参会人持久层、预设议程与飞书静音、WebSocket 推送及 TTS 合成依赖。
+     *
+     * @param meetingMapper           会议表，用于加载 chatId、host_agenda、preset 等
+     * @param participantMapper       参会人表，检点名单优先从此加载
+     * @param presetMapper            会务类型预设（议程模板、应到名单 participants_names）
+     * @param presetAgendaDocService  预设会序飞书资料配置合并
+     * @param muteRegistry            飞书群静音/恢复
+     * @param hostWebSocketHandler    主持端 WebSocket，推送 host_state 与 TTS 帧
+     * @param ttsSynthesizeService    讯飞在线合成，产出 16k s16le PCM
+     * @param objectMapper            JSON 序列化（状态、TTS 消息体）
      */
     public MeetingHostSessionService(MeetingMapper meetingMapper,
+                                     ParticipantMapper participantMapper,
                                      MeetingTypePresetMapper presetMapper,
+                                     PresetAgendaDocService presetAgendaDocService,
                                      MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
                                      ObjectMapper objectMapper) {
         this.meetingMapper = meetingMapper;
+        this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
+        this.presetAgendaDocService = presetAgendaDocService;
         this.muteRegistry = muteRegistry;
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
@@ -131,6 +160,83 @@ public class MeetingHostSessionService {
     }
 
     /**
+     * 主持进行中：返回指定会序已绑定的全部飞书资料引用（供主持页展示与 agenda-doc-content API 拉取正文）。
+     * <p>
+     * 优先从内存运行时 {@link HostTopic} 读取；若无活跃会话或未绑定，则回退至
+     * {@link PresetAgendaDocService#listDocRefsForAgenda}。
+     *
+     * @param meetingId   会议主键
+     * @param agendaIndex 会序下标（从 0 起）
+     * @return 飞书资料 DTO 列表；会议不存在或无配置时返回空列表，永不为 null
+     */
+    public List<FeishuDocRefDto> getAgendaDocRefs(String meetingId, int agendaIndex) {
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt != null && agendaIndex >= 0 && agendaIndex < rt.topics.size()) {
+            List<FeishuDocRefDto> fromTopic = topicToDocRefDtos(rt.topics.get(agendaIndex));
+            if (!fromTopic.isEmpty()) {
+                return fromTopic;
+            }
+        }
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return List.of();
+        }
+        return presetAgendaDocService.listDocRefsForAgenda(meeting, agendaIndex);
+    }
+
+    /**
+     * 返回指定会序的首条飞书资料引用（兼容旧 API）。
+     *
+     * @param meetingId   会议主键
+     * @param agendaIndex 会序下标（从 0 起）
+     * @return 首条资料引用；无资料时为 null
+     * @deprecated 请使用 {@link #getAgendaDocRefs}
+     */
+    public AgendaDocRef getAgendaDocRef(String meetingId, int agendaIndex) {
+        List<FeishuDocRefDto> refs = getAgendaDocRefs(meetingId, agendaIndex);
+        if (refs.isEmpty()) {
+            return null;
+        }
+        FeishuDocRefDto first = refs.get(0);
+        return new AgendaDocRef(
+                first.getUrl() != null ? first.getUrl() : "",
+                first.getKind() != null ? first.getKind() : "");
+    }
+
+    /**
+     * 将运行时议题上的飞书绑定转为 API DTO 列表（兼容单条 feishuDocUrl 与多条 feishuDocs）。
+     *
+     * @param t 主持议程项，可为 null
+     * @return DTO 列表，无资料时为空列表
+     */
+    private static List<FeishuDocRefDto> topicToDocRefDtos(HostTopic t) {
+        if (t == null) {
+            return List.of();
+        }
+        if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
+            return t.feishuDocs.stream()
+                    .map(b -> FeishuDocRefDto.builder().kind(b.kind).url(b.url).build())
+                    .toList();
+        }
+        if (t.feishuDocUrl == null || t.feishuDocUrl.isBlank()) {
+            return List.of();
+        }
+        return List.of(FeishuDocRefDto.builder()
+                .kind(t.feishuDocKind)
+                .url(t.feishuDocUrl.trim())
+                .build());
+    }
+
+    /**
+     * 会序绑定的单条飞书资料引用（docx / wiki / base）。
+     *
+     * @param feishuDocUrl  飞书资料浏览器链接
+     * @param feishuDocKind 资料类型标识（如 DOCX、WIKI、BASE）
+     */
+    public record AgendaDocRef(String feishuDocUrl, String feishuDocKind) {
+    }
+
+    /**
      * 开启主持会话：加载议程、静音飞书群、启动 tick、播报开场白；若预设有应到名单则开场播完后调度自动检点。
      *
      * @param meetingId 会议主键，须与 JWT/主持 token 中会议一致
@@ -152,6 +258,8 @@ public class MeetingHostSessionService {
         if (topics.isEmpty()) {
             throw new BusinessException(400, "议题为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
         }
+        sanitizeTopicsFeishuRefs(topics);
+        mergePresetAgendaDocs(meeting.getPresetTypeCode(), topics, meetingId);
 
         muteRegistry.muteChat(meeting.getChatId());
 
@@ -202,8 +310,8 @@ public class MeetingHostSessionService {
      */
     private boolean canAutoStartRollCall(Meeting meeting) {
         try {
-            List<String> names = loadRollCallSnapshot(meeting);
-            return names != null && !names.isEmpty();
+            List<RollCallPerson> people = loadRollCallPeopleFromMeeting(meeting);
+            return people != null && !people.isEmpty();
         } catch (BusinessException ex) {
             return false;
         }
@@ -258,6 +366,7 @@ public class MeetingHostSessionService {
             speakAsync(meetingId, "本议题时间到。请点击「下一议题」继续，或继续讨论后再切换。");
         }
 
+        rollCallOnlineInventoryMaybeTimeout(meetingId, rt, now);
         rollCallMaybeTimeout(meetingId, rt, now);
 
         pushHostState(meetingId);
@@ -326,8 +435,11 @@ public class MeetingHostSessionService {
             long extra = System.currentTimeMillis() - rt.pauseStartedAtMs;
             rt.topicEndMs += extra;
             rt.meetingEndMs += extra;
-            if ("ACTIVE".equals(rt.rollCallPhase) && rt.rollCallDeadlineMs > 0) {
+            if (isRollCallOfflinePhase(rt.rollCallPhase) && rt.rollCallDeadlineMs > 0) {
                 rt.rollCallDeadlineMs += extra;
+            }
+            if ("ONLINE_INVENTORY".equals(rt.rollCallPhase) && rt.rollCallOnlineInventoryDeadlineMs > 0) {
+                rt.rollCallOnlineInventoryDeadlineMs += extra;
             }
         }
         rt.paused = false;
@@ -398,10 +510,39 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 开始会议检点：从预设 participants_names 生成冻结名单，按序点名；答到仅以 ASR 定稿且匹配答到语为准（单麦、无声纹，流程信任）。
+     * 为当前议题与整场会议同步加时：延长 {@code topicEndMs}、{@code meetingEndMs}，并累加当前项预计分钟数。
      *
      * @param meetingId 会议主键
-     * @throws BusinessException 未开启会话、检点已在进行、会议不存在、应到名单为空等
+     * @param minutes     加时分钟，须为 1、3、5、10 之一
+     * @throws BusinessException 未开启会话、无进行中议题、分钟数非法等
+     */
+    public void extendTopicTime(String meetingId, int minutes) {
+        if (!ALLOWED_TOPIC_EXTEND_MINUTES.contains(minutes)) {
+            throw new BusinessException(400, "加时分钟数仅支持：1、3、5、10");
+        }
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null) {
+            throw new BusinessException(400, "未开启主持会话");
+        }
+        if (rt.currentIndex < 0 || rt.currentIndex >= rt.topics.size()) {
+            throw new BusinessException(400, "当前无进行中的议题");
+        }
+        long addMs = minutes * 60_000L;
+        rt.topicEndMs += addMs;
+        rt.meetingEndMs += addMs;
+        HostTopic cur = rt.topics.get(rt.currentIndex);
+        cur.minutes = Math.max(1, cur.minutes) + minutes;
+        rt.topicTimeUpAnnounced = false;
+        rt.lastTopicLeftSec = Integer.MAX_VALUE;
+        speakAsync(meetingId, "已为当前议题延长 " + minutes + " 分钟。");
+        pushHostState(meetingId);
+    }
+
+    /**
+     * 开始混合检点：线上先按个人链接自动盘点，再对线下参会人逐一点名（ASR 答到）。
+     *
+     * @param meetingId 会议主键
+     * @throws BusinessException 未开启主持会话、检点已在进行、会议不存在、应到名单为空等
      */
     public void startRollCall(String meetingId) {
         synchronized (lockFor(meetingId)) {
@@ -409,34 +550,65 @@ public class MeetingHostSessionService {
             if (rt == null) {
                 throw new BusinessException(400, "请先开启主持会话");
             }
-            if ("ACTIVE".equals(rt.rollCallPhase)) {
+            if (isRollCallActive(rt.rollCallPhase)) {
                 throw new BusinessException(400, "会议检点进行中");
             }
             Meeting meeting = meetingMapper.selectById(meetingId);
             if (meeting == null) {
                 throw new BusinessException(404, "会议不存在: " + meetingId);
             }
-            List<String> names = loadRollCallSnapshot(meeting);
-            if (names.isEmpty()) {
-                throw new BusinessException(400, "应到名单为空：请在预设中配置与会人名单 participants_names");
+            List<RollCallPerson> people = loadRollCallPeopleFromMeeting(meeting);
+            if (people.isEmpty()) {
+                throw new BusinessException(400, "应到名单为空：请配置参会人或在预设中填写 participants_names");
             }
             rt.rollCallPeople.clear();
-            for (String n : names) {
-                RollCallPerson p = new RollCallPerson();
-                p.name = n;
-                p.status = "PENDING";
-                rt.rollCallPeople.add(p);
-            }
-            rt.rollCallPhase = "ACTIVE";
-            rt.rollCallIndex = 0;
+            rt.rollCallPeople.addAll(people);
+            rt.rollCallIndex = -1;
             rt.rollCallDeadlineMs = 0;
+            boolean hasOnlinePending = people.stream().anyMatch(RollCallPerson::isOnlinePending);
+            if (hasOnlinePending) {
+                rt.rollCallPhase = "ONLINE_INVENTORY";
+                rt.rollCallOnlineInventoryDeadlineMs =
+                        System.currentTimeMillis() + Math.max(15, rollCallOnlineInventorySeconds) * 1000L;
+                pushHostState(meetingId);
+                final String mid = meetingId;
+                speakAsyncFutureWithDurationMs(meetingId, buildHybridRollCallIntroText(people))
+                        .thenAccept(durationMs -> scheduler.schedule(
+                                () -> beginOfflineRollCallIfStillInventory(mid),
+                                Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS,
+                                TimeUnit.MILLISECONDS));
+            } else {
+                beginOfflineRollCall(meetingId, rt, buildOfflineOnlyIntroText(people));
+            }
+        }
+    }
+
+    /**
+     * 线上参会人通过个人链接 check-in 后同步到主持检点名单。
+     * <p>
+     * 由 {@link com.smartmeeting.service.ParticipantCheckInService} 在登记成功后调用；
+     * 无活跃主持会话或检点名单为空时静默忽略。
+     *
+     * @param meetingId   会议主键
+     * @param userId      参会人飞书 userId 或业务标识
+     * @param displayName 显示姓名，用于 userId 缺失时的兜底匹配
+     */
+    public void recordOnlineCheckIn(String meetingId, String userId, String displayName) {
+        synchronized (lockFor(meetingId)) {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null || rt.rollCallPeople.isEmpty()) {
+                return;
+            }
+            for (RollCallPerson p : rt.rollCallPeople) {
+                if ((userId != null && userId.equals(p.userId))
+                        || (displayName != null && displayName.equals(p.name))) {
+                    p.status = "ANSWERED";
+                    p.checkInSource = CheckInSource.AUTO_ONLINE.name();
+                    log.info("online check-in: meetingId={}, name={}", meetingId, p.name);
+                    break;
+                }
+            }
             pushHostState(meetingId);
-            RollCallPerson first = rt.rollCallPeople.get(0);
-            final String mid = meetingId;
-            // 先说明规则再点名；答到窗口须在「开场白 + 请某某答到」在客户端播完后起算（客户端对 TTS 排队播放，见 host-meeting.html）。
-            speakAsyncFutureWithDurationMs(meetingId, buildRollCallIntroText(rt.rollCallPeople.size(), rollCallBaseWindowSec(), boundedAsrGraceSec()))
-                    .thenCompose(introDurationMs -> speakAsyncFutureWithDurationMs(meetingId, rollCallNameCue(first.name))
-                            .thenAccept(cueDurationMs -> armRollCallDeadlineAfterCuePlayback(mid, introDurationMs, cueDurationMs)));
         }
     }
 
@@ -452,8 +624,9 @@ public class MeetingHostSessionService {
             if (rt == null) {
                 throw new BusinessException(400, "请先开启主持会话");
             }
-            if (!"ACTIVE".equals(rt.rollCallPhase) || rt.rollCallIndex < 0 || rt.rollCallIndex >= rt.rollCallPeople.size()) {
-                throw new BusinessException(400, "当前不在检点点名中");
+            if (!isRollCallOfflinePhase(rt.rollCallPhase) || rt.rollCallIndex < 0
+                    || rt.rollCallIndex >= rt.rollCallPeople.size()) {
+                throw new BusinessException(400, "当前不在线下检点点名中");
             }
             RollCallPerson cur = rt.rollCallPeople.get(rt.rollCallIndex);
             if (!"PENDING".equals(cur.status)) {
@@ -477,10 +650,14 @@ public class MeetingHostSessionService {
         }
         synchronized (lockFor(meetingId)) {
             HostRuntime rt = runtimes.get(meetingId);
-            if (rt == null || !"ACTIVE".equals(rt.rollCallPhase)) {
+            if (rt == null || !isRollCallOfflinePhase(rt.rollCallPhase)) {
                 return;
             }
             if (rt.rollCallIndex < 0 || rt.rollCallIndex >= rt.rollCallPeople.size()) {
+                return;
+            }
+            RollCallPerson cur = rt.rollCallPeople.get(rt.rollCallIndex);
+            if (!cur.isOfflinePending()) {
                 return;
             }
             if (rt.rollCallDeadlineMs <= 0) {
@@ -490,7 +667,6 @@ public class MeetingHostSessionService {
             if (now > rt.rollCallDeadlineMs) {
                 return;
             }
-            RollCallPerson cur = rt.rollCallPeople.get(rt.rollCallIndex);
             if (!"PENDING".equals(cur.status)) {
                 return;
             }
@@ -504,6 +680,7 @@ public class MeetingHostSessionService {
             log.info("roll-call matched: meetingId={}, idx={}, name={}, text='{}'",
                     meetingId, rt.rollCallIndex, cur.name, preview);
             cur.status = "ANSWERED";
+            cur.checkInSource = CheckInSource.ROLL_CALL.name();
             advanceRollCallAfterCurrentResolved(meetingId, rt, "收到。");
         }
     }
@@ -517,7 +694,7 @@ public class MeetingHostSessionService {
     public boolean isRollCallAnswerWindowArmed(String meetingId) {
         synchronized (lockFor(meetingId)) {
             HostRuntime rt = runtimes.get(meetingId);
-            if (rt == null || !"ACTIVE".equals(rt.rollCallPhase)) {
+            if (rt == null || !isRollCallOfflinePhase(rt.rollCallPhase)) {
                 return false;
             }
             if (rt.rollCallIndex < 0 || rt.rollCallIndex >= rt.rollCallPeople.size()) {
@@ -531,8 +708,184 @@ public class MeetingHostSessionService {
                 return false;
             }
             RollCallPerson cur = rt.rollCallPeople.get(rt.rollCallIndex);
-            return "PENDING".equals(cur.status);
+            return cur.isOfflinePending();
         }
+    }
+
+    private static boolean isRollCallActive(String phase) {
+        return "ONLINE_INVENTORY".equals(phase) || isRollCallOfflinePhase(phase) || "ACTIVE".equals(phase);
+    }
+
+    private static boolean isRollCallOfflinePhase(String phase) {
+        return "OFFLINE_ROLL_CALL".equals(phase) || "ACTIVE".equals(phase);
+    }
+
+    /**
+     * 线上盘点阶段超时：将仍未答到的线上参会人记为 MISSED，并进入线下逐一点名。
+     *
+     * @param meetingId 会议主键
+     * @param rt        当前主持运行时
+     * @param now       当前 epoch 毫秒
+     */
+    private void rollCallOnlineInventoryMaybeTimeout(String meetingId, HostRuntime rt, long now) {
+        if (!"ONLINE_INVENTORY".equals(rt.rollCallPhase)) {
+            return;
+        }
+        if (rt.rollCallOnlineInventoryDeadlineMs <= 0 || now < rt.rollCallOnlineInventoryDeadlineMs) {
+            return;
+        }
+        synchronized (lockFor(meetingId)) {
+            rt = runtimes.get(meetingId);
+            if (rt == null || !"ONLINE_INVENTORY".equals(rt.rollCallPhase)) {
+                return;
+            }
+            for (RollCallPerson p : rt.rollCallPeople) {
+                if (p.isOnlinePending()) {
+                    p.status = "MISSED";
+                    p.checkInSource = CheckInSource.TIMEOUT.name();
+                }
+            }
+            beginOfflineRollCall(meetingId, rt, "线上盘点时间到。");
+        }
+    }
+
+    /** TTS 开场白播完后，若仍处于线上盘点阶段则自动切入线下点名。 */
+    private void beginOfflineRollCallIfStillInventory(String meetingId) {
+        synchronized (lockFor(meetingId)) {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null || !"ONLINE_INVENTORY".equals(rt.rollCallPhase)) {
+                return;
+            }
+            beginOfflineRollCall(meetingId, rt, null);
+        }
+    }
+
+    /**
+     * 进入线下逐一点名：设置 phase、定位首位待答到线下人员，播报开场与首条点名片断并调度答到窗口。
+     *
+     * @param meetingId 会议主键
+     * @param rt        主持运行时
+     * @param prelude   可选前缀话术（如「线上盘点时间到。」），可为 null
+     */
+    private void beginOfflineRollCall(String meetingId, HostRuntime rt, String prelude) {
+        rt.rollCallPhase = "OFFLINE_ROLL_CALL";
+        rt.rollCallOnlineInventoryDeadlineMs = 0;
+        int nextIdx = findNextOfflineRollCallIndex(rt.rollCallPeople, 0);
+        if (nextIdx < 0) {
+            finishRollCallDone(meetingId, rt, prelude != null ? prelude : "");
+            return;
+        }
+        rt.rollCallIndex = nextIdx;
+        rt.rollCallDeadlineMs = 0;
+        pushHostState(meetingId);
+        RollCallPerson first = rt.rollCallPeople.get(nextIdx);
+        final String mid = meetingId;
+        String intro = prelude != null && !prelude.isBlank()
+                ? prelude + " " + buildOfflineOnlyIntroText(rt.rollCallPeople)
+                : buildOfflineOnlyIntroText(rt.rollCallPeople);
+        speakAsyncFutureWithDurationMs(meetingId, intro)
+                .thenCompose(introDurationMs -> speakAsyncFutureWithDurationMs(meetingId, rollCallNameCue(first.name))
+                        .thenAccept(cueDurationMs -> armRollCallDeadlineAfterCuePlayback(mid, introDurationMs, cueDurationMs)));
+    }
+
+    /**
+     * 检点全员结束：更新 phase 为 DONE、播报总结；若当前议题标题含「检点」则 TTS 结束后自动下一议题。
+     *
+     * @param meetingId 会议主键
+     * @param rt        主持运行时
+     * @param prelude   与总结拼接的前缀短句，可为 null
+     */
+    private void finishRollCallDone(String meetingId, HostRuntime rt, String prelude) {
+        boolean autoNextTopic = currentTopicIsRollCallChapter(rt);
+        rt.rollCallPhase = "DONE";
+        rt.rollCallIndex = -1;
+        rt.rollCallDeadlineMs = 0;
+        pushHostState(meetingId);
+        String summary = buildRollCallSummary(rt.rollCallPeople);
+        String prefix = prelude == null || prelude.isBlank() ? "" : prelude + " ";
+        String finalMeetingId = meetingId;
+        speakAsyncFutureWithDurationMs(meetingId, prefix + summary).thenAccept(durationMs -> {
+            if (!autoNextTopic) {
+                return;
+            }
+            long waitMs = Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
+            scheduler.schedule(() -> {
+                try {
+                    nextTopic(finalMeetingId);
+                } catch (Exception e) {
+                    log.warn("auto nextTopic after roll-call: {}", e.getMessage());
+                }
+            }, waitMs, TimeUnit.MILLISECONDS);
+        });
+    }
+
+    private static int findNextOfflineRollCallIndex(List<RollCallPerson> people, int startIndex) {
+        for (int i = Math.max(0, startIndex); i < people.size(); i++) {
+            if (people.get(i).isOfflinePending()) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 从会议加载检点应到名单：优先 int_meeting_participant 表；无记录时回退预设 participants_names。
+     *
+     * @param meeting 会议实体
+     * @return 检点人员列表（含线上/线下模式与初始状态）
+     */
+    private List<RollCallPerson> loadRollCallPeopleFromMeeting(Meeting meeting) {
+        LambdaQueryWrapper<Participant> q = new LambdaQueryWrapper<>();
+        q.eq(Participant::getMeetingId, meeting.getId());
+        List<Participant> rows = participantMapper.selectList(q);
+        if (rows != null && !rows.isEmpty()) {
+            List<RollCallPerson> list = new ArrayList<>();
+            for (Participant row : rows) {
+                RollCallPerson p = new RollCallPerson();
+                p.participantId = row.getId();
+                p.userId = row.getUserId();
+                p.name = row.getName();
+                p.attendanceMode = row.getAttendanceMode() != null
+                        ? row.getAttendanceMode().toUpperCase()
+                        : AttendanceMode.OFFLINE.name();
+                if (AttendanceMode.ONLINE.name().equals(p.attendanceMode) && row.getCheckedInAt() != null) {
+                    p.status = "ANSWERED";
+                    p.checkInSource = row.getCheckInSource() != null
+                            ? row.getCheckInSource()
+                            : CheckInSource.AUTO_ONLINE.name();
+                } else {
+                    p.status = "PENDING";
+                }
+                list.add(p);
+            }
+            return list;
+        }
+        List<String> names = loadRollCallSnapshot(meeting);
+        List<RollCallPerson> list = new ArrayList<>();
+        for (String n : names) {
+            RollCallPerson p = new RollCallPerson();
+            p.name = n;
+            p.userId = "preset:" + n;
+            p.attendanceMode = AttendanceMode.OFFLINE.name();
+            p.status = "PENDING";
+            list.add(p);
+        }
+        return list;
+    }
+
+    private static String buildHybridRollCallIntroText(List<RollCallPerson> people) {
+        long online = people.stream().filter(p -> AttendanceMode.ONLINE.name().equals(p.attendanceMode)).count();
+        long offline = people.size() - online;
+        return "会议检点开始。线上 " + online + " 人请打开个人入会链接确认到场，无需语音答到。"
+                + (offline > 0 ? "线下 " + offline + " 人将依次答到点名。" : "");
+    }
+
+    private static String buildOfflineOnlyIntroText(List<RollCallPerson> people) {
+        long offlinePending = people.stream().filter(RollCallPerson::isOfflinePending).count();
+        if (offlinePending <= 0) {
+            return "";
+        }
+        return "线下应到 " + offlinePending + " 人，请听到「请某某答到」后尽快语音答到。";
     }
 
     /**
@@ -564,12 +917,12 @@ public class MeetingHostSessionService {
      * @param now         当前 epoch 毫秒时间戳
      */
     private void rollCallMaybeTimeout(String meetingId, HostRuntime rt, long now) {
-        if (!"ACTIVE".equals(rt.rollCallPhase) || rt.rollCallIndex < 0) {
+        if (!isRollCallOfflinePhase(rt.rollCallPhase) || rt.rollCallIndex < 0) {
             return;
         }
         synchronized (lockFor(meetingId)) {
             rt = runtimes.get(meetingId);
-            if (rt == null || !"ACTIVE".equals(rt.rollCallPhase) || rt.rollCallIndex < 0) {
+            if (rt == null || !isRollCallOfflinePhase(rt.rollCallPhase) || rt.rollCallIndex < 0) {
                 return;
             }
             if (rt.rollCallDeadlineMs <= 0 || now < rt.rollCallDeadlineMs) {
@@ -596,7 +949,7 @@ public class MeetingHostSessionService {
     private void armRollCallDeadlineIfStillActive(String meetingId) {
         synchronized (lockFor(meetingId)) {
             HostRuntime rt = runtimes.get(meetingId);
-            if (rt == null || !"ACTIVE".equals(rt.rollCallPhase)) {
+            if (rt == null || !isRollCallOfflinePhase(rt.rollCallPhase)) {
                 return;
             }
             if (rt.rollCallIndex < 0 || rt.rollCallIndex >= rt.rollCallPeople.size()) {
@@ -669,8 +1022,7 @@ public class MeetingHostSessionService {
      */
     private static String buildRollCallIntroText(int peopleCount, int baseWindowSec, int asrGraceSec) {
         int total = Math.max(5, baseWindowSec) + Math.max(0, asrGraceSec);
-        return "会议检点开始，应到 " + peopleCount + " 人。请听到「请某某答到」后，尽快语音答到，尽量使用到了、我在、在的作答。"
-                + "每人作答窗口最长 " + total + " 秒。下面依次点名。";
+        return "会议检点开始，应到 " + peopleCount + " 人。请听到「请某某答到」后，尽快语音答到，尽量使用到了、我在作答。下面依次点名。";
     }
 
     /**
@@ -707,31 +1059,9 @@ public class MeetingHostSessionService {
      * @param preludeForNextOrSummary   紧接下一段 TTS 前的短句，或收尾时与总结拼接的前缀
      */
     private void advanceRollCallAfterCurrentResolved(String meetingId, HostRuntime rt, String preludeForNextOrSummary) {
-        int nextIdx = rt.rollCallIndex + 1;
-        if (nextIdx >= rt.rollCallPeople.size()) {
-            boolean autoNextTopic = currentTopicIsRollCallChapter(rt);
-            rt.rollCallPhase = "DONE";
-            rt.rollCallIndex = -1;
-            rt.rollCallDeadlineMs = 0;
-            pushHostState(meetingId);
-            String summary = buildRollCallSummary(rt.rollCallPeople);
-            String prefix = preludeForNextOrSummary == null || preludeForNextOrSummary.isBlank()
-                    ? ""
-                    : preludeForNextOrSummary + " ";
-            String finalMeetingId = meetingId;
-            speakAsyncFutureWithDurationMs(meetingId, prefix + summary).thenAccept(durationMs -> {
-                if (!autoNextTopic) {
-                    return;
-                }
-                long waitMs = Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
-                scheduler.schedule(() -> {
-                    try {
-                        nextTopic(finalMeetingId);
-                    } catch (Exception e) {
-                        log.warn("auto nextTopic after roll-call: {}", e.getMessage());
-                    }
-                }, waitMs, TimeUnit.MILLISECONDS);
-            });
+        int nextIdx = findNextOfflineRollCallIndex(rt.rollCallPeople, rt.rollCallIndex + 1);
+        if (nextIdx < 0) {
+            finishRollCallDone(meetingId, rt, preludeForNextOrSummary);
             return;
         }
         rt.rollCallIndex = nextIdx;
@@ -755,10 +1085,7 @@ public class MeetingHostSessionService {
         long answered = people.stream().filter(p -> "ANSWERED".equals(p.status)).count();
         List<String> absent = new ArrayList<>();
         for (RollCallPerson p : people) {
-            if ("MISSED".equals(p.status) || "SKIPPED".equals(p.status) || "PENDING".equals(p.status)) {
-                if ("PENDING".equals(p.status)) {
-                    continue;
-                }
+            if ("MISSED".equals(p.status) || "SKIPPED".equals(p.status)) {
                 absent.add(p.name);
             }
         }
@@ -863,6 +1190,15 @@ public class MeetingHostSessionService {
             if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
                 t.detail = dto.getDetail().trim();
             }
+            if (dto.getFeishuDocs() != null && !dto.getFeishuDocs().isEmpty()) {
+                for (FeishuDocRefDto doc : dto.getFeishuDocs()) {
+                    appendDocDtoToTopic(t, doc);
+                }
+            } else if (dto.getFeishuDocUrl() != null && !dto.getFeishuDocUrl().isBlank()) {
+                t.feishuDocUrl = dto.getFeishuDocUrl().trim();
+                applyFeishuRefToHostTopic(t);
+            }
+            syncPrimaryUrlFromDocs(t);
             out.add(t);
         }
         return out;
@@ -897,6 +1233,26 @@ public class MeetingHostSessionService {
                     if (!detail.isEmpty()) {
                         t.detail = detail;
                     }
+                    JsonNode docsArr = n.path("feishuDocs");
+                    if (docsArr.isArray() && docsArr.size() > 0) {
+                        for (JsonNode d : docsArr) {
+                            appendDocNodeToTopic(t, d);
+                        }
+                    } else {
+                        String docUrl = n.path("feishuDocUrl").asText("").trim();
+                        if (docUrl.isEmpty()) {
+                            String legacyId = n.path("feishuDocToken").asText("").trim();
+                            docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                            if (docUrl == null) {
+                                docUrl = "";
+                            }
+                        }
+                        if (!docUrl.isEmpty()) {
+                            t.feishuDocUrl = docUrl;
+                            applyFeishuRefToHostTopic(t);
+                        }
+                    }
+                    syncPrimaryUrlFromDocs(t);
                     out.add(t);
                 }
             }
@@ -904,6 +1260,149 @@ public class MeetingHostSessionService {
             log.warn("Parse host_agenda JSON failed: {}", e.getMessage());
         }
         return out;
+    }
+
+    /** 将单条 feishuDocUrl 解析并追加到议题的资料列表。 */
+    private static void applyFeishuRefToHostTopic(HostTopic t) {
+        if (t == null) {
+            return;
+        }
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(t.feishuDocUrl);
+        if (ref == null) {
+            return;
+        }
+        appendResourceRefToTopic(t, ref);
+        syncPrimaryUrlFromDocs(t);
+    }
+
+    /** 从 DTO 解析飞书 URL 并去重追加到议题。 */
+    private static void appendDocDtoToTopic(HostTopic t, FeishuDocRefDto doc) {
+        if (t == null || doc == null) {
+            return;
+        }
+        appendResourceRefToTopic(t, FeishuResourceResolver.resolve(doc.getUrl()));
+    }
+
+    /** 从 host_agenda JSON 节点解析 URL（含 legacy token）并追加到议题。 */
+    private static void appendDocNodeToTopic(HostTopic t, JsonNode d) {
+        if (t == null || d == null || d.isNull()) {
+            return;
+        }
+        String url = d.path("url").asText("").trim();
+        if (url.isEmpty()) {
+            url = d.path("feishuDocUrl").asText("").trim();
+        }
+        if (url.isEmpty()) {
+            String legacyId = d.path("token").asText("").trim();
+            if (legacyId.isEmpty()) {
+                legacyId = d.path("feishuDocToken").asText("").trim();
+            }
+            url = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+            if (url == null) {
+                url = "";
+            }
+        }
+        appendResourceRefToTopic(t, FeishuResourceResolver.resolve(url));
+    }
+
+    /** 将解析后的飞书资源引用去重追加到议题的 feishuDocs 列表。 */
+    private static void appendResourceRefToTopic(HostTopic t, FeishuResourceRef ref) {
+        if (t == null || ref == null || !ref.showOnHostPage()) {
+            return;
+        }
+        if (t.feishuDocs == null) {
+            t.feishuDocs = new ArrayList<>();
+        }
+        String openUrl = ref.defaultOpenUrl();
+        FeishuDocBinding binding = new FeishuDocBinding();
+        binding.kind = ref.kind().name();
+        binding.url = openUrl != null ? openUrl : "";
+        String key = binding.kind + "|" + binding.url;
+        for (FeishuDocBinding existing : t.feishuDocs) {
+            String ek = existing.kind + "|" + existing.url;
+            if (ek.equals(key)) {
+                return;
+            }
+        }
+        t.feishuDocs.add(binding);
+    }
+
+    /** 同步 feishuDocUrl / feishuDocKind 为 feishuDocs 首条（兼容旧前端字段）。 */
+    private static void syncPrimaryUrlFromDocs(HostTopic t) {
+        if (t == null || t.feishuDocs == null || t.feishuDocs.isEmpty()) {
+            return;
+        }
+        FeishuDocBinding first = t.feishuDocs.get(0);
+        t.feishuDocKind = first.kind;
+        t.feishuDocUrl = first.url;
+    }
+
+    /**
+     * 将 int_matter_progress_doc_config 中 preset+agenda_index 的文档合并进运行时议题（不覆盖 JSON 已填 token/url）。
+     */
+    private static void sanitizeTopicsFeishuRefs(List<HostTopic> topics) {
+        if (topics == null) {
+            return;
+        }
+        for (HostTopic t : topics) {
+            sanitizeTopicFeishuRefs(t);
+        }
+    }
+
+    /** 过滤议题上无法识别的飞书链接，并清理空 feishuDocs。 */
+    private static void sanitizeTopicFeishuRefs(HostTopic t) {
+        if (t == null) {
+            return;
+        }
+        if (t.feishuDocUrl != null && !FeishuResourceResolver.isRecognizedFeishuDocUrl(t.feishuDocUrl)) {
+            t.feishuDocUrl = null;
+            t.feishuDocKind = null;
+        }
+        if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
+            t.feishuDocs.removeIf(d -> d == null || d.url == null
+                    || !FeishuResourceResolver.isRecognizedFeishuDocUrl(d.url));
+            if (t.feishuDocs.isEmpty()) {
+                t.feishuDocs = null;
+            }
+        }
+        syncPrimaryUrlFromDocs(t);
+    }
+
+    /**
+     * 将预设会序文档配置（int_matter_progress_doc_config）合并进运行时议题，不覆盖 JSON 已有资料。
+     *
+     * @param presetTypeCode 会务类型 1～5；其他值跳过
+     * @param topics         运行时议题列表
+     * @param meetingId      会议 ID，仅用于日志
+     */
+    private void mergePresetAgendaDocs(Integer presetTypeCode, List<HostTopic> topics, String meetingId) {
+        if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5) {
+            if (meetingId != null) {
+                log.debug("mergePresetAgendaDocs skipped: presetTypeCode={} meetingId={}", presetTypeCode, meetingId);
+            }
+            return;
+        }
+        if (topics == null || topics.isEmpty()) {
+            return;
+        }
+        for (MatterProgressDocConfig cfg : presetAgendaDocService.listEnabledByPreset(presetTypeCode)) {
+            if (cfg.getAgendaIndex() == null) {
+                continue;
+            }
+            int idx = cfg.getAgendaIndex();
+            if (idx < 0 || idx >= topics.size()) {
+                log.warn("mergePresetAgendaDocs: agenda_index {} out of range (topics={}) preset={} config={}",
+                        idx, topics.size(), presetTypeCode, cfg.getConfigName());
+                continue;
+            }
+            HostTopic t = topics.get(idx);
+            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
+            if (ref == null) {
+                continue;
+            }
+            appendResourceRefToTopic(t, ref);
+            syncPrimaryUrlFromDocs(t);
+        }
     }
 
     /**
@@ -937,6 +1436,11 @@ public class MeetingHostSessionService {
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null) {
             return;
+        }
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting != null) {
+            sanitizeTopicsFeishuRefs(rt.topics);
+            mergePresetAgendaDocs(meeting.getPresetTypeCode(), rt.topics, meetingId);
         }
         try {
             ObjectNode root = buildStateNode(rt);
@@ -972,12 +1476,23 @@ public class MeetingHostSessionService {
             o.put("minutes", t.minutes);
             o.put("status", t.status);
             o.put("detail", t.detail == null ? "" : t.detail);
+            o.put("feishuDocUrl", t.feishuDocUrl == null ? "" : t.feishuDocUrl);
+            o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
+            ArrayNode docsArr = o.putArray("feishuDocs");
+            if (t.feishuDocs != null) {
+                for (FeishuDocBinding b : t.feishuDocs) {
+                    ObjectNode doc = docsArr.addObject();
+                    doc.put("kind", b.kind == null ? "" : b.kind);
+                    doc.put("url", b.url == null ? "" : b.url);
+                }
+            }
         }
         ObjectNode rollCall = root.putObject("rollCall");
         rollCall.put("phase", rt.rollCallPhase);
         rollCall.put("windowSec", rollCallTotalWaitSec());
         rollCall.put("baseWindowSec", rollCallBaseWindowSec());
         rollCall.put("asrGraceSec", boundedAsrGraceSec());
+        rollCall.put("onlineInventoryDeadlineMs", rt.rollCallOnlineInventoryDeadlineMs);
         rollCall.put("currentIndex", rt.rollCallIndex);
         rollCall.put("deadlineMs", rt.rollCallDeadlineMs);
         ArrayNode peopleArr = rollCall.putArray("people");
@@ -985,6 +1500,8 @@ public class MeetingHostSessionService {
             ObjectNode po = peopleArr.addObject();
             po.put("name", p.name);
             po.put("status", p.status);
+            po.put("attendanceMode", p.attendanceMode != null ? p.attendanceMode : AttendanceMode.OFFLINE.name());
+            po.put("checkInSource", p.checkInSource != null ? p.checkInSource : "");
         }
         return root;
     }
@@ -1117,21 +1634,36 @@ public class MeetingHostSessionService {
         /** 秒级调度句柄，stop 时 cancel */
         ScheduledFuture<?> tick;
 
-        /** NONE / ACTIVE / DONE，与前端检点 UI 展示一致 */
+        /** NONE / ONLINE_INVENTORY / OFFLINE_ROLL_CALL / DONE */
         String rollCallPhase = "NONE";
         final List<RollCallPerson> rollCallPeople = new ArrayList<>();
         /** 当前点到第几人；-1 表示未在逐人点名 */
         int rollCallIndex = -1;
         /** 当前人答到窗口结束时刻；0 表示尚未起算（TTS 未播完） */
         long rollCallDeadlineMs;
+        /** 线上盘点阶段结束时刻 */
+        long rollCallOnlineInventoryDeadlineMs;
     }
 
     /** 检点名单中的一人 */
     private static final class RollCallPerson {
-        /** 显示名，与预设 participants_names 解析结果一致 */
+        String participantId;
+        String userId;
+        /** 显示名 */
         String name;
+        /** OFFLINE | ONLINE */
+        String attendanceMode = AttendanceMode.OFFLINE.name();
         /** PENDING / ANSWERED / MISSED / SKIPPED */
         String status = "PENDING";
+        String checkInSource;
+
+        boolean isOnlinePending() {
+            return AttendanceMode.ONLINE.name().equals(attendanceMode) && "PENDING".equals(status);
+        }
+
+        boolean isOfflinePending() {
+            return AttendanceMode.OFFLINE.name().equals(attendanceMode) && "PENDING".equals(status);
+        }
     }
 
     /** 主持议程一项（来自 JSON 或开始请求） */
@@ -1144,5 +1676,16 @@ public class MeetingHostSessionService {
         String status = "PENDING";
         /** 可选 Markdown 文本，下发给主持页「当前议程」展示 */
         String detail;
+        /** 首条飞书资料链接（兼容旧前端字段） */
+        String feishuDocUrl;
+        /** DOCX / WIKI / BASE / UNKNOWN（首条，兼容旧字段） */
+        String feishuDocKind;
+        /** 同一会序多条飞书资料 */
+        List<FeishuDocBinding> feishuDocs;
+    }
+
+    private static final class FeishuDocBinding {
+        String kind;
+        String url;
     }
 }
