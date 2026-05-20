@@ -358,13 +358,13 @@ flowchart LR
 
 ---
 
-## 五、30 个 OpenClaw Agent 私有化部署可行方案
+## 五、40 个 OpenClaw Agent 私有化部署可行方案
 
-> 以下方案针对约 100 人规模企业，私有化部署约 30 个 OpenClaw Agent，采用集中式治理。
+> 以下方案针对约 100 人规模企业，私有化部署 40 个 OpenClaw Agent（30 业务 + 10 治理），全部使用线上国产大模型 API，采用集中式治理。
 
 ### 5.1 整体架构
 
-采用 OpenClaw 官方推荐的 **单 Gateway + 多 Agent + 显式 bindings 路由** 标准架构。30 个 Agent 在同一台主机上由一个 Gateway 统一管控。
+采用 OpenClaw 官方推荐的 **单 Gateway + 40 Agent + 显式 bindings 路由** 标准架构。所有 Agent 在同一台主机上由一个 Gateway 统一管控，模型推理全部通过线上 API 完成，无需本地 GPU。
 
 ```mermaid
 flowchart TD
@@ -373,80 +373,102 @@ flowchart TD
         web[Web 管理后台]
     end
 
-    subgraph gateway [Gateway 控制面]
-        gw[OpenClaw Gateway]
-        bindings[Bindings 路由规则]
-        sessionMgr[Session 管理]
+    subgraph governance [治理层 - 10 Agent]
+        orchestrator[Orchestrator<br/>任务编排+流程协调]
+        dispatcher[Dispatcher<br/>模型路由+负载均衡]
+        researcher[Researcher<br/>只读检索+起草]
+        publisher[Publisher<br/>内容编辑+PR]
+        operator[Operator<br/>运维+凭证轮换]
+        guardian[Guardian<br/>策略漂移检测]
+        auditor[Auditor<br/>审计专责+合规追溯]
+        compliance[ComplianceOfficer<br/>合规审查+内容过滤]
+        costCtrl[CostController<br/>成本计量+预算管控]
+        security[SecurityMonitor<br/>安全监控+威胁检测]
     end
 
-    subgraph agents [30 个 Agent]
-        direction TB
-        researcher[Researcher Agent<br/>只读+检索]
-        publisher[Publisher Agent<br/>内容编辑+PR]
-        operator[Operator Agent<br/>运维+凭证轮换]
-        guardian[Guardian Agent<br/>策略监控+漂移检测]
-        meetingAgent[会议纪要 Agent]
-        otherAgents[其他 25 个业务 Agent]
+    subgraph business [业务层 - 30 Agent]
+        meetingGroup[会议系统 Agent x3]
+        salesGroup[销售 Agent x4]
+        marketGroup[市场 Agent x3]
+        csGroup[客服 Agent x3]
+        financeGroup[财务 Agent x3]
+        hrGroup[人力 Agent x2]
+        opsGroup[运维 Agent x2]
+        legalGroup[法务 Agent x2]
+        productGroup[产品 Agent x2]
+        devGroup[研发 Agent x4]
+        utilGroup[通用 Agent x4]
     end
 
     subgraph infra [基础设施层]
-        ollama[Ollama + 本地模型<br/>Qwen3 / DeepSeek]
+        gateway[OpenClaw Gateway]
         vault[HashiCorp Vault<br/>密钥管理]
         postgres[PostgreSQL<br/>持久化存储]
+        apiGW[模型 API 路由<br/>DeepSeek + Qwen]
         auditLog[审计日志服务]
     end
 
     users --> gateway
-    gateway --> agents
-    agents --> infra
+    gateway --> governance
+    gateway --> business
+    governance --> infra
+    business --> apiGW
 ```
 
 ### 5.2 硬件配置
 
-30 个 Agent 在单机运行，推荐配置：
+40 个 Agent + Gateway 在单机运行，全部使用线上模型 API，无需本地推理：
 
 | 项目 | 推荐配置 | 说明 |
 |------|----------|------|
-| CPU | 16 vCPU | 30 个 Agent 并发推理 + Gateway 路由 |
-| 内存 | 32 GiB | 模型推理 + Agent workspace + Session 缓存 |
-| 硬盘 | 500 GiB ESSD | Agent workspace + 日志 + 知识库 |
-| GPU | 可选，无 GPU 用 Ollama CPU 模式 | 有 GPU (24G+) 可显著提升推理速度 |
+| CPU | 8 vCPU | Gateway 路由 + 40 Agent 进程调度，无推理负载 |
+| 内存 | 16 GiB | Agent workspace + Session 缓存 + Vault |
+| 硬盘 | 200 GiB ESSD | Agent workspace + 日志 + 知识库 |
+| GPU | 无需 | 全部推理走线上 API，本地无 GPU 要求 |
 | 操作系统 | Ubuntu 22.04 LTS / Debian 12 | OpenClaw 官方推荐 |
 
 **预算估算：**
 
 | 方案 | 月成本 | 说明 |
 |------|--------|------|
-| 阿里云 ECS (无 GPU) | ¥1,200 - ¥2,000 | 16C32G + 500G ESSD |
-| 自购服务器 (无 GPU) | ¥8,000 - ¥15,000 一次性 | 同配置，3 年折旧 |
-| 加 GPU (RTX 4090) | 附加 ¥3,000/月 或 ¥15,000 一次性 | 推理提速 3-5 倍 |
+| 阿里云 ECS | ¥600 - ¥1,000 | 8C16G + 200G ESSD（无 GPU） |
+| 腾讯云 Lighthouse | ¥500 - ¥800 | 同配置轻量服务器 |
+| 自购服务器 | ¥3,000 - ¥5,000 一次性 | 同配置，3 年折旧 |
 
-### 5.3 Agent 角色设计（4 种基础角色 + 26 个业务角色）
+> 注意：硬件成本大幅低于原方案（¥1,200-¥2,000），因为无需 GPU 和本地模型推理。主要成本转移到模型 API 调用（见 5.6）。
 
-参考 OpenClaw 治理最佳实践，30 个 Agent 分为两类：
+### 5.3 Agent 角色设计
 
-**4 种治理角色（必选）：**
+#### 10 个治理 Agent（完整集）
 
-| 角色 | 职责 | 工具权限 | 安全等级 |
-|------|------|----------|----------|
-| **Researcher** | 读取公开信息、汇总、起草 | 只读工具，无 git push，无密钥 | L1 只读级 |
-| **Publisher** | 编辑内容、提交 PR | 文件写入 + git commit，需用户显式许可 | L2 草稿级 |
-| **Operator** | 运维诊断、凭证轮换、故障排查 | 系统命令 + 凭证操作，严格审批 | L3 受限执行级 |
-| **Guardian** | 监控其他 Agent 策略漂移、权限越界 | 只读审计日志 + 告警通知 | L1 只读级 |
+| # | 角色 | 职责 | 工具权限 | 安全等级 | 推荐模型 |
+|---|------|------|----------|----------|----------|
+| 1 | **Orchestrator** | 接收用户请求、意图对齐、任务拆解、流程编排、结果汇总 | 调度其他 Agent + 读写任务状态 | L3 受限执行级 | Qwen-max（复杂编排需要强推理） |
+| 2 | **Dispatcher** | 模型路由、负载均衡、成本优化、故障切换、速率控制 | 只读模型配置 + 读写路由表 + 调用模型 API | L2 草稿级 | DeepSeek-V4-Flash（路由决策轻量快速） |
+| 3 | **Researcher** | 读取公开信息、汇总、起草文档 | 只读工具，无 git push，无密钥 | L1 只读级 | Qwen-plus（中等推理能力，成本适中） |
+| 4 | **Publisher** | 编辑内容、提交 PR、发布草稿 | 文件写入 + git commit，需用户显式许可 | L2 草稿级 | Qwen-plus（内容生成质量好） |
+| 5 | **Operator** | 运维诊断、凭证轮换、故障排查 | 系统命令 + 凭证操作，严格审批 | L3 受限执行级 | DeepSeek-V4-Pro（运维场景需要精确推理） |
+| 6 | **Guardian** | 监控其他 39 个 Agent 的策略漂移、权限越界 | 只读审计日志 + 告警通知 | L1 只读级 | Qwen-turbo（高频轮询，低成本优先） |
+| 7 | **Auditor** | 审计日志结构化、合规追溯、证据链管理 | 只读所有 session 日志 + 写入审计报告 | L1 只读级 | Qwen-plus（日志分析需要中等推理） |
+| 8 | **ComplianceOfficer** | 内容合规检测、敏感词过滤、法规对标 | 只读 Agent 输出 + 写入合规判定 | L2 草稿级 | Qwen-max（合规判定需要强推理） |
+| 9 | **CostController** | 每次 API 调用的 Token/费用追踪、预算管控、成本报告 | 只读 API 计费数据 + 写入成本报告 + 触发预算熔断 | L2 草稿级 | Qwen-turbo（数值计算为主，低成本） |
+| 10 | **SecurityMonitor** | 安全威胁检测、Token 泄露监控、入侵告警 | 只读安全日志 + 告警通知 + 触发 Token 撤销 | L1 只读级 | DeepSeek-V4-Flash（实时监控需要低延迟） |
 
-**26 个业务角色（按部门分配）：**
+#### 30 个业务 Agent（按部门分配）
 
 | 部门 | Agent 数量 | 典型 Agent |
 |------|-----------|------------|
-| 销售 (4) | 线索资格审查、客户跟进提醒、报价草稿、合同审查 |
-| 市场 (3) | 内容创作、社媒发布草稿、竞品情报 |
-| 客服 (3) | 工单分发、FAQ 回复草稿、投诉分级 |
-| 财务 (3) | 报表生成、报销审核草稿、发票校验 |
-| 人力 (2) | 简历筛选草稿、考勤异常提醒 |
-| 会议系统 (3) | 会议纪要生成、议题追踪、参会提醒 |
-| 运维 (2) | 监控告警、日志诊断 |
-| 法务 (2) | 合规审查草稿、风险关键词扫描 |
-| 通用 (3) | 日程管理、知识检索、翻译 |
+| 销售 | 4 | 线索资格审查、客户跟进提醒、报价草稿、合同审查 |
+| 市场 | 3 | 内容创作、社媒发布草稿、竞品情报 |
+| 客服 | 3 | 工单分发、FAQ 回复草稿、投诉分级 |
+| 财务 | 3 | 报表生成、报销审核草稿、发票校验 |
+| 人力 | 2 | 简历筛选草稿、考勤异常提醒 |
+| 会议系统 | 3 | 会议纪要生成、议题追踪、参会提醒 |
+| 运维 | 2 | 监控告警、日志诊断 |
+| 法务 | 2 | 合规审查草稿、风险关键词扫描 |
+| 产品 | 2 | 需求分析草稿、用户反馈聚合 |
+| 研发 | 4 | 代码审查辅助、技术文档草稿、Bug 分类、部署检查 |
+| 通用 | 4 | 日程管理、知识检索、翻译、通知聚合 |
 
 ### 5.4 Gateway 配置与 bindings 路由
 
