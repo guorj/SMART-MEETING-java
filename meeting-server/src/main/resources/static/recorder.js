@@ -1,5 +1,5 @@
 /**
- * OpenClaw智能会议系统 - 录音控制器 v2
+ * 智能会议系统 - 录音控制器 v2
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
 /** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */

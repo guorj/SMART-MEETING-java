@@ -30,13 +30,13 @@ import java.util.Map;
 /**
  * 事项进度通报服务。
  *
- * <p>按会议 ID 拉取或生成「事项进度通报」Markdown：优先走综合管理会多维表 + OpenClaw CLI 分支；
+ * <p>按会议 ID 拉取或生成「事项进度通报」Markdown：优先走综合管理会多维表 + AgentProvider 分支；
  * 否则从飞书 Docx、classpath 样例等读取正文，再经配置的 LLM 生成结构化通报。
  *
  * <p>主要协作组件：
  * <ul>
  *   <li>{@link MeetingMapper}、{@link MatterProgressDocConfigMapper} — 会议与文档配置</li>
- *   <li>{@link OpenclawComprehensiveBitableBranch}、{@link AiAgentService} — OpenClaw 多维表分支</li>
+ *   <li>{@link BitableDirectiveBuilder}、{@link AiAgentService} — 多维表 + Agent 分支</li>
  *   <li>{@link FeishuService}、{@link MatterProgressDocxIdResolver} — 飞书 Docx 正文与 ID 解析</li>
  *   <li>{@link RestTemplate} — LLM Chat Completions 调用</li>
  * </ul>
@@ -52,7 +52,7 @@ public class MatterProgressReportService {
     private final ResourceLoader resourceLoader;
     private final FeishuService feishuService;
     private final AiAgentService aiAgentService;
-    private final OpenclawComprehensiveBitableBranch comprehensiveBitableBranch;
+    private final BitableDirectiveBuilder bitableDirectiveBuilder;
 
     @Value("${meeting.llm.api-url:https://api.deepseek.com/v1/chat/completions}")
     private String llmApiUrl;
@@ -73,7 +73,7 @@ public class MatterProgressReportService {
     /**
      * 为指定会议生成事项进度通报。
      *
-     * <p>执行顺序：综合管理会 OpenClaw 多维表分支 → 飞书 Docx →（可选）classpath 样例 → LLM 分析。
+     * <p>执行顺序：综合管理会多维表 + AgentProvider 分支 → 飞书 Docx →（可选）classpath 样例 → LLM 分析。
      *
      * @param meetingId 会议主键 ID
      * @return 通报 Markdown、数据来源标识及配置名称
@@ -85,7 +85,7 @@ public class MatterProgressReportService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
 
-        String bitableDirective = comprehensiveBitableBranch.buildDirectiveForRecordingMatterProgress(meeting);
+        String bitableDirective = bitableDirectiveBuilder.buildDirectiveForRecordingMatterProgress(meeting);
         if (bitableDirective != null) {
             String openclawMd = aiAgentService.runMatterProgressReportViaOpenclaw(meeting, bitableDirective);
             if (openclawMd != null && !openclawMd.isBlank()) {
@@ -99,14 +99,14 @@ public class MatterProgressReportService {
                         .configName(configName)
                         .build();
             }
-            log.warn("OpenClaw matter_progress_bitable 无有效返回，回退 Docx/classpath 链路 meetingId={}", meetingId);
+            log.warn("Agent matter_progress 无有效返回，回退 Docx/classpath 链路 meetingId={}", meetingId);
         }
 
         MatterProgressDocConfig cfg = loadActiveConfig();
         if (cfg == null) {
             throw new BusinessException(400,
                     "未配置事项进度文档：请在表 int_matter_progress_doc_config 中新增并启用一条记录；"
-                            + "若仅使用综合管理会多维表临时分支，请确认 OPENCLAW_COMP_BITABLE_PROGRESS=true、预设码命中且本机 openclaw CLI 可用");
+                            + "若使用综合管理会多维表分支，请确认 OPENCLAW_COMP_BITABLE_PROGRESS=true、预设码命中且 AgentProvider 可用");
         }
 
         String bodyText;

@@ -22,7 +22,7 @@ import java.util.stream.Collectors;
  * 并将结果转为飞书卡片元素；AI 不可用时由调用方降级为 {@link #buildFallbackCardElements}。
  *
  * <p>主要协作：{@link AiAgentService}、{@link MeetingMapper}、
- * {@link OpenclawComprehensiveBitableBranch}（综合管理会多维表指令注入）。
+ * {@link BitableDirectiveBuilder}（综合管理会多维表指令注入）。
  */
 @Slf4j
 @Component
@@ -31,7 +31,7 @@ public class MeetingProgressAIEnhancer {
 
     private final AiAgentService aiAgentService;
     private final MeetingMapper meetingMapper;
-    private final OpenclawComprehensiveBitableBranch comprehensiveBitableBranch;
+    private final BitableDirectiveBuilder bitableDirectiveBuilder;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -99,14 +99,14 @@ public class MeetingProgressAIEnhancer {
      * 若当前会议命中综合管理会多维表策略，则构建会前必读指令文本。
      *
      * @param currentMeetingId 当前会议 ID
-     * @return OpenClaw 多维表指令；不适用时返回 {@code null}
+     * @return 多维表指令；不适用时返回 {@code null}
      */
     private String buildFeishuMultitableDirectiveIfApplicable(String currentMeetingId) {
         if (currentMeetingId == null) {
             return null;
         }
         Meeting current = meetingMapper.selectById(currentMeetingId);
-        return comprehensiveBitableBranch.buildDirectiveForPreviousMeetingProgress(current);
+        return bitableDirectiveBuilder.buildDirectiveForPreviousMeetingProgress(current);
     }
 
     /**

@@ -34,6 +34,7 @@ smart-meeting-java/
 
 | 类型 | 路径 |
 |------|------|
+| **用户手册** | [docs/USER-MANUAL.md](docs/USER-MANUAL.md) |
 | 二期 PRD | [docs/PRD-Java-二期.md](docs/PRD-Java-二期.md) |
 | 编码规范 | [docs/coding-standards.md](docs/coding-standards.md) |
 | 库表分析 | [docs/数据库表结构冗余与字段合理性分析.md](docs/数据库表结构冗余与字段合理性分析.md) |

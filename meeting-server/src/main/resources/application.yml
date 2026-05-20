@@ -201,18 +201,23 @@ meeting:
     frontend-ws-close-timeout: ${FRONTEND_WS_CLOSE_TIMEOUT:5}
 
 # ============================================================
-# OpenClaw AI Agent 配置（方案B：通过OpenClaw调用小栈）
+# AI Agent 配置（策略模式：openclaw / llm，未来可扩展 mcp）
 # ============================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:false}
+  # Agent 提供者：openclaw（CLI 子进程）/ llm（直调 LLM Chat API，默认）
+  agent:
+    provider: ${OPENCLAW_AGENT_PROVIDER:llm}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
-  # sessionKey 格式：agent:{agentId}:{mode}:{userId}
-  # 实际使用时需传入完整sessionKey，或通过环境变量配置
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
   timeout-seconds: ${OPENCLAW_TIMEOUT:60}
-  # Gateway认证token（从openclaw.json获取）
-  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
-  # --- 临时：综合管理会会前，指示 OpenClaw CLI 读取飞书多维表格后再输出 JSON 通报（默认关，线上设 OPENCLAW_COMP_BITABLE_PROGRESS=true）---
+  auth-token: ${OPENCLAW_AUTH_TOKEN:}
+  # OpenClaw CLI 参数（仅 provider=openclaw 时生效）
+  cli:
+    agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
+    profile: ${OPENCLAW_CLI_PROFILE:clone-boss}
+    state-dir: ${OPENCLAW_CLI_STATE_DIR:}
+  # 综合管理会多维表指令（两种 provider 均可使用）
   comprehensive-bitable-progress-enabled: ${OPENCLAW_COMP_BITABLE_PROGRESS:true}
   comprehensive-bitable-preset-codes: ${OPENCLAW_COMP_BITABLE_PRESETS:1}
   comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单}

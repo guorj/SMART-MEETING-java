@@ -25,12 +25,13 @@ meeting:
     allow-classpath-fallback: true
 
 # ============================================================
-# OpenClaw AI Agent 配置（测试环境可禁用）
+# AI Agent 配置（测试环境禁用 OpenClaw，走 LLM 降级）
 # ============================================================
 openclaw:
-  enabled: false  # 测试环境默认禁用AI调用
-  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
-  # sessionKey 格式：agent:{agentId}:{mode}:{userId}
-  agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
-  auth-token: ${OPENCLAW_AUTH_TOKEN:}
+  enabled: false
+  agent:
+    provider: llm
+  cli:
+    agent-name: JQClaw
+    profile: clone-boss
+    state-dir:
