@@ -28,6 +28,7 @@ import java.util.regex.Pattern;
  */
 public final class ProdSchemaProbe {
 
+    /** 连接生产库，导出 information_schema 表结构快照至 {@code target/prod-schema-snapshot.json}。 */
     public static void main(String[] args) throws Exception {
         String url = envOr("PROD_DB_URL", null);
         String user = envOr("PROD_DB_USER", null);

@@ -20,11 +20,16 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * 讯飞在线语音合成（流式 WebSocket v2/tts），单次短连接合成一段文本。
+ * 讯飞在线语音合成（WebSocket v2/tts）服务：短连接、阻塞收齐 PCM。
  * <p>
- * 输出 16kHz、s16le 裸 PCM，供 {@link com.smartmeeting.service.host.MeetingHostSessionService} 分片下发主持端播放。
- * 鉴权与 {@code meeting.asr.xfyun} 共用 app-id / api-key / api-secret；发音人见 {@code meeting.tts.vcn}。
- * 文档：https://www.xfyun.cn/doc/tts/online_tts/API.html
+ * 对外入口 {@link #synthesizeToPcm(String)}：超长文本由 {@link XfyunTtsUtf8Segmenter} 切段后多次合成拼接。
+ * 输出 16 kHz、s16le 裸 PCM，供 {@link com.smartmeeting.service.host.MeetingHostSessionService} 等分片播放。
+ * 鉴权 URL 由 {@link com.smartmeeting.util.XfyunSignatureUtil#assembleAuthUrl} 生成，与 ASR 共用
+ * {@code meeting.asr.xfyun} 的 app-id / api-key / api-secret；发音人见 {@code meeting.tts.vcn}。
+ * </p>
+ * <p>
+ * 文档：<a href="https://www.xfyun.cn/doc/tts/online_tts/API.html">在线语音合成 API</a>。
+ * </p>
  */
 @Slf4j
 @Service
@@ -61,7 +66,7 @@ public class XfyunOnlineTtsSynthesizeService {
      * 合成整段文本为 PCM：超长时按 UTF-8 与句读切段后多次调用讯飞再拼接。
      *
      * @param text 待朗读全文；null 或空白返回空数组
-     * @return 16kHz、s16le 裸 PCM 字节拼接；占位鉴权或失败时返回空数组
+     * @return 16 kHz、s16le 裸 PCM 字节拼接；占位鉴权、失败或空白输入时返回空数组（非 null）
      */
     public byte[] synthesizeToPcm(String text) {
         if (text == null || text.isBlank()) {

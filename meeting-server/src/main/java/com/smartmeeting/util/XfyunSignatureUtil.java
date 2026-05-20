@@ -9,14 +9,32 @@ import java.security.MessageDigest;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
+/**
+ * 讯飞（Xfyun）API 签名与鉴权 URL 构建工具类。
+ * <p>
+ * 支持离线 ASR、ISV API、office-api-ast 实时 ASR WebSocket 等多种签名算法。
+ */
 public class XfyunSignatureUtil {
 
+    /**
+     * 获取 RFC 2616 格式的 GMT 日期字符串。
+     *
+     * @return 如 {@code Wed, 20 May 2026 08:00:00 GMT} 格式的日期
+     */
     public static String getRFC2616Date() {
         SimpleDateFormat sdf = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss z", Locale.US);
         sdf.setTimeZone(TimeZone.getTimeZone("GMT"));
         return sdf.format(new java.util.Date());
     }
 
+    /**
+     * 使用 HMAC-SHA256 算法计算签名。
+     *
+     * @param data 待签名数据
+     * @param key  密钥
+     * @return Base64 编码的签名字符串
+     * @throws Exception 加密算法不可用时抛出
+     */
     public static String hmacSHA256(String data, String key) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA256");
         mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
@@ -24,6 +42,14 @@ public class XfyunSignatureUtil {
         return Base64.getEncoder().encodeToString(digest);
     }
 
+    /**
+     * 使用 HMAC-SHA1 算法计算签名。
+     *
+     * @param data 待签名数据
+     * @param key  密钥
+     * @return Base64 编码的签名字符串
+     * @throws Exception 加密算法不可用时抛出
+     */
     public static String hmacSHA1(String data, String key) throws Exception {
         Mac mac = Mac.getInstance("HmacSHA1");
         mac.init(new SecretKeySpec(key.getBytes(StandardCharsets.UTF_8), "HmacSHA1"));
@@ -32,11 +58,13 @@ public class XfyunSignatureUtil {
     }
 
     /**
-     * 生成讯飞离线 ASR API 签名
-     * @param apiKey 讯飞 API Key
+     * 生成讯飞离线 ASR API 签名（参数按 key 排序后 MD5）。
+     *
+     * @param apiKey    讯飞 API Key
      * @param apiSecret 讯飞 API Secret
-     * @param params 请求参数 Map
-     * @return 签名字符串
+     * @param params    请求参数 Map
+     * @return 十六进制 MD5 签名字符串
+     * @throws RuntimeException 签名计算失败时包装抛出
      */
     public static String generateSignature(String apiKey, String apiSecret, Map<String, String> params) {
         try {
@@ -67,11 +95,13 @@ public class XfyunSignatureUtil {
     }
 
     /**
-     * 生成讯飞 ISV API 签名（支持复杂 JSON body）
-     * @param apiKey 讯飞 API Key
+     * 生成讯飞 ISV API 签名（支持复杂 JSON body，JSON + apiSecret 后 MD5）。
+     *
+     * @param apiKey    讯飞 API Key
      * @param apiSecret 讯飞 API Secret
-     * @param params 请求参数 Map（支持嵌套对象）
-     * @return 签名字符串
+     * @param params    请求参数 Map（支持嵌套对象）
+     * @return 十六进制 MD5 签名字符串
+     * @throws RuntimeException 签名计算失败时包装抛出
      */
     public static String generateSignatureForObject(String apiKey, String apiSecret, Map<String, Object> params) {
         try {
@@ -98,8 +128,11 @@ public class XfyunSignatureUtil {
     }
 
     /**
-     * 生成北京时间字符串（格式：yyyy-MM-dd'T'HH:mm:ss+0800）
-     * 用于讯飞 office-api-ast 实时ASR鉴权
+     * 生成北京时间字符串（格式：yyyy-MM-dd'T'HH:mm:ss+0800）。
+     * <p>
+     * 用于讯飞 office-api-ast 实时 ASR 鉴权。
+     *
+     * @return 东八区 ISO 8601 格式时间字符串
      */
     public static String getBeijingTime() {
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssZ");
@@ -108,17 +141,19 @@ public class XfyunSignatureUtil {
     }
 
     /**
-     * 生成讯飞 office-api-ast 实时 ASR WebSocket 鉴权 URL
-     * 参考 RTASR_LLM_java Demo
-     * 
-     * @param baseUrl WebSocket 基础 URL
-     * @param appId 讯飞 App ID
-     * @param apiKey 讯飞 API Key（accessKeyId）
-     * @param apiSecret 讯飞 API Secret
-     * @param lang 语言（autodialect）
-     * @param roleType 角色类型（2=说话人分离）
-     * @param featureIds 特性ID列表（声纹匹配用）
-     * @return 完整的鉴权 URL
+     * 生成讯飞 office-api-ast 实时 ASR WebSocket 鉴权 URL。
+     * <p>
+     * 参考 RTASR_LLM_java Demo，使用 HMAC-SHA1 签名。
+     *
+     * @param baseUrl    WebSocket 基础 URL
+     * @param appId      讯飞 App ID
+     * @param apiKey     讯飞 API Key（accessKeyId）
+     * @param apiSecret  讯飞 API Secret
+     * @param lang       语言（autodialect）
+     * @param roleType   角色类型（2=说话人分离）
+     * @param featureIds 声纹特征 ID 列表（声纹匹配用，可为 null）
+     * @return 含签名参数的完整鉴权 URL
+     * @throws Exception 签名或 URL 编码失败时抛出
      */
     public static String buildOfficeApiAuthUrl(String baseUrl, String appId, String apiKey, String apiSecret,
                                                   String lang, int roleType, List<String> featureIds) throws Exception {
@@ -187,11 +222,13 @@ public class XfyunSignatureUtil {
     }
 
     /**
-     * 生成讯飞 ASR WebSocket 鉴权 URL（旧版通用）
-     * @param baseUrl wss://host/path 格式的基础 URL
-     * @param apiKey 讯飞 API Key
+     * 生成讯飞 ASR WebSocket 鉴权 URL（旧版通用 HMAC-SHA256 方案）。
+     *
+     * @param baseUrl   {@code wss://host/path} 格式的基础 URL
+     * @param apiKey    讯飞 API Key
      * @param apiSecret 讯飞 API Secret
-     * @return 完整的鉴权 URL
+     * @return 含 authorization、date、host 查询参数的完整鉴权 URL
+     * @throws Exception 签名或 URL 编码失败时抛出
      */
     public static String assembleAuthUrl(String baseUrl, String apiKey, String apiSecret) throws Exception {
         // 解析 URL

@@ -9,11 +9,11 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 上次会议待办进度响应（F-MID-02）
+ * 上次会议待办进度响应体（F-MID-02）。
+ * <p>
+ * 用于会议开始时展示上次会议的待办完成情况：总数、各状态计数及延期项明细。
  *
- * 用于会议开始时展示上次会议的待办完成情况：
- * - 总待办数、已完成数、进行中数、延期数
- * - 延期项详情列表（供会议通报）
+ * @see StartMeetingResponse#getPreviousProgress()
  */
 @Data
 @Builder
@@ -46,7 +46,7 @@ public class PreviousProgressResponse {
     private List<DelayedItem> delayedItems;
 
     /**
-     * 延期待办项详情
+     * 延期待办项详情，供主持页或飞书卡片通报。
      */
     @Data
     @Builder

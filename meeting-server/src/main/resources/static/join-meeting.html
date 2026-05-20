@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>线上到会确认</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 48px auto; padding: 0 16px; color: #1a1a1a; }
+    h1 { font-size: 1.25rem; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .ok { color: #0a7; font-weight: 600; }
+    .err { color: #c00; }
+    #status { margin-top: 24px; padding: 16px; border-radius: 8px; background: #f5f7fa; }
+  </style>
+</head>
+<body>
+  <h1>线上到会确认</h1>
+  <p class="muted">打开本页即向会议系统登记到场，无需麦克风、不采集音频。</p>
+  <div id="status">正在登记…</div>
+  <script>
+    (function () {
+      var statusEl = document.getElementById('status');
+      var pathParts = location.pathname.split('/').filter(Boolean);
+      var meetingId = pathParts.length >= 2 ? pathParts[pathParts.length - 1] : null;
+      var token = new URLSearchParams(location.search).get('token');
+      if (!meetingId || !token) {
+        statusEl.innerHTML = '<span class="err">链接无效，请从飞书重新打开个人入会链接。</span>';
+        return;
+      }
+      fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/check-in', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
+      }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })
+        .then(function (x) {
+          if (!x.res.ok || x.j.code !== 0) throw new Error(x.j.message || x.res.statusText);
+          var d = x.j.data || {};
+          statusEl.innerHTML = '<span class="ok">已到会</span><br/>' +
+            (d.name ? '姓名：' + d.name + '<br/>' : '') +
+            '登记时间：' + (d.checkedInAt || '') +
+            '<p class="muted" style="margin-top:12px">您可以关闭本页；会议录音由现场设备负责。</p>';
+        })
+        .catch(function (e) {
+          statusEl.innerHTML = '<span class="err">' + (e.message || '登记失败') + '</span>';
+        });
+    })();
+  </script>
+</body>
+</html>

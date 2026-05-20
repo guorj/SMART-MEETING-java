@@ -6,7 +6,11 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * 主持会序中的一项：与 DB 字段 {@code host_agenda}、主持开始请求 {@code HostStartRequest#items} 的 JSON 形态一致。
+ * AI 主持会序中的一项议题 DTO。
+ * <p>
+ * 与 DB 字段 {@code host_agenda}、主持开始请求 {@link HostStartRequest#getItems()} 的 JSON 形态一致。
+ *
+ * @see FeishuDocRefDto
  */
 @Data
 public class HostAgendaItemDto {
@@ -18,6 +22,6 @@ public class HostAgendaItemDto {
     private String detail;
     /** 可选：飞书资料链接（docx/wiki/base）；可与 int_matter_progress_doc_config 按 preset+会序合并 */
     private String feishuDocUrl;
-    /** 可选：同一会序多条资料（base/docx/wiki），优先级高于单条 token/url */
+    /** 可选：同一会序多条资料（base/docx/wiki），优先级高于单条 feishuDocUrl */
     private List<FeishuDocRefDto> feishuDocs;
 }

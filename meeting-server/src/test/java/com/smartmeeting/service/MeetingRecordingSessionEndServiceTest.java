@@ -18,6 +18,9 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.*;
 
+/**
+ * {@link MeetingRecordingSessionEndService} 单元测试：验证录音页结束会议时的 teardown 顺序与分支逻辑。
+ */
 @ExtendWith(MockitoExtension.class)
 class MeetingRecordingSessionEndServiceTest {
 
@@ -37,6 +40,7 @@ class MeetingRecordingSessionEndServiceTest {
     @InjectMocks
     private MeetingRecordingSessionEndService service;
 
+    /** 结束会议时应先执行 teardown，再查询数据库。 */
     @Test
     @DisplayName("结束会议：始终先 teardown，再查库")
     void teardownRunsBeforeMapperSelect() {
@@ -55,6 +59,7 @@ class MeetingRecordingSessionEndServiceTest {
         order.verify(meetingMapper).selectById(id);
     }
 
+    /** 会议不存在时应抛出 404，但 teardown 仍会执行。 */
     @Test
     @DisplayName("会议不存在：返回 404（teardown 仍会执行）")
     void meetingNotFound_throws404() {
@@ -68,6 +73,7 @@ class MeetingRecordingSessionEndServiceTest {
         verify(recordingService, never()).stopRecording(anyString());
     }
 
+    /** RECORDING 且有内存会话时应调用 stopRecording。 */
     @Test
     @DisplayName("RECORDING 且有内存会话：stopRecording")
     void recordingWithSession_stopsRecording() {
@@ -88,6 +94,7 @@ class MeetingRecordingSessionEndServiceTest {
         verify(meetingService, never()).endMeeting(anyString());
     }
 
+    /** RECORDING 但无内存会话时应回退调用 endMeeting。 */
     @Test
     @DisplayName("RECORDING 但无内存会话：回退 endMeeting")
     void recordingWithoutMemorySession_fallsBackToEndMeeting() {

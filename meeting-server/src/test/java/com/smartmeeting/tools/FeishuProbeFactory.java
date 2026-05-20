@@ -13,9 +13,12 @@ import java.nio.file.Paths;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 从 application-dev.yml 构造 FeishuService（免启动 Spring 容器） */
+/**
+ * 飞书探针工厂：从 {@code application-dev.yml} 读取凭据并构造 {@link FeishuService}，免启动 Spring 容器。
+ */
 final class FeishuProbeFactory {
 
+    /** 解析 dev 配置并返回可调用飞书 Open API 的服务实例。 */
     static FeishuService createFeishuService() throws Exception {
         Path yml = Paths.get("src/main/resources/application-dev.yml");
         if (!Files.isRegularFile(yml)) {

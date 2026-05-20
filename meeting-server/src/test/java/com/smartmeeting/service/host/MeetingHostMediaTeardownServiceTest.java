@@ -12,6 +12,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.mockito.Mockito.*;
 
+/**
+ * {@link MeetingHostMediaTeardownService} 单元测试：验证录音页结束前主持媒体资源的清理顺序。
+ */
 @ExtendWith(MockitoExtension.class)
 class MeetingHostMediaTeardownServiceTest {
 
@@ -25,6 +28,7 @@ class MeetingHostMediaTeardownServiceTest {
     @InjectMocks
     private MeetingHostMediaTeardownService service;
 
+    /** 无活跃主持会话时应跳过媒体 teardown。 */
     @Test
     @DisplayName("无活跃主持：不 stop、不断 ASR、不关音频 WS")
     void whenHostInactive_skipsMediaTeardown() {
@@ -39,6 +43,7 @@ class MeetingHostMediaTeardownServiceTest {
         verifyNoInteractions(audioWebSocketHandler);
     }
 
+    /** 有活跃主持时应依次 stop、断 ASR、关音频 WebSocket。 */
     @Test
     @DisplayName("有活跃主持：先 stop，再断 ASR，再关音频 WS")
     void whenHostActive_runsStopThenAsrThenAudioWs() {
@@ -54,6 +59,7 @@ class MeetingHostMediaTeardownServiceTest {
         order.verify(audioWebSocketHandler).closeSessionGracefully(meetingId);
     }
 
+    /** ASR 断开失败时仍应尝试关闭音频 WebSocket。 */
     @Test
     @DisplayName("ASR 断开抛错时仍尝试关闭音频 WS")
     void asrFailure_stillClosesAudioWs() {

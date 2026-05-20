@@ -3,7 +3,13 @@ package com.smartmeeting.service.host;
 import java.util.regex.Pattern;
 
 /**
- * 单麦、无声纹：定稿语音是否视为「答到」类肯定（流程信任，不校验说话人身份）。
+ * 点名答到肯定语匹配器（单麦、无声纹场景）。
+ *
+ * <p>判断 ASR 定稿文本是否可视为参会人「答到」类肯定回复，供
+ * {@link MeetingHostSessionService} 在答到窗口内自动推进流程。
+ * 基于话术规则做流程信任，不校验说话人身份。
+ *
+ * <p>需排除主持 TTS「请某某答到」回声、追问句（含「吗」）及代他人陈述等误判。
  */
 public final class RollCallAffirmationMatcher {
 
@@ -20,7 +26,9 @@ public final class RollCallAffirmationMatcher {
     private RollCallAffirmationMatcher() {
     }
 
-    /** 追问/核实类表述，不应视为本人答到。 */
+    /**
+     * 判断文本是否像追问或核实，不应视为本人答到。
+     */
     static boolean looksLikeQuestionOrInquiry(String t) {
         if (t == null || t.isEmpty()) {
             return false;
@@ -37,6 +45,15 @@ public final class RollCallAffirmationMatcher {
                 || t.contains("是否");
     }
 
+    /**
+     * 判断原始 ASR 文本是否匹配答到类肯定语。
+     *
+     * <p>规则概要：排除追问；含「答到」时排除整句 TTS 点名且长度不超过 200；
+     * 短句「到了」需符合 {@link #SHORT_SELF_DAOD_LE}；极短紧凑句匹配「在」「收到」等词表。
+     *
+     * @param raw ASR 原文，可为 null
+     * @return 视为答到肯定时为 true
+     */
     public static boolean matches(String raw) {
         if (raw == null) {
             return false;

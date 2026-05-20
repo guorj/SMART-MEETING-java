@@ -6,12 +6,17 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
- * 临时策略：综合管理会（等预设）下，指示 OpenClaw CLI 读取指定飞书多维表格。
- * <p>
- * 用于「开始会议 → 上次待办通报」与「录音页 → 事项进度通报」两处。
- * <p>
- * 默认多维表 URL 硬编码于 {@link #DEFAULT_COMPREHENSIVE_BITABLE_URL}；仅当配置
- * {@code openclaw.comprehensive-bitable-url} 非空时覆盖。
+ * 综合管理会场景的 OpenClaw 飞书多维表格临时策略分支。
+ *
+ * <p>当会议预设类型命中配置项 {@code openclaw.comprehensive-bitable-preset-codes} 且功能开关开启时，
+ * 向 {@link AiAgentService} 注入「读取指定多维表」指令，用于：
+ * <ul>
+ *   <li>会开始 — 上次待办进度 JSON 分析（{@link #buildDirectiveForPreviousMeetingProgress}）</li>
+ *   <li>录音页 — 事项进度通报 Markdown（{@link #buildDirectiveForRecordingMatterProgress}）</li>
+ * </ul>
+ *
+ * <p>默认多维表 URL 见 {@link #DEFAULT_COMPREHENSIVE_BITABLE_URL}；
+ * 配置 {@code openclaw.comprehensive-bitable-url} 非空时覆盖。
  */
 @Slf4j
 @Component
@@ -33,6 +38,12 @@ public class OpenclawComprehensiveBitableBranch {
     @Value("${openclaw.comprehensive-bitable-url:}")
     private String bitableUrl;
 
+    /**
+     * 判断当前会议是否适用综合管理会多维表策略。
+     *
+     * @param meeting 会议实体（含预设类型编码）
+     * @return 功能已启用、展示名非空且预设编码匹配时为 {@code true}
+     */
     public boolean appliesTo(Meeting meeting) {
         if (!enabled || meeting == null || meeting.getPresetTypeCode() == null) {
             return false;
@@ -45,7 +56,10 @@ public class OpenclawComprehensiveBitableBranch {
     }
 
     /**
-     * 会开始 → 上次待办 JSON 分析：指令插在 OpenClaw 任务前，末尾仍要求 JSON。
+     * 构建「会开始 → 上次待办进度」场景的 OpenClaw 指令（输出仍为 JSON）。
+     *
+     * @param current 当前会议
+     * @return 多维表必读指令；不适用时返回 {@code null}
      */
     public String buildDirectiveForPreviousMeetingProgress(Meeting current) {
         if (!appliesTo(current)) {
@@ -63,7 +77,10 @@ public class OpenclawComprehensiveBitableBranch {
     }
 
     /**
-     * 录音页 → 事项进度通报：要求 OpenClaw 只输出 Markdown 正文。
+     * 构建「录音页 → 事项进度通报」场景的 OpenClaw 指令（仅输出 Markdown 正文）。
+     *
+     * @param current 当前会议
+     * @return 多维表必读指令；不适用时返回 {@code null}
      */
     public String buildDirectiveForRecordingMatterProgress(Meeting current) {
         if (!appliesTo(current)) {
@@ -81,15 +98,23 @@ public class OpenclawComprehensiveBitableBranch {
         return sb.toString();
     }
 
+    /** 在指令末尾追加多维表直达链接提示。 */
     private void appendUrlHint(StringBuilder sb) {
         sb.append("表格直达链接：").append(resolveBitableUrl()).append("\n");
     }
 
+    /** 解析生效的多维表 URL（配置优先，否则默认常量）。 */
     private String resolveBitableUrl() {
         String u = bitableUrl != null ? bitableUrl.trim() : "";
         return u.isEmpty() ? DEFAULT_COMPREHENSIVE_BITABLE_URL : u;
     }
 
+    /**
+     * 判断会议预设类型编码是否在配置的 CSV 白名单内。
+     *
+     * @param presetTypeCode 会议预设类型编码
+     * @return 匹配任一项时为 {@code true}
+     */
     private boolean presetMatches(int presetTypeCode) {
         if (presetCodesCsv == null || presetCodesCsv.isBlank()) {
             return false;

@@ -11,11 +11,15 @@ import java.util.Base64;
 import java.util.Map;
 
 /**
- * 声纹注册控制器
- * 
- * 端点:
- * - GET /voiceprint?token=xxx - 声纹注册页面（HTML）
- * - POST /api/v1/voiceprint/register - 提交音频完成注册
+ * 声纹注册控制器。
+ * <p>
+ * 端点：
+ * <ul>
+ *   <li>{@code GET /voiceprint?token=xxx} — 声纹注册页面（HTML）</li>
+ *   <li>{@code POST /api/v1/voiceprint/register} — 提交音频完成注册</li>
+ * </ul>
+ *
+ * @see VoiceprintRegisterService
  */
 @Slf4j
 @RestController
@@ -26,7 +30,10 @@ public class VoiceprintRegisterController {
     private final VoiceprintRegisterService registerService;
 
     /**
-     * 声纹注册页面
+     * 声纹注册页面：校验 token 后返回内嵌录音 UI 的 HTML。
+     *
+     * @param token 注册会话 token（飞书指令下发链接中的参数）
+     * @return HTML 页面；token 无效时返回错误页
      */
     @GetMapping("/voiceprint")
     public ResponseEntity<String> getRegisterPage(@RequestParam("token") String token) {
@@ -45,7 +52,10 @@ public class VoiceprintRegisterController {
     }
 
     /**
-     * 提交声纹注册
+     * 提交声纹注册：接收 Base64 编码的 WebM 音频并完成特征入库。
+     *
+     * @param body 请求体，须含 {@code token} 与 {@code audio}（Base64）
+     * @return 含 success、message、featureId 的结果 Map
      */
     @PostMapping("/api/v1/voiceprint/register")
     public ResponseEntity<Map<String, Object>> submitRegister(@RequestBody Map<String, Object> body) {
@@ -80,7 +90,11 @@ public class VoiceprintRegisterController {
     }
 
     /**
-     * 构建注册页面HTML（简化版，避免Java字符串引号问题）
+     * 构建注册页面 HTML（内联样式与录音脚本，避免额外静态资源依赖）。
+     *
+     * @param token    注册 token，注入前端提交请求
+     * @param userName 展示用用户姓名
+     * @return 完整 HTML 字符串
      */
     private String buildRegisterPage(String token, String userName) {
         StringBuilder html = new StringBuilder();
@@ -161,7 +175,10 @@ public class VoiceprintRegisterController {
     }
 
     /**
-     * 构建错误页面
+     * 构建 token 无效或过期时的错误提示页。
+     *
+     * @param message 展示给用户的错误说明
+     * @return 完整 HTML 字符串
      */
     private String buildErrorPage(String message) {
         StringBuilder html = new StringBuilder();

@@ -5,12 +5,17 @@ import lombok.Data;
 
 import java.util.List;
 
+/**
+ * 议程资料纯文本响应体（{@code GET /api/v1/meetings/{id}/agenda-doc-content}）。
+ * <p>
+ * 按会序返回飞书 Docx/Wiki 等资料的合并正文及分项列表，供主持页只读展示。
+ */
 @Data
 @Builder
 public class AgendaDocContentResponse {
     private int agendaIndex;
     private String agendaTitle;
-    /** 首条资料（兼容旧前端） */
+    /** 首条资料 documentId（兼容旧前端） */
     private String documentId;
     private String feishuDocUrl;
     private String docKind;

@@ -66,6 +66,18 @@ meeting:
     # 启动时只读校验会序飞书配置（不写库）；关闭可设 MEETING_DB_VALIDATE_SEED=false
     validate-seed-on-startup: ${MEETING_DB_VALIDATE_SEED:true}
 
+  minute:
+    # 库内持久化纪要正文（与飞书 doc_url 双写）
+    persist-enabled: ${MEETING_MINUTE_PERSIST:true}
+    expose-content-in-api: ${MEETING_MINUTE_EXPOSE_API:true}
+
+  notification:
+    # 会后通知经 feishu-scheduled-bot POST /api/push（方案二）
+    bot-enabled: ${MEETING_NOTIFY_BOT:false}
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
+    bot-api-key: ${MEETING_NOTIFY_BOT_API_KEY:}
+    fallback-direct: ${MEETING_NOTIFY_FALLBACK:true}
+
   kafka:
     enabled: ${KAFKA_ENABLED:false}
 
@@ -133,6 +145,8 @@ meeting:
       topic-minutes-left: 1
       meeting-minutes-left: "10,3"
     roll-call:
+      # 线上参会人个人链接盘点等待秒数，结束后进入线下答到点名
+      online-inventory-seconds: ${MEETING_HOST_ROLL_CALL_ONLINE_INVENTORY_SEC:60}
       # 每人「请某某答到」话术推送完成后的基础作答秒数（至少 5 生效）
       window-seconds: ${MEETING_HOST_ROLL_CALL_WINDOW_SEC:12}
       # 定稿常晚于实际开口：叠在 window 之上；与未到超时、答到判定共用 deadline（计时在点名话术播完后起算）

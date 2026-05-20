@@ -11,11 +11,13 @@ import java.sql.Statement;
 import java.util.Map;
 
 /**
- * 一次性：从生产库读取 preset=1 会序 URL，调用飞书 API 拉取正文片段。
- * 运行: mvn -q -DskipTests compile exec:java -Dexec.mainClass=com.smartmeeting.tools.FeishuAgendaFetchProbe -Dexec.classpathScope=test
+ * 一次性 CLI 探针：从生产库读取 preset=1 会序 URL，调用飞书 API 拉取正文片段。
+ * <p>
+ * 运行: {@code mvn -q -DskipTests compile exec:java -Dexec.mainClass=com.smartmeeting.tools.FeishuAgendaFetchProbe -Dexec.classpathScope=test}
  */
 public final class FeishuAgendaFetchProbe {
 
+    /** 连接生产库并逐条拉取会序文档纯文本预览。 */
     public static void main(String[] args) throws Exception {
         Class.forName("com.mysql.cj.jdbc.Driver");
         Map<String, String> ds = ProdSchemaProbeDatasource.load();

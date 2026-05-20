@@ -3,6 +3,9 @@ package com.smartmeeting.api.dto;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
+/**
+ * 待办状态更新请求体（{@code PUT /api/v1/todos/{tid}/status}）。
+ */
 @Data
 public class TodoStatusUpdateRequest {
     /** {@link com.smartmeeting.enums.TodoStatus} 枚举名，如 PENDING、IN_PROGRESS、COMPLETED */

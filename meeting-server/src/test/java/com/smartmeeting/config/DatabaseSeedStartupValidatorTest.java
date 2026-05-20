@@ -2,6 +2,7 @@ package com.smartmeeting.config;
 
 import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.repository.MatterProgressDocConfigMapper;
+import com.smartmeeting.repository.MeetingMinuteMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,23 +17,32 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * {@link DatabaseSeedStartupValidator} 单元测试：验证应用启动时种子数据校验逻辑。
+ */
 @ExtendWith(MockitoExtension.class)
 class DatabaseSeedStartupValidatorTest {
 
     @Mock
     private MatterProgressDocConfigMapper docConfigMapper;
 
+    @Mock
+    private MeetingMinuteMapper meetingMinuteMapper;
+
     private DatabaseSeedStartupValidator validator;
 
+    /** 构造 Mock 环境并初始化校验器实例。 */
     @BeforeEach
     void setUp() {
         Environment env = new MockEnvironment()
                 .withProperty("spring.profiles.active", "dev")
                 .withProperty("spring.sql.init.mode", "never");
         MeetingDatabaseProperties databaseProperties = new MeetingDatabaseProperties();
-        validator = new DatabaseSeedStartupValidator(env, databaseProperties, docConfigMapper);
+        validator = new DatabaseSeedStartupValidator(env, databaseProperties, docConfigMapper, meetingMinuteMapper);
+        when(meetingMinuteMapper.selectCount(any())).thenReturn(0L);
     }
 
+    /** 启动校验应仅从数据库读取配置，不执行写入。 */
     @Test
     void validateOnStartup_readsDbOnly() {
         MatterProgressDocConfig c = new MatterProgressDocConfig();

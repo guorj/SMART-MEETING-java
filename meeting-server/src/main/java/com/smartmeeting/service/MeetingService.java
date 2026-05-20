@@ -16,6 +16,7 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.mq.KafkaProducer;
 import com.smartmeeting.mq.LocalEventBus;
 import com.smartmeeting.service.FeishuService;
+import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import com.smartmeeting.model.MinuteGenerateMessage;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
@@ -37,6 +38,15 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 会议生命周期核心服务：创建、启动、结束、查询及状态流转。
+ * <p>
+ * 主要协作组件：{@link MeetingMapper}、{@link ParticipantMapper}、{@link TodoMapper} 持久化；
+ * {@link FeishuService}、{@link MeetingFeishuNotifier} 推送飞书通知；
+ * {@link MeetingTypePresetService}、{@link PresetAgendaDocService} 处理预设会序与资料；
+ * {@link MeetingProgressAIEnhancer} 分析上次待办进度；{@link MeetingMinuteService} 判断纪要是否存在；
+ * {@link LocalEventBus} / {@link KafkaProducer} 触发纪要生成链路。
+ */
 @Slf4j
 @Service
 public class MeetingService {
@@ -50,19 +60,38 @@ public class MeetingService {
     private final AiAgentService aiAgentService;
     private final MeetingProgressAIEnhancer progressAIEnhancer;
     private final PresetAgendaDocService presetAgendaDocService;
+    private final MeetingMinuteService meetingMinuteService;
+    private final MeetingFeishuNotifier meetingFeishuNotifier;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // Kafka 生产者（生产环境，开发环境可选）
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     private KafkaProducer kafkaProducer;
 
+    /**
+     * 构造会议服务，注入持久层、飞书、AI 增强、纪要及消息总线依赖。
+     *
+     * @param meetingMapper            会议表 Mapper
+     * @param participantMapper        参会人 Mapper
+     * @param todoMapper               待办 Mapper
+     * @param feishuService            飞书 API 封装
+     * @param localEventBus            本地事件总线（Kafka 关闭时使用）
+     * @param meetingTypePresetService 会务类型预设服务
+     * @param aiAgentService           AI Agent 调用
+     * @param progressAIEnhancer       待办进度卡片 AI 增强
+     * @param presetAgendaDocService   预设会序飞书资料
+     * @param meetingMinuteService     库内纪要读写
+     * @param meetingFeishuNotifier    飞书通知门面
+     */
     public MeetingService(MeetingMapper meetingMapper, ParticipantMapper participantMapper,
                           TodoMapper todoMapper, FeishuService feishuService,
                           LocalEventBus localEventBus,
                           MeetingTypePresetService meetingTypePresetService,
                           AiAgentService aiAgentService,
                           MeetingProgressAIEnhancer progressAIEnhancer,
-                          PresetAgendaDocService presetAgendaDocService) {
+                          PresetAgendaDocService presetAgendaDocService,
+                          MeetingMinuteService meetingMinuteService,
+                          MeetingFeishuNotifier meetingFeishuNotifier) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.todoMapper = todoMapper;
@@ -72,8 +101,16 @@ public class MeetingService {
         this.aiAgentService = aiAgentService;
         this.progressAIEnhancer = progressAIEnhancer;
         this.presetAgendaDocService = presetAgendaDocService;
+        this.meetingMinuteService = meetingMinuteService;
+        this.meetingFeishuNotifier = meetingFeishuNotifier;
     }
 
+    /**
+     * 创建会议并写入参会人列表。
+     *
+     * @param request 会议创建请求（含主题、会序、参会人、群聊 ID 等）
+     * @return 创建后的会议响应 DTO
+     */
     @Transactional
     public MeetingResponse createMeeting(MeetingCreateRequest request) {
         meetingTypePresetService.mergeIntoCreateRequest(request);
@@ -104,6 +141,10 @@ public class MeetingService {
                 participant.setUserId(p.getUserId());
                 participant.setName(p.getName());
                 participant.setStatus("PENDING");
+                participant.setAttendanceMode(
+                        p.getAttendanceMode() != null && !p.getAttendanceMode().isBlank()
+                                ? p.getAttendanceMode().trim().toUpperCase()
+                                : "OFFLINE");
                 participant.setTodoCount(0);
                 participant.setCompletedCount(0);
                 participant.setVoiceprintReady(false);
@@ -115,6 +156,13 @@ public class MeetingService {
         return toResponse(meeting);
     }
 
+    /**
+     * 启动会议：若有上次会议则进入 REVIEWING 并推送待办进度卡片，否则直接进入 STARTED。
+     *
+     * @param meetingId 会议 ID
+     * @return 更新后的会议响应 DTO
+     * @throws BusinessException 会议不存在时抛出 404
+     */
     @Transactional
     public MeetingResponse startMeeting(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
@@ -160,7 +208,10 @@ public class MeetingService {
                 if (meeting.getChatId() == null) {
                     log.warn("No chatId configured for meeting {}, using creatorId as fallback", meeting.getId());
                 }
-                feishuService.sendCardMessage(targetId, "📊 待办进度通报", elements);
+                meetingFeishuNotifier.sendCardMessage(
+                        targetId, "📊 待办进度通报", elements,
+                        "TODO_PROGRESS", meeting.getId(),
+                        "todo-progress:" + meeting.getId() + ":" + previous.getId());
                 log.info("Progress card sent for previous meeting: {}", previous.getId());
             } else {
                 meeting.setStatus(MeetingStatus.STARTED.name());
@@ -176,6 +227,13 @@ public class MeetingService {
         return toResponse(meeting);
     }
 
+    /**
+     * 结束会议：校验状态、计算时长、发布纪要生成消息（Kafka 或 LocalEventBus 降级）。
+     *
+     * @param meetingId 会议 ID
+     * @return 更新后的会议响应 DTO
+     * @throws BusinessException 会议不存在（404）或当前状态不允许结束（400）
+     */
     @Transactional
     public MeetingResponse endMeeting(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
@@ -225,6 +283,13 @@ public class MeetingService {
         return toResponse(meeting);
     }
 
+    /**
+     * 按 ID 查询会议详情（含参会人列表与会序资料 enrichment）。
+     *
+     * @param meetingId 会议 ID
+     * @return 会议响应 DTO
+     * @throws BusinessException 会议不存在时抛出 404
+     */
     public MeetingResponse getMeeting(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -233,6 +298,15 @@ public class MeetingService {
         return toResponse(meeting);
     }
 
+    /**
+     * 分页查询会议列表，可按状态与创建人过滤。
+     *
+     * @param status    会议状态过滤（可为 null 表示不限）
+     * @param creatorId 创建人 ID 过滤（可为 null 表示不限）
+     * @param page      页码（从 0 开始）
+     * @param size      每页条数
+     * @return 会议响应 DTO 列表
+     */
     public List<MeetingResponse> listMeetings(String status, String creatorId, int page, int size) {
         LambdaQueryWrapper<Meeting> wrapper = new LambdaQueryWrapper<>();
         if (status != null) {
@@ -248,6 +322,12 @@ public class MeetingService {
         return meetings.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
+    /**
+     * 直接更新会议状态（不触发附加业务逻辑）。
+     *
+     * @param meetingId 会议 ID
+     * @param status    目标状态
+     */
     public void updateStatus(String meetingId, MeetingStatus status) {
         Meeting meeting = new Meeting();
         meeting.setId(meetingId);
@@ -257,8 +337,11 @@ public class MeetingService {
     }
 
     /**
-     * 查询上次会议待办进度（F-MID-02）
-     * 用于会议开始时展示上次待办完成情况
+     * 查询上次会议待办进度（F-MID-02），用于会议开始时展示上次待办完成情况。
+     *
+     * @param meetingId 当前会议 ID
+     * @return 上次会议进度统计；无上次会议或上次会议不存在时返回 {@code null}
+     * @throws BusinessException 当前会议不存在时抛出 404
      */
     public PreviousProgressResponse getPreviousProgress(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
@@ -325,6 +408,7 @@ public class MeetingService {
                 .build();
     }
 
+    /** 将实体转为响应 DTO，并加载参会人、预设会序与飞书资料 enrichment。 */
     private MeetingResponse toResponse(Meeting meeting) {
         MeetingResponse resp = new MeetingResponse();
         resp.setId(meeting.getId());
@@ -362,6 +446,8 @@ public class MeetingService {
         resp.setActualEndTime(meeting.getActualEndTime());
         resp.setDurationSeconds(meeting.getDurationSeconds());
         resp.setDocUrl(meeting.getDocUrl());
+        boolean hasDoc = meeting.getDocUrl() != null && !meeting.getDocUrl().isBlank();
+        resp.setHasMinute(hasDoc || meetingMinuteService.exists(meeting.getId()));
         resp.setRecordingUrl(meeting.getRecordingUrl());
         resp.setCreatedAt(meeting.getCreatedAt());
         resp.setUpdatedAt(meeting.getUpdatedAt());
@@ -374,6 +460,9 @@ public class MeetingService {
             dto.setUserId(p.getUserId());
             dto.setName(p.getName());
             dto.setStatus(p.getStatus());
+            dto.setAttendanceMode(p.getAttendanceMode());
+            dto.setCheckedInAt(p.getCheckedInAt());
+            dto.setCheckInSource(p.getCheckInSource());
             return dto;
         }).collect(Collectors.toList()));
 
@@ -398,6 +487,7 @@ public class MeetingService {
         }
     }
 
+    /** 将主持会序 DTO 列表序列化为 JSON 字符串存入 host_agenda 字段。 */
     private String hostAgendaItemsToJson(List<HostAgendaItemDto> items) {
         if (items == null || items.isEmpty()) {
             return null;
@@ -442,6 +532,7 @@ public class MeetingService {
         }
     }
 
+    /** 从 host_agenda JSON 反序列化主持会序 DTO 列表，兼容旧版 feishuDocToken 字段。 */
     private List<HostAgendaItemDto> hostAgendaItemsFromJson(String json) {
         if (json == null || json.isBlank()) {
             return null;

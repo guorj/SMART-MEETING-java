@@ -25,6 +25,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+/**
+ * 会议待办（Todo）查询与状态维护服务。
+ *
+ * <p>提供按会议列出待办、看板聚合统计、状态流转与责任人指派；状态变为已完成时
+ * 同步调整参会人 {@code completedCount}。
+ *
+ * <p>主要协作：{@link com.smartmeeting.repository.MeetingMapper}、
+ * {@link com.smartmeeting.repository.TodoMapper}、
+ * {@link com.smartmeeting.repository.ParticipantMapper}。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -43,6 +53,13 @@ public class TodoService {
             TodoStatus.COMPLETED.name()
     );
 
+    /**
+     * 列出指定会议的全部待办（按状态、截止日、创建时间排序）。
+     *
+     * @param meetingId 会议 ID
+     * @return 待办 DTO 列表
+     * @throws BusinessException 会议不存在时（404）
+     */
     public List<MeetingTodoResponse> listTodosByMeeting(String meetingId) {
         requireMeeting(meetingId);
         List<MeetingTodo> rows = selectTodosForMeeting(meetingId);
@@ -50,6 +67,13 @@ public class TodoService {
         return rows.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
+    /**
+     * 获取会议待办看板（含各状态计数与排序后的待办列表）。
+     *
+     * @param meetingId 会议 ID
+     * @return 看板响应
+     * @throws BusinessException 会议不存在时（404）
+     */
     public TodoBoardResponse getTodoBoard(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -74,6 +98,14 @@ public class TodoService {
                 .build();
     }
 
+    /**
+     * 更新待办状态及完成说明、阻塞原因等附属字段。
+     *
+     * @param todoId  待办 ID
+     * @param request 含目标状态及可选备注
+     * @return 更新后的待办 DTO
+     * @throws BusinessException 待办不存在（404）或状态非法（400）
+     */
     @Transactional
     public MeetingTodoResponse updateStatus(String todoId, TodoStatusUpdateRequest request) {
         MeetingTodo todo = todoMapper.selectById(todoId);
@@ -120,6 +152,14 @@ public class TodoService {
         return toResponse(todo);
     }
 
+    /**
+     * 指派或变更待办责任人。
+     *
+     * @param todoId  待办 ID
+     * @param request 含 {@code assigneeId} 及可选 {@code assigneeName}
+     * @return 更新后的待办 DTO
+     * @throws BusinessException 待办不存在时（404）
+     */
     @Transactional
     public MeetingTodoResponse assign(String todoId, TodoAssignRequest request) {
         MeetingTodo todo = todoMapper.selectById(todoId);
@@ -160,6 +200,13 @@ public class TodoService {
         return i < 0 ? 999 : i;
     }
 
+    /**
+     * 按待办完成状态变化增减参会人已完成待办计数。
+     *
+     * @param meetingId  会议 ID
+     * @param assigneeId 责任人用户 ID（空或 unknown 时忽略）
+     * @param delta      增量（+1 或 -1）
+     */
     private void adjustParticipantCompletedCount(String meetingId, String assigneeId, int delta) {
         if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
             return;

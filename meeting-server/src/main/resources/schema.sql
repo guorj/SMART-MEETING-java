@@ -62,6 +62,9 @@ CREATE TABLE IF NOT EXISTS int_meeting_participant (
     user_id          VARCHAR(64)  NOT NULL COMMENT '飞书user_id',
     name             VARCHAR(100) NOT NULL COMMENT '姓名',
     status           VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '确认状态',
+    attendance_mode  VARCHAR(20)  NOT NULL DEFAULT 'OFFLINE' COMMENT 'OFFLINE=线下答到点名 ONLINE=线上链接盘点',
+    checked_in_at    DATETIME     NULL     COMMENT '到场登记时间',
+    check_in_source  VARCHAR(30)  NULL     COMMENT 'AUTO_ONLINE|ROLL_CALL|MANUAL|TIMEOUT',
     feature_id       VARCHAR(100) NULL     COMMENT '讯飞声纹特征ID',
     voiceprint_ready TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '声纹就绪',
     todo_count       INT          NOT NULL DEFAULT 0 COMMENT '待办总数',
@@ -112,6 +115,17 @@ CREATE TABLE IF NOT EXISTS int_meeting_todo (
     INDEX idx_todo_assignee (assignee_id),
     INDEX idx_todo_status_deadline (status, deadline)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='待办表';
+
+CREATE TABLE IF NOT EXISTS int_meeting_minute (
+    meeting_id          VARCHAR(36)   NOT NULL PRIMARY KEY COMMENT '会议UUID',
+    content_markdown    LONGTEXT      NOT NULL COMMENT '纪要正文 Markdown',
+    content_length      INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '正文字符数',
+    generation_status   VARCHAR(20)   NOT NULL DEFAULT 'READY' COMMENT 'READY|FAILED|PARTIAL',
+    generated_at        DATETIME      NOT NULL COMMENT '纪要生成时间',
+    updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+
+    FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会议纪要正文（最新一版）';
 
 CREATE TABLE IF NOT EXISTS int_voiceprint (
     id             VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '记录UUID',

@@ -5,8 +5,12 @@ import org.junit.jupiter.api.Test;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * {@link RollCallAffirmationMatcher} 单元测试：验证点名应答语义的匹配与拒绝规则。
+ */
 class RollCallAffirmationMatcherTest {
 
+    /** 常见短应答语（答到、在、到了等）应匹配成功。 */
     @Test
     void matchesCommonPhrases() {
         assertTrue(RollCallAffirmationMatcher.matches("答到"));
@@ -24,6 +28,7 @@ class RollCallAffirmationMatcherTest {
         assertTrue(RollCallAffirmationMatcher.matches("在，"));
     }
 
+    /** 长文本含答到应匹配；纯点名句式（请某某答到）应拒绝。 */
     @Test
     void longTextWithDaDaoStillMatchesUnlessPureNameCall() {
         assertTrue(RollCallAffirmationMatcher.matches(
@@ -32,6 +37,7 @@ class RollCallAffirmationMatcherTest {
         assertFalse(RollCallAffirmationMatcher.matches("请李四答到"));
     }
 
+    /** 空串、过长或无关文本应拒绝匹配。 */
     @Test
     void rejectsLongOrIrrelevant() {
         assertFalse(RollCallAffirmationMatcher.matches(""));
@@ -40,6 +46,7 @@ class RollCallAffirmationMatcherTest {
         assertFalse(RollCallAffirmationMatcher.matches("不知道"));
     }
 
+    /** 询问他人是否到达或第三人称陈述应拒绝匹配。 */
     @Test
     void rejectsArrivalQuestionsAndThirdPartyStatements() {
         assertFalse(RollCallAffirmationMatcher.matches("他到了吗？李海天"));
@@ -51,6 +58,7 @@ class RollCallAffirmationMatcherTest {
         assertFalse(RollCallAffirmationMatcher.matches("他答到了吗"));
     }
 
+    /** 短促自我确认（到了、嗯到了等）仍应匹配成功。 */
     @Test
     void stillAcceptsShortSelfAffirmationWithDaoLe() {
         assertTrue(RollCallAffirmationMatcher.matches("到了"));

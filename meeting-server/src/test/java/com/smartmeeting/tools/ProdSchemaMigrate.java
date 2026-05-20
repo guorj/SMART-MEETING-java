@@ -21,6 +21,7 @@ import java.util.Map;
  */
 public final class ProdSchemaMigrate {
 
+    /** 读取 SQL 脚本并执行迁移；默认 dry-run，{@code --apply} 才写库。 */
     public static void main(String[] args) throws Exception {
         boolean apply = containsFlag(args, "--apply");
         boolean dryRun = !apply;

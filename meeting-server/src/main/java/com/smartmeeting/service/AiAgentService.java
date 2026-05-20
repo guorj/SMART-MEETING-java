@@ -14,11 +14,16 @@ import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * AI Agent 服务 - 调用 OpenClaw Agent（小栈）进行智能分析
+ * OpenClaw AI Agent 调用门面（通过本地 {@code openclaw agent} CLI）。
  *
- * 介入场景：
- * 1. 会议开始：上次会议待办进度深度分析
- * 2. 会议结束：纪要质量优化增强
+ * <p>介入场景：
+ * <ul>
+ *   <li>会议开始 — 上次待办进度 JSON 分析（{@link #analyzePreviousProgress}）</li>
+ *   <li>录音页 — 综合管理会事项进度 Markdown（{@link #runMatterProgressReportViaOpenclaw}）</li>
+ *   <li>纪要生成 — 初版纪要质量优化（{@link #enhanceMeetingMinutes}）</li>
+ * </ul>
+ *
+ * <p>由配置 {@code openclaw.enabled} 总开关控制；关闭时各方法快速返回 {@code null} 或原文。
  */
 @Slf4j
 @Service
@@ -42,23 +47,24 @@ public class AiAgentService {
     @Value("${openclaw.auth-token:}")
     private String authToken;
 
+    /**
+     * @param restTemplate HTTP 客户端（保留用于扩展网关调用）
+     */
     public AiAgentService(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
         this.objectMapper = new ObjectMapper();
     }
 
     /**
-     * 环节1：分析上次会议待办进度
+     * 环节1：分析上次会议待办进度，生成结构化 JSON 洞察。
      *
-     * @param meetingId 当前会议ID
-     * @param previousMeetingId 上次会议ID
-     * @param previousTitle 上次会议标题
-     * @param todoStats 待办统计（完成数、进行中数、延期数）
-     * @param delayedItems 延期项详情列表
-     * @return 智能分析报告（JSON格式）
-     */
-    /**
-     * @param feishuMultitableDirective 非空时附加在任务最前：要求 Agent/CLI 读取指定飞书多维表格后再与 DB 待办统计交叉分析（临时业务分支）
+     * @param meetingId                 当前会议 ID
+     * @param previousMeetingId         上次会议 ID
+     * @param previousTitle             上次会议标题
+     * @param todoStats                 待办统计（键如 completed、inProgress、delayed）
+     * @param delayedItems              延期项详情文本
+     * @param feishuMultitableDirective 非空时置于任务最前，要求 Agent 读取飞书多维表后与 DB 统计交叉分析
+     * @return Agent 回复文本（通常为 JSON）；未启用或调用失败时返回 {@code null}
      */
     public String analyzePreviousProgress(
             String meetingId,
@@ -110,7 +116,11 @@ public class AiAgentService {
     }
 
     /**
-     * 录音页「事项进度通报」临时路径：OpenClaw CLI 读飞书多维表后直接输出 Markdown（不经 meeting.llm）。
+     * 录音页「事项进度通报」：由 OpenClaw 读飞书多维表后直接输出 Markdown（不经 meeting.llm）。
+     *
+     * @param meeting          当前会议
+     * @param bitableDirective 多维表读取指令（来自 {@link OpenclawComprehensiveBitableBranch}）
+     * @return Markdown 正文；未启用、指令为空或调用失败时返回 {@code null}
      */
     public String runMatterProgressReportViaOpenclaw(Meeting meeting, String bitableDirective) {
         if (!enabled) {
@@ -138,8 +148,8 @@ public class AiAgentService {
      * @param meetingTitle 会议主题
      * @param meetingType 会议类型（1-6）
      * @param participants 参会人列表
-     * @param transcriptText 转写原文（可选，用于校验）
-     * @return 优化后的纪要 + 质量检查报告
+     * @param transcriptText 转写原文片段（可选，用于校验）
+     * @return Agent 返回的 JSON 字符串；未启用时返回 {@code rawMinute}
      */
     public String enhanceMeetingMinutes(
             String meetingId,
@@ -198,11 +208,11 @@ public class AiAgentService {
     }
 
     /**
-     * 调用 OpenClaw Agent（通过CLI命令）
+     * 通过 {@code openclaw agent} 子进程同步调用 Agent。
      *
-     * @param prompt 任务描述
-     * @param taskType 任务类型（用于日志）
-     * @return Agent回复
+     * @param prompt   完整任务提示词
+     * @param taskType 任务类型标识（仅用于日志）
+     * @return 解析后的回复文本；超时、非零退出或解析失败时返回 {@code null}
      */
     private String callAgent(String prompt, String taskType) {
         log.info("调用AI Agent: taskType={}, promptLength={}", taskType, prompt.length());
@@ -258,7 +268,11 @@ public class AiAgentService {
     }
 
     /**
-     * 解析CLI JSON响应
+     * 从 CLI {@code --json} 标准输出中提取 payloads[0].text。
+     *
+     * @param jsonOutput CLI 标准输出
+     * @param taskType   任务类型（日志）
+     * @return 文本内容；status 非 ok 时返回 {@code null}
      */
     private String parseCliJsonResponse(String jsonOutput, String taskType) {
         try {
@@ -283,9 +297,10 @@ public class AiAgentService {
     }
 
     /**
-     * 解析 Agent 回复
-     * OpenClaw sessions_send 返回格式可能是：
-     * {"reply": "内容"} 或 {"content": "内容"} 或直接是内容
+     * 解析 HTTP 网关式 Agent 回复（兼容 reply/content/message/response 字段或纯文本）。
+     *
+     * @param responseBody 原始响应体
+     * @return 提取的文本内容
      */
     private String parseAgentReply(String responseBody) {
         try {
@@ -315,16 +330,18 @@ public class AiAgentService {
     }
 
     /**
-     * 异步调用（不阻塞主流程）
+     * 异步包装 {@link #callAgent}（不阻塞调用线程）。
+     *
+     * @param prompt   任务提示词
+     * @param taskType 任务类型
+     * @return 已完成 Future，值为 Agent 回复或 {@code null}
      */
     @org.springframework.scheduling.annotation.Async
     public CompletableFuture<String> callAgentAsync(String prompt, String taskType) {
         return CompletableFuture.completedFuture(callAgent(prompt, taskType));
     }
 
-    /**
-     * 获取会议类型名称
-     */
+    /** 将预设类型编码转为中文展示名。 */
     private String getMeetingTypeName(Integer typeCode) {
         if (typeCode == null) {
             return "其他会议";
@@ -341,7 +358,9 @@ public class AiAgentService {
     }
 
     /**
-     * 检查 Agent 是否可用
+     * 检查 Agent 是否已配置为可用（当前仅反映 {@code openclaw.enabled}）。
+     *
+     * @return 开关开启时为 {@code true}
      */
     public boolean isAgentAvailable() {
         if (!enabled) {

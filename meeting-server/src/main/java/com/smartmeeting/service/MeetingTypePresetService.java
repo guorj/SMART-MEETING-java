@@ -17,17 +17,37 @@ import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+/**
+ * 会议类型预设服务。
+ *
+ * <p>管理 {@code int_meeting_type_preset} 中的标准会议类型（code 1～6），
+ * 提供列表查询、创建会议时的字段合并，以及主持议题项的解析与飞书文档补全。
+ *
+ * <p>主要协作组件：
+ * <ul>
+ *   <li>{@link MeetingTypePresetMapper} — 预设持久化</li>
+ *   <li>{@link PresetAgendaDocService} — 主持议题关联飞书资料补全</li>
+ *   <li>{@link ObjectMapper} — 预设 JSON 中 {@code hostAgenda} 解析</li>
+ * </ul>
+ */
 @Service
 @RequiredArgsConstructor
 public class MeetingTypePresetService {
 
+    /** 预设未指定集团时的默认集团名称。 */
     public static final String DEFAULT_COMPANY = "吉青汽车科技集团";
+    /** 预设 code 6「其他会议」的默认会议组名称。 */
     public static final String OTHER_GROUP = "其他会议";
 
     private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
     private final PresetAgendaDocService presetAgendaDocService;
 
+    /**
+     * 列出全部会议类型预设，按 code 升序。
+     *
+     * @return 预设响应 DTO 列表
+     */
     public List<MeetingPresetResponse> listPresets() {
         return presetMapper.selectList(null).stream()
                 .sorted((a, b) -> Integer.compare(a.getCode(), b.getCode()))
@@ -35,6 +55,12 @@ public class MeetingTypePresetService {
                 .collect(Collectors.toList());
     }
 
+    /**
+     * 将实体转换为 API 响应 DTO。
+     *
+     * @param p 会议类型预设实体
+     * @return 含展示名、组织信息、参会人列表及主持议题 JSON 的响应
+     */
     public MeetingPresetResponse toResponse(MeetingTypePreset p) {
         return MeetingPresetResponse.builder()
                 .code(p.getCode())
@@ -52,8 +78,13 @@ public class MeetingTypePresetService {
     }
 
     /**
-     * 按 {@link MeetingCreateRequest#getPresetTypeCode()} 合并预设到请求（会修改 request）。
-     * 1-5：自库加载；6：仅补全默认集团/会议组（主题须已有）。
+     * 按 {@link MeetingCreateRequest#getPresetTypeCode()} 将预设字段合并到创建请求（会修改 request）。
+     *
+     * <p>code 1～5：从库加载完整预设（标题、议程、参会人、主持议题等）；
+     * code 6：仅补全默认集团与「其他会议」组名，主题须由调用方提供。
+     *
+     * @param request 会议创建请求，{@code presetTypeCode} 为 null 时不做处理
+     * @throws BusinessException {@code presetTypeCode} 非法或 1～5 对应预设不存在
      */
     public void mergeIntoCreateRequest(MeetingCreateRequest request) {
         Integer code = request.getPresetTypeCode();
@@ -116,7 +147,10 @@ public class MeetingTypePresetService {
     }
 
     /**
-     * 预设 code 1～5 的主持议题项（与 merge 解析逻辑一致，供会议详情 API 补全）。
+     * 按预设 code 返回主持议题项列表（与 merge 解析逻辑一致，供会议详情 API 补全）。
+     *
+     * @param code 预设类型码，仅 1～5 有效
+     * @return 主持议题 DTO 列表；code 非法、无预设或 JSON 为空时返回 {@code null}
      */
     public List<HostAgendaItemDto> hostAgendaItemsForPresetCode(int code) {
         if (code < 1 || code > 5) {
@@ -133,6 +167,9 @@ public class MeetingTypePresetService {
         return items;
     }
 
+    /**
+     * 从预设 {@code hostAgenda} JSON 的 {@code items} 数组解析主持议题项。
+     */
     private List<HostAgendaItemDto> hostAgendaItemsFromPresetJson(String json) {
         try {
             JsonNode root = objectMapper.readTree(json);
@@ -172,6 +209,12 @@ public class MeetingTypePresetService {
         }
     }
 
+    /**
+     * 将参会人姓名字符串按顿号、逗号、分号、空白及「以及」等分隔为列表。
+     *
+     * @param raw 原始姓名字符串，可为 null
+     * @return 去空白后的姓名列表；null 或空白输入返回空列表
+     */
     public List<String> splitNames(String raw) {
         if (raw == null || raw.isBlank()) {
             return List.of();

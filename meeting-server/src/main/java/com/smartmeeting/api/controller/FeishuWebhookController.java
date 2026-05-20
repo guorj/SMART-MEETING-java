@@ -24,13 +24,17 @@ import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 飞书 Webhook 控制器
- * 
- * 接口:
- * - POST /api/v1/feishu/webhook - 接收飞书事件回调（可与「订阅回调」中的卡片回传共用同一 URL）
- * - POST /api/v1/feishu/callback - 可选：单独的消息卡片请求地址
- * 
- * 参考 Python 版 main.py 的 feishu_webhook
+ * 飞书 Webhook 与卡片回调控制器。
+ * <p>
+ * 主要接口：
+ * <ul>
+ *   <li>{@code POST /api/v1/feishu/webhook} — 事件订阅回调（消息、机器人入群、菜单等）</li>
+ *   <li>{@code POST /api/v1/feishu/callback} — 消息卡片交互回调（可与 webhook 共用或单独配置）</li>
+ * </ul>
+ * 飞书要求 1 秒内 ACK；业务逻辑异步执行。参考 Python 版 {@code main.py} 的 {@code feishu_webhook}。
+ *
+ * @see FeishuCommandRouter
+ * @see FeishuCommandHandler
  */
 @Slf4j
 @RestController
@@ -50,6 +54,14 @@ public class FeishuWebhookController {
     @Value("${meeting.feishu.verification-token:}")
     private String feishuVerificationToken;
 
+    /**
+     * 构造注入飞书命令路由与待办状态存储等依赖。
+     *
+     * @param commandRouter              文本指令解析路由
+     * @param commandHandler             指令与卡片动作业务处理
+     * @param startMeetingPendingStore   多步建会会话状态
+     * @param feishuUserLastGroupChatStore 用户最近活跃会话（卡片无 chatId 时回退）
+     */
     public FeishuWebhookController(FeishuCommandRouter commandRouter,
                                    FeishuCommandHandler commandHandler,
                                    FeishuStartMeetingPendingStore startMeetingPendingStore,
@@ -61,14 +73,13 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 飞书事件回调入口
-     * 接收: im.message.receive_v1 等事件
-     * 
-     * 飞书要求:
-     * 1. URL 验证: 返回 challenge 字段
-     * 2. 事件处理: 返回包含 "code": 0 的响应（1s超时）
-     * 
-     * 实际处理异步执行，避免超时
+     * 飞书事件回调入口，接收 {@code im.message.receive_v1} 等事件。
+     * <p>
+     * 飞书要求：URL 验证返回 {@code challenge}；事件处理返回 {@code code:0}（1s 超时）。
+     * 实际业务异步执行，避免超时。
+     *
+     * @param rawBody 原始 JSON 请求体（可能含 {@code encrypt} 字段）
+     * @return challenge 验证响应，或 {@code {code:0}} 成功 ACK
      */
     @PostMapping({"/webhook", "/webhook/"})
     public ResponseEntity<Map<String, Object>> handleWebhook(@RequestBody String rawBody) {
@@ -159,9 +170,11 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 处理飞书消息接收事件
-     * 
-     * 参考 Python 版 handle_text_command
+     * 处理飞书 {@code im.message.receive_v1} 消息接收事件（异步）。
+     * <p>
+     * 解析文本指令并路由至 {@link FeishuCommandHandler}，参考 Python 版 {@code handle_text_command}。
+     *
+     * @param body 解密后的完整事件 JSON
      */
     private void handleImMessageReceive(JsonNode body) {
         try {
@@ -282,7 +295,11 @@ public class FeishuWebhookController {
         }
     }
 
-    /** 机器人被拉入群聊 */
+    /**
+     * 处理机器人被拉入群聊事件 {@code im.chat.member.bot.added_v1}。
+     *
+     * @param body 事件 JSON
+     */
     private void handleBotAddedToChat(JsonNode body) {
         try {
             JsonNode event = body.path("event");
@@ -300,7 +317,11 @@ public class FeishuWebhookController {
         }
     }
 
-    /** 机器人自定义菜单（推送事件） */
+    /**
+     * 处理机器人自定义菜单事件 {@code application.bot.menu_v6}（推送事件入口）。
+     *
+     * @param body 事件 JSON
+     */
     private void handleBotMenuV6(JsonNode body) {
         try {
             JsonNode event = body.path("event");
@@ -311,7 +332,11 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 标准包裹结构：{@code schema 2.0} + {@code header} + {@code event}（见「卡片回传交互回调」文档）。
+     * 标准包裹结构的卡片回传：{@code schema 2.0} + {@code header} + {@code event}。
+     *
+     * @param body    完整回调 JSON
+     * @param traceId 链路追踪 ID
+     * @return 含 toast 的 HTTP 200 响应
      */
     private ResponseEntity<Map<String, Object>> handleWrappedCardActionTrigger(JsonNode body, String traceId) {
         JsonNode header = body.path("header");
@@ -325,8 +350,10 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 根级扁平结构：{@code schema=2.0} 且 {@code event_type} 为卡片回传，但无 {@code header}/{@code event} 包裹（部分投递通道）。
-     * 根上 {@code token} 常为卡片更新凭证（c- 前缀），与 verification-token 不同，此处不按 header 校验。
+     * 判断是否为 schema 2.0 根级扁平卡片回调（无 header/event 包裹）。
+     *
+     * @param body 解析后的 JSON
+     * @return 符合扁平卡片形态时为 true
      */
     private boolean isSchema20FlatCardCallback(JsonNode body) {
         if (body == null || body.isNull()) {
@@ -345,13 +372,25 @@ public class FeishuWebhookController {
         return body.has("action");
     }
 
+    /**
+     * 处理 schema 2.0 扁平卡片回调。
+     *
+     * @param body    根级含 action 的 JSON
+     * @param traceId 链路追踪 ID
+     * @return 含 toast 的 HTTP 200 响应
+     */
     private ResponseEntity<Map<String, Object>> handleSchema20FlatCardCallback(JsonNode body, String traceId) {
         log.info("[traceId={}] Feishu card action (schema2 flat) eventType={}", traceId, body.path("event_type").asText(""));
         return dispatchCardMeetingActionFromEvent(body, traceId, "flat");
     }
 
     /**
-     * 从「与官方 event 节点同形」的 JSON 上解析 operator/context/action，并异步执行业务、同步返回 toast。
+     * 从与官方 event 节点同形的 JSON 解析 operator/context/action，异步执行业务并同步返回 toast。
+     *
+     * @param event   事件或扁平根节点
+     * @param traceId 链路追踪 ID
+     * @param mode    投递模式标识（wrapped / flat），仅用于日志
+     * @return 含 toast 的 HTTP 200 响应
      */
     private ResponseEntity<Map<String, Object>> dispatchCardMeetingActionFromEvent(JsonNode event, String traceId, String mode) {
         if (event == null || event.isMissingNode() || event.isNull()) {
@@ -389,6 +428,12 @@ public class FeishuWebhookController {
                 "toast", Map.of("type", "success", "content", "已处理")));
     }
 
+    /**
+     * 校验卡片回调 header 中的 verification token。
+     *
+     * @param header 事件头节点
+     * @return 未配置 token 或匹配成功时为 true
+     */
     private boolean verifyCardCallbackHeaderToken(JsonNode header) {
         if (feishuVerificationToken == null || feishuVerificationToken.isBlank()) {
             return true;
@@ -396,7 +441,12 @@ public class FeishuWebhookController {
         return feishuVerificationToken.equals(header.path("token").asText(""));
     }
 
-    /** 旧版 {@code card.action.trigger_v1}：根级 open_id、open_message_id、action，无 header；根级 token 为更新凭证勿与 verification-token 混淆。 */
+    /**
+     * 判断是否为旧版 {@code card.action.trigger_v1} 扁平结构（含 open_message_id、无 header）。
+     *
+     * @param body 解析后的 JSON
+     * @return 符合旧版 trigger_v1 形态时为 true
+     */
     private boolean isLegacyCardActionTriggerV1(JsonNode body) {
         return body != null
                 && body.has("open_message_id")
@@ -405,6 +455,13 @@ public class FeishuWebhookController {
                 && !body.has("header");
     }
 
+    /**
+     * 处理旧版 {@code card.action.trigger_v1} 卡片回传。
+     *
+     * @param body    扁平 JSON
+     * @param traceId 链路追踪 ID
+     * @return 含 toast 的 HTTP 200 响应
+     */
     private ResponseEntity<Map<String, Object>> handleCardActionTriggerV1(JsonNode body, String traceId) {
         String openId = body.path("open_id").asText("").trim();
         String chatId = body.path("open_chat_id").asText("").trim();
@@ -429,8 +486,11 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 用户进入与机器人的单聊（需订阅 im.chat.access_event.bot_p2p_chat_entered_v1，客户端约 v7.18+）。
+     * 处理用户进入机器人单聊事件 {@code im.chat.access_event.bot_p2p_chat_entered_v1}。
+     * <p>
      * 用于在无先发消息的情况下，将「推送事件」菜单关联到该私聊 chat_id。
+     *
+     * @param body 事件 JSON
      */
     private void handleBotP2pChatEntered(JsonNode body) {
         try {
@@ -458,14 +518,14 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 飞书事件解密（AES-256-CBC）
+     * 飞书事件解密（AES-256-CBC）。
+     * <p>
+     * key = SHA256(encrypt_key) 前 32 字节；IV = Base64 解码后前 16 字节；密文为之后部分。
+     * 参考 Python 版 {@code decrypt_feishu_event}。
      *
-     * 飞书加密算法：
-     * - key = SHA256(encrypt_key) 取前32字节
-     * - IV = Base64解码后encrypt字符串的前16字节
-     * - 密文 = Base64解码后16字节之后
-     *
-     * 参考 Python 版 main.py 的 decrypt_feishu_event
+     * @param encryptStr 根级 encrypt 字段值
+     * @return 解密后的 JSON 节点
+     * @throws Exception 解密或 JSON 解析失败时
      */
     private JsonNode decryptFeishuEvent(String encryptStr) throws Exception {
         // Key: SHA256(encrypt_key) 取前32字节
@@ -496,9 +556,13 @@ public class FeishuWebhookController {
     }
 
     /**
-     * 飞书消息卡片回传（含 URL 校验、card.action.trigger）。
-     * 开发者后台「消息卡片请求地址」需指向本接口，例如：https://你的域名/api/v1/feishu/callback
-     * <p>部分租户下飞书也会把「事件订阅」加密包投递到本 URL；解密后若非卡片事件则按与 /webhook 相同逻辑处理并返回 {@code code:0}。
+     * 飞书消息卡片回传入口（含 URL 校验、{@code card.action.trigger}）。
+     * <p>
+     * 开发者后台「消息卡片请求地址」需指向本接口，例如：{@code https://域名/api/v1/feishu/callback}。
+     * 部分租户下飞书也会把「事件订阅」加密包投递到本 URL；解密后若非卡片事件则与 {@link #handleWebhook} 对齐处理。
+     *
+     * @param rawBody 原始 JSON 请求体
+     * @return challenge、toast 或 {@code {code:0}} 响应
      */
     @PostMapping({"/callback", "/callback/"})
     public ResponseEntity<Map<String, Object>> handleCallback(@RequestBody String rawBody) {
@@ -621,10 +685,17 @@ public class FeishuWebhookController {
         }
     }
 
+    /** 生成 12 位十六进制链路追踪 ID。 */
     private String newTraceId() {
         return UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
+    /**
+     * 截断并转义请求体预览，用于日志（最大 {@value #BODY_PREVIEW_MAX} 字符）。
+     *
+     * @param rawBody 原始字符串
+     * @return 安全预览文本
+     */
     private String previewBody(String rawBody) {
         if (rawBody == null) {
             return "<null>";
@@ -636,6 +707,12 @@ public class FeishuWebhookController {
         return normalized.substring(0, BODY_PREVIEW_MAX) + "...(truncated)";
     }
 
+    /**
+     * 描述 JSON 体的结构特征，便于排查飞书回调格式差异。
+     *
+     * @param body 解析后的 JSON
+     * @return 结构摘要字符串
+     */
     private String describeBodyShape(JsonNode body) {
         if (body == null || body.isNull()) {
             return "null";

@@ -3,6 +3,7 @@ package com.smartmeeting.config;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.repository.MatterProgressDocConfigMapper;
+import com.smartmeeting.repository.MeetingMinuteMapper;
 import com.smartmeeting.service.feishu.FeishuResourceRef;
 import com.smartmeeting.service.feishu.FeishuResourceResolver;
 import lombok.RequiredArgsConstructor;
@@ -19,8 +20,10 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 启动时只读校验：禁止误开 spring.sql.init 覆盖种子数据；检查 preset=1 会序飞书 URL 是否可解析。
- * 不执行任何 INSERT/UPDATE。
+ * 数据库种子数据启动校验器。
+ * <p>
+ * 应用就绪后只读校验：禁止误开 {@code spring.sql.init} 覆盖种子数据；
+ * 检查 preset=1 会序飞书 URL 是否可解析。不执行任何 INSERT/UPDATE。
  */
 @Slf4j
 @Component
@@ -33,7 +36,13 @@ public class DatabaseSeedStartupValidator {
     private final Environment environment;
     private final MeetingDatabaseProperties databaseProperties;
     private final MatterProgressDocConfigMapper docConfigMapper;
+    private final MeetingMinuteMapper meetingMinuteMapper;
 
+    /**
+     * 应用就绪事件回调，执行启动校验流程。
+     * <p>
+     * 依次检查 SQL 初始化模式、纪要表可用性及 preset=1 飞书资料配置。
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void validateOnStartup() {
         guardSqlInitMode();
@@ -45,6 +54,17 @@ public class DatabaseSeedStartupValidator {
             return;
         }
         validatePresetAgendaDocConfigs();
+        validateMeetingMinuteTable();
+    }
+
+    private void validateMeetingMinuteTable() {
+        try {
+            meetingMinuteMapper.selectCount(null);
+            log.debug("int_meeting_minute 表校验通过");
+        } catch (Exception e) {
+            log.warn("int_meeting_minute 表不可用，请执行 schema-upgrade-v0.5-minute.sql: {}",
+                    e.getMessage());
+        }
     }
 
     private void guardSqlInitMode() {

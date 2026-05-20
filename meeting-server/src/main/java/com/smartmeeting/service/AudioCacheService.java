@@ -11,6 +11,12 @@ import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 import java.util.stream.Stream;
 
+/**
+ * 会议 PCM 音频本地缓存服务。
+ *
+ * <p>按「缓存根目录 / 日期 / {meetingId}.pcm」追加写入实时音频块，支持按会议读取整段 PCM，
+ * 并依据 {@code meeting.audio.cache-retention-hours} 清理过期文件。
+ */
 @Slf4j
 @Service
 public class AudioCacheService {
@@ -21,6 +27,12 @@ public class AudioCacheService {
     @Value("${meeting.audio.cache-retention-hours:168}")
     private int retentionHours;
 
+    /**
+     * 将 PCM 音频块追加写入当日会议缓存文件。
+     *
+     * @param meetingId 会议 ID（用于文件名）
+     * @param pcmData   PCM 原始字节
+     */
     public void writeAudioChunk(String meetingId, byte[] pcmData) {
         String dateDir = java.time.LocalDate.now().toString();
         Path filePath = Paths.get(cacheDir, dateDir, meetingId + ".pcm");
@@ -32,12 +44,22 @@ public class AudioCacheService {
         }
     }
 
+    /**
+     * 读取当日会议对应的完整 PCM 缓存文件。
+     *
+     * @param meetingId 会议 ID
+     * @return 文件全部字节
+     * @throws IOException 文件不存在或读失败时
+     */
     public byte[] readAudio(String meetingId) throws IOException {
         String dateDir = java.time.LocalDate.now().toString();
         Path filePath = Paths.get(cacheDir, dateDir, meetingId + ".pcm");
         return Files.readAllBytes(filePath);
     }
 
+    /**
+     * 遍历缓存目录，删除最后修改时间早于保留期的普通文件。
+     */
     public void cleanExpiredCache() {
         long cutoff = System.currentTimeMillis() - (retentionHours * 3600_000L);
         Path basePath = Paths.get(cacheDir);

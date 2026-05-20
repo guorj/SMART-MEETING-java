@@ -14,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class SchemaDataSqlPolicyTest {
 
+    /** 验证 schema-data.sql 在 ON DUPLICATE 时不覆盖 feishu_doc_url 与 host_agenda。 */
     @Test
     void schemaDataDoesNotOverwriteFeishuUrlsOnDuplicate() throws Exception {
         Path sql = Path.of("src/main/resources/schema-data.sql");

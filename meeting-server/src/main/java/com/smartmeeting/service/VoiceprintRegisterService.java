@@ -18,15 +18,13 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 声纹注册服务
- * 
- * 管理声纹注册流程：
- * 1. 创建注册session（生成token）
- * 2. 存储pending状态
- * 3. 接收音频并调用ISV注册
- * 4. 写入数据库
- * 
- * 参考 Python 版 feishu/voiceprint.py
+ * 飞书用户声纹注册流程服务（Web 页 + 一次性 token）。
+ *
+ * <p>流程：创建内存 {@link RegisterSession} → 用户上传 PCM → 调用 {@link XfyunIsvClient} 注册 →
+ * 写入 {@code int_voiceprint} 表。Session 存于进程内存，重启后失效。
+ *
+ * <p>主要协作：{@link XfyunIsvClient}、{@link VoiceprintMapper}；
+ * 由 {@link FeishuCommandHandler} 下发注册链接。
  */
 @Slf4j
 @Service
@@ -68,7 +66,10 @@ public class VoiceprintRegisterService {
     }
     
     /**
-     * 获取注册session
+     * 获取未过期的注册 session（不消费）。
+     *
+     * @param token 注册令牌
+     * @return session；不存在或已过期时返回 {@code null}
      */
     public RegisterSession getRegisterSession(String token) {
         RegisterSession session = pendingSessions.get(token);
@@ -88,7 +89,10 @@ public class VoiceprintRegisterService {
     }
     
     /**
-     * 消费注册session（一次性）
+     * 获取并移除注册 session（一次性，用于提交音频）。
+     *
+     * @param token 注册令牌
+     * @return session；不存在或已过期时返回 {@code null}
      */
     public RegisterSession consumeRegisterSession(String token) {
         RegisterSession session = getRegisterSession(token);
@@ -102,8 +106,8 @@ public class VoiceprintRegisterService {
      * 提交声纹注册（接收音频）
      * 
      * @param token 注册token
-     * @param audioData PCM音频数据（Base64解码后）
-     * @return 注册结果
+     * @param audioData PCM 音频数据（16kHz 单声道，建议不少于 5 秒）
+     * @return 注册结果（成功含 featureId）
      */
     public RegisterResult submitRegister(String token, byte[] audioData) {
         RegisterSession session = consumeRegisterSession(token);
@@ -152,7 +156,10 @@ public class VoiceprintRegisterService {
     }
     
     /**
-     * 检查用户声纹状态
+     * 检查飞书用户声纹是否有效及是否临近过期。
+     *
+     * @param openId 飞书 open_id
+     * @return 声纹状态摘要
      */
     public VoiceprintStatus checkVoiceprintStatus(String openId) {
         Voiceprint vp = voiceprintMapper.selectOne(
@@ -172,9 +179,7 @@ public class VoiceprintRegisterService {
         return new VoiceprintStatus(isValid, isExpiring, expiresAt);
     }
     
-    /**
-     * 注册session
-     */
+    /** 进行中的声纹注册会话（内存态）。 */
     public static class RegisterSession {
         private String token;
         private String openId;
@@ -192,7 +197,11 @@ public class VoiceprintRegisterService {
     }
     
     /**
-     * 注册结果
+     * 声纹注册提交结果。
+     *
+     * @param success   是否成功
+     * @param message   提示信息
+     * @param featureId 讯飞特征 ID（失败时为 {@code null}）
      */
     public static class RegisterResult {
         private final boolean success;
@@ -205,13 +214,20 @@ public class VoiceprintRegisterService {
             this.featureId = featureId;
         }
         
+        /** @return 是否注册成功 */
         public boolean isSuccess() { return success; }
+        /** @return 用户可见说明 */
         public String getMessage() { return message; }
+        /** @return 特征 ID */
         public String getFeatureId() { return featureId; }
     }
     
     /**
-     * 声纹状态
+     * 用户声纹有效性摘要。
+     *
+     * @param isValid    是否在有效期内
+     * @param isExpiring 是否 30 天内到期
+     * @param expiresAt  过期时间（未注册时为 {@code null}）
      */
     public static class VoiceprintStatus {
         private final boolean isValid;
@@ -224,8 +240,11 @@ public class VoiceprintRegisterService {
             this.expiresAt = expiresAt;
         }
         
+        /** @return 声纹是否在有效期内 */
         public boolean isValid() { return isValid; }
+        /** @return 是否临近过期（30 天内） */
         public boolean isExpiring() { return isExpiring; }
+        /** @return 过期时间 */
         public LocalDateTime getExpiresAt() { return expiresAt; }
     }
 }

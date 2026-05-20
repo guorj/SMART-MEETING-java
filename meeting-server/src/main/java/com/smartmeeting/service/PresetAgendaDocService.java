@@ -26,7 +26,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 按 preset 会序绑定飞书资料（docx / wiki / base），支持同一会序多条（resource_slot）。
+ * 预设会序飞书资料绑定服务：按 preset 会序关联 docx / wiki / base 资料，支持同一会序多条（resource_slot）。
+ * <p>
+ * 主要协作组件：{@link MatterProgressDocConfigMapper}、{@link FeishuService}（拉取正文）、
+ * {@link FeishuResourceResolver}、{@link FeishuDocRefs}。
  */
 @Slf4j
 @Service
@@ -37,6 +40,12 @@ public class PresetAgendaDocService {
     private final FeishuService feishuService;
     private final ObjectMapper objectMapper;
 
+    /**
+     * 查询指定预设类型下所有已启用的会序资料配置。
+     *
+     * @param presetTypeCode 预设类型编码（1–5）
+     * @return 配置列表；编码无效时返回空列表
+     */
     public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
         if (presetTypeCode < 1 || presetTypeCode > 5) {
             return List.of();
@@ -51,6 +60,13 @@ public class PresetAgendaDocService {
         return configMapper.selectList(q);
     }
 
+    /**
+     * 查询指定预设类型与会序索引下的资料配置。
+     *
+     * @param presetTypeCode 预设类型编码（1–5）
+     * @param agendaIndex    会序索引（从 0 开始）
+     * @return 配置列表；参数无效时返回空列表
+     */
     public List<MatterProgressDocConfig> listConfigsForAgenda(int presetTypeCode, int agendaIndex) {
         if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
             return List.of();
@@ -64,6 +80,12 @@ public class PresetAgendaDocService {
         return configMapper.selectList(q);
     }
 
+    /**
+     * 为主持会序 DTO 列表 enrichment 飞书资料引用（仅填充尚未配置资料的项）。
+     *
+     * @param presetTypeCode 预设类型编码
+     * @param items          主持会序 DTO 列表（原地修改）
+     */
     public void enrichHostAgendaItems(int presetTypeCode, List<HostAgendaItemDto> items) {
         if (items == null || items.isEmpty() || presetTypeCode < 1 || presetTypeCode > 5) {
             return;
@@ -86,11 +108,26 @@ public class PresetAgendaDocService {
         }
     }
 
+    /**
+     * 列出指定会序的全部飞书资料引用 DTO。
+     *
+     * @param meeting     会议实体
+     * @param agendaIndex 会序索引
+     * @return 资料引用 DTO 列表
+     */
     public List<FeishuDocRefDto> listDocRefsForAgenda(Meeting meeting, int agendaIndex) {
         List<FeishuResourceRef> refs = resolveAllResources(meeting, agendaIndex, null);
         return refs.stream().map(FeishuDocRefs::toDto).toList();
     }
 
+    /**
+     * 解析会序的首个飞书资源引用（合并运行时 URL、host_agenda JSON 与 preset 配置）。
+     *
+     * @param meeting        会议实体
+     * @param agendaIndex    会序索引
+     * @param runtimeDocUrl  运行时传入的文档 URL（可为 null）
+     * @return 首个资源引用；无匹配时返回 {@code null}
+     */
     public FeishuResourceRef resolveResource(Meeting meeting, int agendaIndex, String runtimeDocUrl) {
         List<FeishuDocRefDto> runtime = null;
         if (runtimeDocUrl != null && !runtimeDocUrl.isBlank()) {
@@ -100,6 +137,14 @@ public class PresetAgendaDocService {
         return all.isEmpty() ? null : all.get(0);
     }
 
+    /**
+     * 解析会序的全部飞书资源引用并去重合并。
+     *
+     * @param meeting     会议实体
+     * @param agendaIndex 会序索引
+     * @param runtimeDocs 运行时传入的资料引用列表（可为 null）
+     * @return 去重后的资源引用列表
+     */
     public List<FeishuResourceRef> resolveAllResources(Meeting meeting, int agendaIndex,
                                                        List<FeishuDocRefDto> runtimeDocs) {
         List<FeishuResourceRef> refs = new ArrayList<>();
@@ -129,6 +174,16 @@ public class PresetAgendaDocService {
         return FeishuDocRefs.mergeDistinct(refs);
     }
 
+    /**
+     * 拉取会序关联的全部飞书资料正文并组装为 {@link AgendaDocContentResponse}。
+     *
+     * @param meeting     会议实体
+     * @param agendaIndex 会序索引
+     * @param agendaTitle 会序标题（用于错误提示）
+     * @param runtimeDocs 运行时传入的资料引用（可为 null）
+     * @return 会序资料内容响应（含合并正文与各 part 详情）
+     * @throws BusinessException 未配置资料（404）或全部拉取失败且无外链（502）
+     */
     public AgendaDocContentResponse buildAgendaDocContent(Meeting meeting, int agendaIndex, String agendaTitle,
                                                           List<FeishuDocRefDto> runtimeDocs) {
         List<FeishuResourceRef> refs = resolveAllResources(meeting, agendaIndex, runtimeDocs);
@@ -188,16 +243,33 @@ public class PresetAgendaDocService {
                 .build();
     }
 
+    /**
+     * 解析会序首个飞书资料的外链 URL。
+     *
+     * @param meeting        会议实体
+     * @param agendaIndex    会序索引
+     * @param runtimeDocUrl  运行时 URL（可为 null）
+     * @return 外链 URL；无匹配时返回 {@code null}
+     */
     public String resolveFeishuDocUrl(Meeting meeting, int agendaIndex, String runtimeDocUrl) {
         FeishuResourceRef ref = resolveResource(meeting, agendaIndex, runtimeDocUrl);
         return ref != null ? ref.defaultOpenUrl() : null;
     }
 
+    /**
+     * 解析会序首个飞书资料的主 token（document_id / node_token / app_token）。
+     *
+     * @param meeting        会议实体
+     * @param agendaIndex    会序索引
+     * @param runtimeDocUrl  运行时 URL（可为 null）
+     * @return 主 token；无匹配时返回 {@code null}
+     */
     public String resolveDocumentId(Meeting meeting, int agendaIndex, String runtimeDocUrl) {
         FeishuResourceRef ref = resolveResource(meeting, agendaIndex, runtimeDocUrl);
         return ref != null ? ref.primaryToken() : null;
     }
 
+    /** 按会序索引分组资料配置并按 resource_slot、id 排序。 */
     private static Map<Integer, List<MatterProgressDocConfig>> groupConfigsByAgenda(
             List<MatterProgressDocConfig> configs) {
         Map<Integer, List<MatterProgressDocConfig>> map = new HashMap<>();
@@ -218,6 +290,7 @@ public class PresetAgendaDocService {
         return map;
     }
 
+    /** 将资料配置列表转为 {@link FeishuDocRefDto} 列表。 */
     private static List<FeishuDocRefDto> configsToDtoList(List<MatterProgressDocConfig> cfgs) {
         List<FeishuDocRefDto> out = new ArrayList<>();
         for (MatterProgressDocConfig cfg : cfgs) {
@@ -244,6 +317,7 @@ public class PresetAgendaDocService {
         return FeishuResourceResolver.isRecognizedFeishuDocUrl(item.getFeishuDocUrl());
     }
 
+    /** 从 host_agenda JSON 解析指定索引的会序 DTO，兼容 feishuDocs 数组与旧版 feishuDocToken。 */
     private HostAgendaItemDto itemAtIndex(String hostAgendaJson, int agendaIndex) {
         if (hostAgendaJson == null || hostAgendaJson.isBlank() || agendaIndex < 0) {
             return null;

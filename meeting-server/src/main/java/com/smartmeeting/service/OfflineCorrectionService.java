@@ -15,11 +15,13 @@ import java.nio.file.Paths;
 import java.util.List;
 
 /**
- * 离线校正服务
- * 流程:
- * 1. 读取完整音频文件
- * 2. 调用讯飞离线 ASR 进行全文校正
- * 3. 更新 transcript_segment (corrected=true, 高置信度文本)
+ * 会议录音离线 ASR 校正服务。
+ *
+ * <p>流程：校验音频文件 → 调用 {@link com.smartmeeting.asr.XfyunOfflineClient} 全文转写 →
+ * 将已 finalize 的 {@link com.smartmeeting.entity.TranscriptSegment} 标记为已校正。
+ *
+ * <p>主要协作：{@link com.smartmeeting.repository.TranscriptMapper}、
+ * {@link com.smartmeeting.asr.XfyunOfflineClient}。
  */
 @Slf4j
 @Service
@@ -33,8 +35,8 @@ public class OfflineCorrectionService {
      * 执行离线校正
      * 
      * @param meetingId 会议ID
-     * @param audioPath 音频文件路径
-     * @return 校正后的完整文本
+     * @param audioPath 音频文件本地路径
+     * @return 拼接后的校正全文；文件缺失、为空或 ASR 失败时返回空字符串（不抛异常）
      */
     @Transactional
     public String correct(String meetingId, String audioPath) {
@@ -94,7 +96,9 @@ public class OfflineCorrectionService {
     }
 
     /**
-     * 将会议的所有转录分段标记为已校正
+     * 将会议下所有已 finalize 的转录分段标记为 {@code corrected=true}。
+     *
+     * @param meetingId 会议 ID
      */
     private void updateSegmentsAsCorrected(String meetingId) {
         LambdaQueryWrapper<TranscriptSegment> wrapper = new LambdaQueryWrapper<>();

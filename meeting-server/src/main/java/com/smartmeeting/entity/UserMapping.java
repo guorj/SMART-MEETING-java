@@ -5,28 +5,27 @@ import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
 
 /**
- * 用户映射实体 - OA用户 ↔ 飞书ID
- *
- * 用于待办责任人匹配：
- * - OA系统 userId → 飞书 user_id/open_id/union_id
+ * 用户映射实体，对应数据库表 {@code int_user_mapping}。
+ * <p>
+ * 维护 OA 用户与飞书 ID 的对应关系，用于待办责任人匹配与消息推送。
  */
 @Data
 @TableName("int_user_mapping")
 public class UserMapping {
 
-    /** OA用户ID（主键） */
+    /** OA 用户 ID（主键） */
     @TableId
     private Integer userId;
 
     /** 用户姓名 */
     private String userName;
 
-    /** 飞书user_id */
+    /** 飞书 user_id */
     private String feishuUserId;
 
-    /** 飞书union_id */
+    /** 飞书 union_id */
     private String feishuUnionId;
 
-    /** 飞书open_id */
+    /** 飞书 open_id */
     private String feishuOpenId;
 }

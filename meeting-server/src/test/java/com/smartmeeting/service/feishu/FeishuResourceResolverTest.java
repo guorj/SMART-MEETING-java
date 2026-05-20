@@ -8,8 +8,12 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * {@link FeishuResourceResolver} 单元测试：验证飞书 docx/wiki/base URL 解析与识别逻辑。
+ */
 class FeishuResourceResolverTest {
 
+    /** 解析 docx URL 应返回 DOCX 类型及 primaryToken。 */
     @Test
     void parsesDocxUrl() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve("https://a.feishu.cn/docx/doxcnAAA?from=copy");
@@ -18,6 +22,7 @@ class FeishuResourceResolverTest {
         assertEquals("doxcnAAA", ref.primaryToken());
     }
 
+    /** 解析 wiki URL 应返回 WIKI 类型且可拉取纯文本。 */
     @Test
     void parsesWikiUrl() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve("https://a.feishu.cn/wiki/wikiNode01");
@@ -27,6 +32,7 @@ class FeishuResourceResolverTest {
         assertTrue(ref.canFetchPlainText());
     }
 
+    /** 解析含内嵌多维表格的 wiki URL 应提取 tableId。 */
     @Test
     void parsesWikiUrlWithEmbeddedBitableTable() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve(
@@ -38,6 +44,7 @@ class FeishuResourceResolverTest {
         assertTrue(ref.canFetchPlainText());
     }
 
+    /** 解析 base URL 应提取 appToken、tableId 与 viewId。 */
     @Test
     void parsesBaseUrlWithTable() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve(
@@ -50,6 +57,7 @@ class FeishuResourceResolverTest {
         assertTrue(ref.canFetchPlainText());
     }
 
+    /** 无 table 参数的 base URL 不可拉取纯文本但可在主持页展示。 */
     @Test
     void baseWithoutTableCannotFetchPlainText() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve("https://a.feishu.cn/base/bascnApp");
@@ -59,6 +67,7 @@ class FeishuResourceResolverTest {
         assertTrue(!ref.canFetchPlainText());
     }
 
+    /** legacy docId 应转换为 docx URL 并正确解析。 */
     @Test
     void legacyDocIdToDocxUrl() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve(
@@ -68,6 +77,7 @@ class FeishuResourceResolverTest {
         assertEquals("doxcOnly", ref.primaryToken());
     }
 
+    /** 从配置对象解析 legacy documentId。 */
     @Test
     void legacyDocumentIdFromConfig() {
         MatterProgressDocConfig c = new MatterProgressDocConfig();
@@ -75,12 +85,14 @@ class FeishuResourceResolverTest {
         assertEquals("appTok", FeishuResourceResolver.resolveLegacyDocumentId(c));
     }
 
+    /** null 或空白 URL 应返回 null。 */
     @Test
     void emptyReturnsNull() {
         assertNull(FeishuResourceResolver.resolve((String) null));
         assertNull(FeishuResourceResolver.resolve("  "));
     }
 
+    /** 租户样例 URL 应正确解析 docx、wiki 与 base 类型。 */
     @Test
     void parsesTenantSampleUrls() {
         FeishuResourceRef docx = FeishuResourceResolver.resolve(
@@ -98,6 +110,7 @@ class FeishuResourceResolverTest {
         assertEquals("tbl7viO4AJ4ebD0B", base.tableId());
     }
 
+    /** 非飞书应用 URL 应被拒绝识别。 */
     @Test
     void rejectsNonFeishuAppUrls() {
         assertNull(FeishuResourceResolver.resolve(
@@ -106,6 +119,7 @@ class FeishuResourceResolverTest {
                 "https://39.97.61.212/host/meeting-id"));
     }
 
+    /** isRecognizedFeishuDocUrl 应与解析结果类型一致。 */
     @Test
     void isRecognizedFeishuDocUrl_matchesParsedTypes() {
         assertTrue(FeishuResourceResolver.isRecognizedFeishuDocUrl(

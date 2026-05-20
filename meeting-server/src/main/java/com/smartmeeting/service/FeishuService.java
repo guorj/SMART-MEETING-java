@@ -17,9 +17,12 @@ import com.smartmeeting.service.feishu.FeishuResourceRef;
 import java.util.*;
 
 /**
- * 飞书 API 封装（消息/文档/token）
- * 
- * API 文档: https://open.feishu.cn/document
+ * 飞书开放平台 API 封装：Tenant Token 管理、消息发送、云文档读写与资源正文拉取。
+ * <p>
+ * API 文档：<a href="https://open.feishu.cn/document">飞书开放平台</a>
+ * <p>
+ * 主要协作组件：{@link RestTemplate}、{@link ObjectMapper}、
+ * {@link com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry}（AI 主持期间抑制推送）。
  */
 @Slf4j
 @Service
@@ -45,7 +48,10 @@ public class FeishuService {
     // ==================== Token 管理 ====================
 
     /**
-     * 获取 tenant_access_token（带缓存，约2小时有效）
+     * 获取 tenant_access_token（带内存缓存，约 2 小时有效）。
+     *
+     * @return 有效的 tenant_access_token
+     * @throws RuntimeException 飞书 API 返回异常或 HTTP 请求失败时
      */
     public String getTenantToken() {
         if (cachedToken != null && System.currentTimeMillis() < tokenExpiry) {
@@ -78,7 +84,11 @@ public class FeishuService {
     // ==================== 消息发送 ====================
 
     /**
-     * 发送文本消息到飞书聊天
+     * 向群聊发送纯文本消息。
+     *
+     * @param chatId 群 chat_id
+     * @param text   消息正文
+     * @return 发送成功返回 {@code true}；被静音或 HTTP 失败时返回 {@code false}
      */
     public boolean sendMessage(String chatId, String text) {
         if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
@@ -111,7 +121,11 @@ public class FeishuService {
     }
 
     /**
-     * 向用户单聊发送文本（菜单「推送事件」场景下可能无群 chat_id，用于提示用户回到群聊操作）
+     * 向用户单聊发送纯文本消息（菜单「推送事件」等无群 chat_id 场景）。
+     *
+     * @param openId 用户 open_id
+     * @param text   消息正文
+     * @return 发送成功返回 {@code true}；openId 为空或 HTTP 失败时返回 {@code false}
      */
     public boolean sendMessageToOpenId(String openId, String text) {
         if (openId == null || openId.isBlank()) {
@@ -142,7 +156,12 @@ public class FeishuService {
     }
 
     /**
-     * 发送富文本卡片消息到飞书聊天
+     * 向群聊发送富文本卡片消息（lark_md 正文 + 可选文档按钮）。
+     *
+     * @param chatId   群 chat_id
+     * @param title    卡片标题
+     * @param elements 卡片元素列表（含 content、可选 doc_url）
+     * @return 发送成功返回 {@code true}；被静音、序列化异常或 HTTP 失败时返回 {@code false}
      */
     public boolean sendCardMessage(String chatId, String title, List<Map<String, String>> elements) {
         if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
@@ -221,10 +240,10 @@ public class FeishuService {
     // ==================== 用户信息获取 ====================
 
     /**
-     * 从飞书API获取用户姓名
-     * 
+     * 从飞书 API 获取用户姓名。
+     *
      * @param openId 飞书用户 open_id
-     * @return 用户姓名，失败返回 null
+     * @return 用户姓名；API 失败时返回 {@code null}
      */
     public String getUserName(String openId) {
         String token = getTenantToken();
@@ -255,25 +274,45 @@ public class FeishuService {
     // ==================== Interactive卡片发送 ====================
 
     /**
-     * 发送Interactive卡片消息（完整卡片JSON）
-     * 
-     * @param chatId 目标聊天ID
-     * @param cardJson 卡片JSON字符串
+     * 向群聊发送 Interactive 卡片消息（完整卡片 JSON）。
+     *
+     * @param chatId   群 chat_id
+     * @param cardJson 卡片 JSON 字符串
+     * @return 发送成功返回 {@code true}；被静音或 HTTP 失败时返回 {@code false}
      */
     public boolean sendInteractiveCard(String chatId, String cardJson) {
         if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
             log.warn("Feishu send suppressed (AI host in-session): sendInteractiveCard chatId={}", chatId);
             return false;
         }
+        return sendInteractiveCardToReceiveId("chat_id", chatId, cardJson);
+    }
+
+    /**
+     * 向用户单聊发送 Interactive 卡片（如线上个人入会链接）。
+     *
+     * @param openId   用户 open_id
+     * @param cardJson 卡片 JSON 字符串
+     * @return 发送成功返回 {@code true}；openId 为空或 HTTP 失败时返回 {@code false}
+     */
+    public boolean sendInteractiveCardToOpenId(String openId, String cardJson) {
+        if (openId == null || openId.isBlank()) {
+            return false;
+        }
+        return sendInteractiveCardToReceiveId("open_id", openId, cardJson);
+    }
+
+    /** 向指定 receive_id_type 的接收方发送 Interactive 卡片。 */
+    private boolean sendInteractiveCardToReceiveId(String receiveIdType, String receiveId, String cardJson) {
         String token = getTenantToken();
-        String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
+        String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=" + receiveIdType;
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
 
         Map<String, Object> body = new HashMap<>();
-        body.put("receive_id", chatId);
+        body.put("receive_id", receiveId);
         body.put("msg_type", "interactive");
         body.put("content", cardJson);
 
@@ -281,7 +320,7 @@ public class FeishuService {
         try {
             ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
             if (response.getStatusCode().is2xxSuccessful()) {
-                log.info("Feishu interactive card sent to chat: {}", chatId);
+                log.info("Feishu interactive card sent to {}={}", receiveIdType, receiveId);
                 return true;
             }
             log.error("Failed to send interactive card: {}", response.getBody());
@@ -295,11 +334,12 @@ public class FeishuService {
     // ==================== 文档管理 ====================
 
     /**
-     * 创建飞书文档
-     * 
-     * @param folderToken 文件夹token（空字符串表示根目录）
-     * @param title 文档标题
-     * @return Map with docToken and docUrl
+     * 创建飞书 Docx 云文档。
+     *
+     * @param folderToken 文件夹 token（空字符串表示根目录）
+     * @param title       文档标题
+     * @return 含 {@code docToken} 与 {@code docUrl} 的 Map
+     * @throws RuntimeException 飞书 API 返回异常时
      */
     public Map<String, String> createDoc(String folderToken, String title) {
         String token = getTenantToken();
@@ -395,6 +435,11 @@ public class FeishuService {
 
     /**
      * 按资源类型拉取纯文本：docx 块遍历、wiki 转 docx、base 导出表格行（需 URL 含 table=）。
+     *
+     * @param ref 解析后的飞书资源引用
+     * @return 拼接后的纯文本
+     * @throws IllegalArgumentException 资源引用为空或类型无法识别时
+     * @throws RuntimeException         飞书 API 返回异常时
      */
     public String fetchResourcePlainText(FeishuResourceRef ref) {
         if (ref == null) {
@@ -410,7 +455,12 @@ public class FeishuService {
     }
 
     /**
-     * 知识库节点：get_node 取得 obj_token 后，docx 类型走 {@link #fetchDocxPlainText}。
+     * 知识库节点：get_node 取得 obj_token 后，docx 类型走 {@link #fetchDocxPlainText}，bitable 走 {@link #fetchBitablePlainText}。
+     *
+     * @param ref 含 wiki node_token 的资源引用
+     * @return 拼接后的纯文本
+     * @throws IllegalArgumentException node_token 为空时
+     * @throws RuntimeException         飞书 API 返回异常或不支持的节点类型时
      */
     public String fetchWikiPlainText(FeishuResourceRef ref) {
         if (ref == null || ref.primaryToken() == null || ref.primaryToken().isBlank()) {
@@ -454,7 +504,13 @@ public class FeishuService {
     }
 
     /**
-     * 多维表格：导出前若干行记录为纯文本（URL 须含 {@code table=tbl...}）。
+     * 多维表格：导出前 50 行记录为纯文本（URL 须含 {@code table=tbl...}）。
+     *
+     * @param appToken 多维表格 app_token
+     * @param tableId  数据表 table_id
+     * @return 表格记录摘要文本
+     * @throws IllegalArgumentException appToken 或 tableId 为空时
+     * @throws RuntimeException         飞书 API 返回异常时
      */
     public String fetchBitablePlainText(String appToken, String tableId) {
         if (appToken == null || appToken.isBlank()) {
@@ -539,6 +595,7 @@ public class FeishuService {
         out.append('\n');
     }
 
+    /** 从 Docx block 的 elements 数组提取 text_run 与 equation 文字。 */
     private static void appendDocxTextElements(JsonNode elements, StringBuilder out) {
         for (JsonNode el : elements) {
             if (el == null || !el.isObject()) {
@@ -553,17 +610,11 @@ public class FeishuService {
     }
 
     /**
-     * 批量写入飞书文档内容（Block API）
-     * 
-     * 修复：飞书文档Block写入API的正确URL格式是
-     * /open-apis/docx/v1/documents/{doc_id}/blocks/{block_id}/children
-     * 其中根block_id等于doc_id
-     * 
-     * 频率限制：单应用3次/秒，单文档3次/秒
-     * API限制：单次最多50个children
-     * 
-     * @param docToken 文档token（即doc_id）
-     * @param blocks 内容块列表
+     * 批量写入飞书文档内容块（Block API，分批最多 50 个/次，含频率控制）。
+     *
+     * @param docToken 文档 token（即 document_id，根 block_id 同 doc_id）
+     * @param blocks   内容块列表
+     * @return 全部批次写入成功返回 {@code true}；任一批次失败返回 {@code false}
      */
     public boolean updateDocBlocks(String docToken, List<Map<String, Object>> blocks) {
         if (blocks == null || blocks.isEmpty()) {
@@ -629,8 +680,11 @@ public class FeishuService {
         return successCount == totalBlocks;
     }
     /**
-     * 写入飞书文档内容（文本内容）
-     * 简化版本：直接设置文档纯文本内容
+     * 将纯文本按行写入飞书 Docx 文档（内部转换为 Block 并调用 {@link #updateDocBlocks}）。
+     *
+     * @param docToken 文档 token
+     * @param content  纪要或正文纯文本
+     * @return 写入成功返回 {@code true}；docToken 为空或写入失败时返回 {@code false}
      */
     public boolean updateDoc(String docToken, String content) {
         if (docToken == null || docToken.isEmpty()) {
@@ -665,7 +719,12 @@ public class FeishuService {
     }
 
     /**
-     * 设置文档权限（可选，使文档可被团队成员访问）
+     * 为文档添加成员只读权限。
+     *
+     * @param docToken 文档 token
+     * @param type     成员类型（如 openid）
+     * @param token    成员 ID
+     * @return HTTP 2xx 时返回 {@code true}；失败时返回 {@code false}
      */
     public boolean setDocPermission(String docToken, String type, String token) {
         String tenantToken = getTenantToken();

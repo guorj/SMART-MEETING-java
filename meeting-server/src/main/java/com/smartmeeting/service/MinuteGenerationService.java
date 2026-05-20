@@ -6,10 +6,12 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.enums.MinuteGenerationStatus;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.entity.TranscriptSegment;
 import com.smartmeeting.repository.TranscriptMapper;
+import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,17 +24,10 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 纪要生成服务 - 由 Kafka 消费者或 LocalEventBus 触发
- * 
- * 流程:
- * 1. 获取参会人信息
- * 2. 调用讯飞离线 ASR 校正
- * 3. 调用讯飞 ISV 声纹识别 → 更新 speaker_name
- * 4. 更新 int_transcript_segment (corrected=true)
- * 5. 调用 LLM 生成纪要文本
- * 6. 创建飞书文档 → 写入纪要内容 → 更新 int_meeting(doc_url, doc_token)
- * 7. 更新状态 → COMPLETED
- * 8. 推送飞书卡片"纪要已生成"
+ * 纪要生成服务：由 Kafka 消费者或 {@link LocalEventBus} 触发，完成 ASR 校正 → LLM 生成 → 飞书文档写入 → 通知推送。
+ * <p>
+ * 主要协作组件：{@link OfflineCorrectionService}、{@link VoiceprintService}、{@link TranscriptMapper}、
+ * {@link FeishuService}、{@link MeetingFeishuNotifier}、{@link MinuteAIEnhancer}、{@link MeetingMinuteService}。
  */
 @Slf4j
 @Service
@@ -46,9 +41,11 @@ public class MinuteGenerationService {
     private final ParticipantMapper participantMapper;
     private final TranscriptMapper transcriptMapper;
     private final FeishuService feishuService;
+    private final MeetingFeishuNotifier meetingFeishuNotifier;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final MinuteAIEnhancer minuteAIEnhancer;
+    private final MeetingMinuteService meetingMinuteService;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -60,7 +57,12 @@ public class MinuteGenerationService {
     private String llmModel;
 
     /**
-     * 执行纪要生成链路
+     * 执行完整纪要生成链路：转写校正、LLM 生成、库内持久化、飞书文档创建与通知推送。
+     * <p>
+     * 会议不存在时静默返回；部分步骤失败时仍尝试标记 COMPLETED 并保存降级内容。
+     *
+     * @param meetingId 会议 ID
+     * @param audioPath 音频文件路径（离线 ASR 降级时使用，可为 null）
      */
     @Transactional
     public void generateMinute(String meetingId, String audioPath) {
@@ -142,36 +144,46 @@ public class MinuteGenerationService {
                 log.warn("AI enhancement failed, use original minute: {}", e.getMessage());
             }
 
-            // 5. 创建飞书文档
-            log.info("Step 5: Creating Feishu document...");
+            // 5. 库内持久化（与飞书双写；飞书失败时库内仍可查）
+            if (!minuteText.isEmpty()) {
+                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.READY);
+            }
+
+            // 6. 创建飞书文档
+            log.info("Step 6: Creating Feishu document...");
+            boolean feishuWriteOk = false;
             try {
                 Map<String, String> docInfo = feishuService.createDoc("", meeting.getTitle() + " 会议纪要");
                 docToken = docInfo.getOrDefault("docToken", "");
                 docUrl = docInfo.getOrDefault("docUrl", "");
-                
-                // 5.1 写入文档内容
+
                 if (!docToken.isEmpty() && !minuteText.isEmpty()) {
-                    log.info("Step 5.1: Writing minute content to Feishu doc...");
-                    boolean writeSuccess = feishuService.updateDoc(docToken, minuteText);
-                    if (writeSuccess) {
-                        log.info("Step 5.1: Minute content written to Feishu doc successfully");
+                    log.info("Step 6.1: Writing minute content to Feishu doc...");
+                    feishuWriteOk = feishuService.updateDoc(docToken, minuteText);
+                    if (feishuWriteOk) {
+                        log.info("Step 6.1: Minute content written to Feishu doc successfully");
                     } else {
-                        log.warn("Step 5.1: Failed to write content to Feishu doc (dev mode fallback)");
+                        log.warn("Step 6.1: Failed to write content to Feishu doc (dev mode fallback)");
                     }
+                } else {
+                    feishuWriteOk = !docToken.isEmpty();
                 }
             } catch (Exception e) {
                 log.warn("Feishu doc creation failed (dev mode): {}", e.getMessage());
-                // Fallback: 使用本地 URL
                 docUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
             }
 
-            // 6. 更新会议记录 → COMPLETED
+            if (!minuteText.isEmpty() && !feishuWriteOk) {
+                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.PARTIAL);
+            }
+
+            // 7. 更新会议记录 → COMPLETED
             meeting.setDocToken(docToken);
             meeting.setDocUrl(docUrl);
             meeting.setStatus(MeetingStatus.COMPLETED.name());
             meetingMapper.updateById(meeting);
 
-            log.info("Step 6: Meeting status updated to COMPLETED, docUrl={}", docUrl);
+            log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);
 
             // 7. 推送飞书卡片通知
@@ -183,7 +195,9 @@ public class MinuteGenerationService {
 
         } catch (Exception e) {
             log.error("Minute generation failed for meeting: {}", meetingId, e);
-            // 即使失败也标记为 COMPLETED（使用 fallback 内容）
+            if (minuteText != null && !minuteText.isEmpty()) {
+                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.FAILED);
+            }
             if (meeting.getStatus() == null || !meeting.getStatus().equals(MeetingStatus.COMPLETED.name())) {
                 meeting.setDocUrl(String.format("http://localhost:8765/meetings/%s/minute", meetingId));
                 meeting.setStatus(MeetingStatus.COMPLETED.name());
@@ -194,7 +208,11 @@ public class MinuteGenerationService {
     }
 
     /**
-     * 推送飞书卡片通知
+     * 推送「纪要已生成」飞书卡片或文本消息（群聊优先，无 chatId 时降级单聊创建人）。
+     *
+     * @param meeting    会议实体
+     * @param docUrl     飞书文档 URL（可为空，将从 docToken 构造）
+     * @param minuteText 纪要正文（当前仅用于日志，卡片展示文档链接）
      */
     private void pushFeishuCard(Meeting meeting, String docUrl, String minuteText) {
         // 构建卡片元素
@@ -220,19 +238,28 @@ public class MinuteGenerationService {
         }
 
         // 发送卡片消息
-        String chatId = meeting.getChatId() != null ? meeting.getChatId() : "";  // 从会议读取
+        String chatId = meeting.getChatId() != null ? meeting.getChatId() : "";
+        String idempotencyKey = "minute-ready:" + meeting.getId();
         if (!chatId.isEmpty()) {
-            feishuService.sendCardMessage(chatId, "会议纪要生成通知", elements);
+            meetingFeishuNotifier.sendCardMessage(
+                    chatId, "会议纪要生成通知", elements,
+                    "MINUTE_READY", meeting.getId(), idempotencyKey);
         } else {
-            // Fallback: 发送文本消息
             String text = String.format("✅ 会议纪要已生成\n\n会议: %s\n公司: %s\n文档: %s",
                     meeting.getTitle(), meeting.getCompany(), docUrl);
-            feishuService.sendMessage("", text);
+            meetingFeishuNotifier.sendTextMessage(
+                    meeting.getCreatorId(), text,
+                    "MINUTE_READY", meeting.getId(), idempotencyKey + ":text");
         }
     }
 
     /**
-     * 调用 LLM 生成纪要
+     * 调用 LLM API 根据转写文本生成结构化纪要；失败时降级为简易纪要。
+     *
+     * @param meeting        会议实体
+     * @param transcriptText 校正后的转写全文
+     * @param participants   参会人列表
+     * @return 纪要 Markdown 文本
      */
     private String generateMinuteByLLM(Meeting meeting, String transcriptText, List<Participant> participants) {
         // 构建 Prompt
@@ -275,7 +302,12 @@ public class MinuteGenerationService {
     }
 
     /**
-     * 构建纪要生成 Prompt
+     * 构建 LLM 纪要生成 Prompt，包含会议元信息与转写文本。
+     *
+     * @param meeting        会议实体
+     * @param transcriptText 转写全文
+     * @param participants   参会人列表
+     * @return 完整 Prompt 字符串
      */
     private String buildMinutePrompt(Meeting meeting, String transcriptText, List<Participant> participants) {
         StringBuilder prompt = new StringBuilder();
@@ -304,7 +336,11 @@ public class MinuteGenerationService {
     }
 
     /**
-     * 当 LLM 调用失败时，生成简单纪要
+     * LLM 调用失败时的降级方案：生成包含会议信息与转写摘要的简易纪要。
+     *
+     * @param meeting        会议实体
+     * @param transcriptText 转写全文
+     * @return 简易纪要 Markdown 文本
      */
     private String generateSimpleMinute(Meeting meeting, String transcriptText) {
         StringBuilder minute = new StringBuilder();

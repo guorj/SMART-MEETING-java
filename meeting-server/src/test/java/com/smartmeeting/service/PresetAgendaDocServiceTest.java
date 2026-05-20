@@ -11,8 +11,12 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+/**
+ * {@link PresetAgendaDocService} 单元测试：验证预设会序文档 URL 填充与多资源槽解析。
+ */
 class PresetAgendaDocServiceTest {
 
+    /** 议题已有 URL 时不应被配置表覆盖。 */
     @Test
     void enrichHostAgendaItems_doesNotOverrideExistingUrl() {
         HostAgendaItemDto item = new HostAgendaItemDto();
@@ -36,6 +40,7 @@ class PresetAgendaDocServiceTest {
         assertEquals("https://x.feishu.cn/docx/doxExisting", items.get(1).getFeishuDocUrl());
     }
 
+    /** 议题缺少 URL 时应从配置表填充。 */
     @Test
     void enrichHostAgendaItems_fillsFromConfigWhenMissing() {
         HostAgendaItemDto item = new HostAgendaItemDto();
@@ -58,6 +63,7 @@ class PresetAgendaDocServiceTest {
         assertEquals("https://x.feishu.cn/docx/doxFromTable", items.get(0).getFeishuDocUrl());
     }
 
+    /** 同一议程多资源槽应全部解析返回。 */
     @Test
     void resolveAllResources_multipleSlotsSameAgenda() {
         MatterProgressDocConfig base = new MatterProgressDocConfig();
@@ -82,6 +88,7 @@ class PresetAgendaDocServiceTest {
         assertEquals(2, refs.size());
     }
 
+    /** resolveDocumentId 应优先使用运行时 URL。 */
     @Test
     void resolveDocumentId_prefersRuntimeUrl() {
         PresetAgendaDocService svc = new PresetAgendaDocService(null, null, null);

@@ -12,8 +12,10 @@ import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** 一次性：查询生产库关键表行数与 matter_progress 配置快照 */
+/** 一次性 CLI 探针：查询生产库关键表行数与 matter_progress 配置快照。 */
 public final class ProdSchemaQuery {
+
+    /** 执行多项诊断 SQL 并打印结果行。 */
     public static void main(String[] args) throws Exception {
         Map<String, String> ds = ProdSchemaProbeDatasource.load();
         Class.forName("com.mysql.cj.jdbc.Driver");
@@ -52,7 +54,10 @@ public final class ProdSchemaQuery {
     }
 }
 
+/** 生产库数据源加载器：从环境变量或 {@code application-prod.yml} 解析 JDBC 连接信息。 */
 final class ProdSchemaProbeDatasource {
+
+    /** 加载 url/username/password，优先使用 PROD_DB_* 环境变量。 */
     static Map<String, String> load() throws Exception {
         String url = envOr("PROD_DB_URL", null);
         String user = envOr("PROD_DB_USER", null);

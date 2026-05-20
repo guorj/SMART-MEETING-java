@@ -6,9 +6,11 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * 会议开始响应（F-MID-01）
+ * 会议开始响应体（F-MID-01）。
+ * <p>
+ * 返回会议 ID、新状态及可选的上次待办进度，用于飞书或 Web 启动会议后的聚合展示。
  *
- * 返回会议ID、新状态、上次进度（可选）
+ * @see PreviousProgressResponse
  */
 @Data
 @Builder

@@ -8,8 +8,12 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+/**
+ * {@link XfyunTtsUtf8Segmenter} 单元测试：验证讯飞 TTS 文本按 UTF-8 字节长度分段逻辑。
+ */
 class XfyunTtsUtf8SegmenterTest {
 
+    /** 短文本应作为单段返回。 */
     @Test
     void shortTextSingleSegment() {
         List<String> p = XfyunTtsUtf8Segmenter.split("答到。", 5300);
@@ -17,6 +21,7 @@ class XfyunTtsUtf8SegmenterTest {
         assertEquals("答到。", p.get(0));
     }
 
+    /** 超长文本应拆成多段且拼接后与原文一致。 */
     @Test
     void longTextSplitsAndRejoins() {
         StringBuilder sb = new StringBuilder();
@@ -30,6 +35,7 @@ class XfyunTtsUtf8SegmenterTest {
         assertEquals(s, rejoined);
     }
 
+    /** 分段应优先在标点处断开且每段不超过字节上限。 */
     @Test
     void prefersBreakAtPunctuation() {
         String unit = "一二三四五六七八九十。";

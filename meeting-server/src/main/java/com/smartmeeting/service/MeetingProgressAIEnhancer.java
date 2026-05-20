@@ -16,10 +16,13 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * 上次会议待办进度 - AI增强处理器
+ * 上次会议待办进度的 AI 增强处理器（会议开始环节）。
  *
- * 【环节1介入】在会议开始时，调用AI Agent分析上次会议待办进度，
- * 生成智能洞察和建议，替代原有简单的数字统计卡片
+ * <p>在会议开始时汇总上次会议的待办统计与延期明细，调用 {@link AiAgentService} 生成结构化洞察，
+ * 并将结果转为飞书卡片元素；AI 不可用时由调用方降级为 {@link #buildFallbackCardElements}。
+ *
+ * <p>主要协作：{@link AiAgentService}、{@link MeetingMapper}、
+ * {@link OpenclawComprehensiveBitableBranch}（综合管理会多维表指令注入）。
  */
 @Slf4j
 @Component
@@ -38,7 +41,7 @@ public class MeetingProgressAIEnhancer {
      * @param previousMeetingId 上次会议ID
      * @param previousTitle 上次会议标题
      * @param todos 上次会议待办列表
-     * @return 智能分析结果（JSON格式），用于构建飞书卡片
+     * @return AI 返回的 JSON 分析结果；调用失败或 Agent 未启用时返回 {@code null}，由调用方决定是否降级
      */
     public String analyzeAndEnhance(
             String currentMeetingId,
@@ -92,6 +95,12 @@ public class MeetingProgressAIEnhancer {
         return null;
     }
 
+    /**
+     * 若当前会议命中综合管理会多维表策略，则构建会前必读指令文本。
+     *
+     * @param currentMeetingId 当前会议 ID
+     * @return OpenClaw 多维表指令；不适用时返回 {@code null}
+     */
     private String buildFeishuMultitableDirectiveIfApplicable(String currentMeetingId) {
         if (currentMeetingId == null) {
             return null;
@@ -105,7 +114,8 @@ public class MeetingProgressAIEnhancer {
      *
      * @param aiAnalysisResult AI返回的JSON分析结果
      * @param previousTitle 上次会议标题
-     * @return 飞书卡片元素列表
+     * @return 飞书卡片元素列表，每项为 {@code content} 键的 Markdown 片段
+     * @throws RuntimeException JSON 解析失败时抛出，包装原始异常
      */
     public List<Map<String, String>> buildSmartCardElements(
             String aiAnalysisResult,
@@ -186,7 +196,11 @@ public class MeetingProgressAIEnhancer {
     }
 
     /**
-     * 构建延期项详情文本（供AI分析）
+     * 构建延期项详情文本，供 AI Agent 分析使用。
+     *
+     * @param todos 待办列表
+     * @param delayedCount 延期数量（为 0 时返回空串）
+     * @return 延期项 Markdown 风格明细
      */
     private String buildDelayedItemsText(List<MeetingTodo> todos, int delayedCount) {
         if (delayedCount == 0) {
@@ -210,7 +224,14 @@ public class MeetingProgressAIEnhancer {
     }
 
     /**
-     * 降级方案：构建简单进度卡片（原有逻辑）
+     * 降级方案：在无 AI 结果时构建简单进度统计飞书卡片元素。
+     *
+     * @param previousTitle 上次会议标题
+     * @param completed 已完成数量
+     * @param inProgress 进行中数量
+     * @param delayed 已延期数量
+     * @param todos 上次会议待办列表（用于列出延期项详情）
+     * @return 飞书卡片元素列表
      */
     public List<Map<String, String>> buildFallbackCardElements(
             String previousTitle,

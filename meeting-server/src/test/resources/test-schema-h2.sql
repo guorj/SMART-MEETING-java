@@ -1,6 +1,7 @@
 -- H2（MODE=MySQL）集成测试专用：无 information_schema 脚本、无 Testcontainers / 无外部 MySQL 时使用。
 -- 与生产 DDL 语义对齐但类型略简化（JSON 用 VARCHAR），仅用于 junit。
 
+DROP TABLE IF EXISTS int_meeting_minute;
 DROP TABLE IF EXISTS int_transcript_segment;
 DROP TABLE IF EXISTS int_meeting_todo;
 DROP TABLE IF EXISTS int_meeting_participant;
@@ -64,6 +65,9 @@ CREATE TABLE int_meeting_participant (
     user_id         VARCHAR(64)  NOT NULL,
     name            VARCHAR(100) NOT NULL,
     status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
+    attendance_mode VARCHAR(20)  NOT NULL DEFAULT 'OFFLINE',
+    checked_in_at   TIMESTAMP    NULL,
+    check_in_source VARCHAR(30)  NULL,
     feature_id      VARCHAR(100) NULL,
     voiceprint_ready BOOLEAN      NOT NULL DEFAULT FALSE,
     todo_count      INT          NOT NULL DEFAULT 0,
@@ -82,6 +86,15 @@ CREATE TABLE int_transcript_segment (
     is_final        BOOLEAN      NOT NULL DEFAULT FALSE,
     confidence      DOUBLE       NULL,
     corrected       BOOLEAN      NOT NULL DEFAULT FALSE
+);
+
+CREATE TABLE int_meeting_minute (
+    meeting_id          VARCHAR(36)   NOT NULL PRIMARY KEY,
+    content_markdown    CLOB          NOT NULL,
+    content_length      INT           NOT NULL DEFAULT 0,
+    generation_status   VARCHAR(20)   NOT NULL DEFAULT 'READY',
+    generated_at        TIMESTAMP     NOT NULL,
+    updated_at          TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE int_meeting_todo (

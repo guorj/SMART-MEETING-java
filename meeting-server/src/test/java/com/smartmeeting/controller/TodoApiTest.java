@@ -25,6 +25,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * 待办 API 集成测试：覆盖列表、看板、状态更新、指派与异常场景。
+ */
 class TodoApiTest extends BaseTest {
 
     @Autowired
@@ -65,6 +68,7 @@ class TodoApiTest extends BaseTest {
         return todo;
     }
 
+    /** 待办列表应返回会议下待办；不存在的会议应返回 404。 */
     @Test
     @DisplayName("GET /meetings/{id}/todos — 列表与会议校验")
     void listTodos() throws Exception {
@@ -82,6 +86,7 @@ class TodoApiTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(404));
     }
 
+    /** 待办看板应返回统计、标题与待办明细。 */
     @Test
     @DisplayName("GET /meetings/{id}/todo-board — 统计与标题")
     void todoBoard() throws Exception {
@@ -97,6 +102,7 @@ class TodoApiTest extends BaseTest {
                 .andExpect(jsonPath("$.data.todos.length()").value(1));
     }
 
+    /** 更新待办状态为完成应同步参会人 completedCount；回退时计数归零。 */
     @Test
     @DisplayName("PUT /todos/{tid}/status — 完成态与参会人 completedCount")
     void updateStatus() throws Exception {
@@ -130,6 +136,7 @@ class TodoApiTest extends BaseTest {
         org.junit.jupiter.api.Assertions.assertEquals(0, p.getCompletedCount());
     }
 
+    /** 非法状态值应返回 400 业务码。 */
     @Test
     @DisplayName("PUT /todos/{tid}/status — 非法状态")
     void updateStatusInvalid() throws Exception {
@@ -146,6 +153,7 @@ class TodoApiTest extends BaseTest {
                 .andExpect(jsonPath("$.code").value(400));
     }
 
+    /** 指派待办应更新 assigneeId 与 assigneeName。 */
     @Test
     @DisplayName("PUT /todos/{tid}/assign")
     void assign() throws Exception {
@@ -164,6 +172,7 @@ class TodoApiTest extends BaseTest {
                 .andExpect(jsonPath("$.data.assigneeName").value("李四"));
     }
 
+    /** 更新不存在的待办应返回 404。 */
     @Test
     @DisplayName("PUT /todos/{tid}/status — 待办不存在")
     void updateUnknownTodo() throws Exception {

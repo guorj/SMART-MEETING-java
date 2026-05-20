@@ -28,9 +28,14 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * 飞书命令处理器
- * 
- * 处理飞书对话指令的实际业务逻辑
+ * 飞书 Bot 指令与卡片回调的业务处理器。
+ *
+ * <p>由消息入口根据 {@link FeishuCommandRouter} 解析结果调用对应 {@code handle*} 方法，
+ * 完成建会、结束会议、纪要列表、加入会议、声纹注册等；建会核心逻辑委托
+ * {@link FeishuMeetingStartCoordinator}。
+ *
+ * <p>主要协作：{@link MeetingService}、{@link FeishuService}、{@link FeishuCardBuilder}、
+ * {@link FeishuCommandRouter}、{@link VoiceprintRegisterService}、{@link JwtUtil}。
  */
 @Slf4j
 @Service
@@ -57,7 +62,12 @@ public class FeishuCommandHandler {
     private String baseUrl;
 
     /**
-     * 完全自定义：开始会议 主题:… 参会人:…
+     * 处理「开始会议 主题:… 参会人:…」完全自定义建会指令。
+     *
+     * @param openId           操作人飞书 open_id
+     * @param chatId           会话 chat_id
+     * @param title            会议主题
+     * @param participantsStr  参会人姓名，逗号分隔（可为空）
      */
     public void handleStartMeeting(String openId, String chatId, String title, String participantsStr) {
         try {
@@ -86,7 +96,10 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 发送会议类型入口卡片：用户点击按钮在浏览器打开内嵌页（带短期 JWT），在 Web 上选类型并创建会议，不依赖卡片回传。
+     * 发送会议类型 Web 入口卡片（短期 JWT 打开 {@code /start-meeting.html}）。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 群或单聊 chat_id
      */
     public void handleStartMeetingMenu(String openId, String chatId) {
         startMeetingPendingStore.clear(openId, chatId);
@@ -103,7 +116,13 @@ public class FeishuCommandHandler {
         }
     }
 
-    /** 消息卡片回传：选择预设类型或「其他会议」 */
+    /**
+     * 处理会议类型消息卡片回传（预设 1–5 或「其他会议」）。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
+     * @param value  卡片 {@code value} JSON（含 {@code cmd}、{@code code}）
+     */
     public void handleMeetingTypeCardAction(String openId, String chatId, JsonNode value) {
         if (value == null || value.isNull()) {
             return;
@@ -125,7 +144,10 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 进入类型选择菜单；若 {@code meeting.feishu.bot-ux.instruction-card-on-first-start} 为 true，则本群首次再先发常驻说明卡片。
+     * 进入开始会议流程：可选先发 onboarding 说明卡，再打开类型选择菜单。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
      */
     public void handleStartMeetingEntryWithOptionalInstructionCard(String openId, String chatId) {
         if (feishuBotUxProperties.isInstructionCardOnFirstStart()
@@ -141,7 +163,12 @@ public class FeishuCommandHandler {
         handleStartMeetingMenu(openId, chatId);
     }
 
-    /** 机器人被拉入群：欢迎语（需在开放平台订阅 im.chat.member.bot.added_v1） */
+    /**
+     * 机器人被拉入群时发送欢迎语并记录操作人最近群（需订阅 {@code im.chat.member.bot.added_v1}）。
+     *
+     * @param chatId           群 chat_id
+     * @param operatorOpenId   拉人进群者 open_id
+     */
     public void handleBotJoinedChat(String chatId, String operatorOpenId) {
         if (!feishuBotUxProperties.isWelcomeOnBotJoin() || chatId == null || chatId.isBlank()) {
             return;
@@ -157,8 +184,11 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 机器人自定义菜单「推送事件」（application.bot.menu_v6）。
-     * 若事件体含群 chat_id，则等同用户在本群发送「开始会议」；否则私聊提示用户到群内使用菜单「发送消息」方式。
+     * 处理机器人自定义菜单 {@code application.bot.menu_v6}（默认「开始会议」）。
+     *
+     * <p>有 chat_id 时等同群内「开始会议」；否则尝试最近活跃群或私聊引导。
+     *
+     * @param event 飞书菜单事件 JSON
      */
     public void handleApplicationBotMenuV6(JsonNode event) {
         if (event == null) {
@@ -188,6 +218,7 @@ public class FeishuCommandHandler {
         }
     }
 
+    /** 从菜单事件中解析 chat_id（兼容多种 JSON 结构）。 */
     private static String resolveChatIdFromMenuEvent(JsonNode event) {
         String c = event.path("chat_id").asText("").trim();
         if (!c.isEmpty()) {
@@ -205,7 +236,13 @@ public class FeishuCommandHandler {
         return "";
     }
 
-    /** 菜单展示后，下一条「未知」消息：单字 1-5 为预设，否则整段为自定义主题 */
+    /**
+     * 类型菜单展示后，用户下一条文本：单字 1–5 选预设，否则作为「其他会议」主题。
+     *
+     * @param openId  操作人 open_id
+     * @param chatId  会话 chat_id
+     * @param rawText 用户原文
+     */
     public void handlePostMenuChoice(String openId, String chatId, String rawText) {
         startMeetingPendingStore.clear(openId, chatId);
         String t = rawText != null ? rawText.trim() : "";
@@ -223,6 +260,13 @@ public class FeishuCommandHandler {
         handleStartMeetingOtherWithTitle(openId, chatId, t);
     }
 
+    /**
+     * 按预设类型编码（1–5）创建并启动会议。
+     *
+     * @param openId   操作人 open_id
+     * @param chatId   会话 chat_id
+     * @param typeCode 预设类型 1–5
+     */
     public void handleStartMeetingPreset(String openId, String chatId, int typeCode) {
         try {
             MeetingCreateRequest request = new MeetingCreateRequest();
@@ -234,12 +278,25 @@ public class FeishuCommandHandler {
         }
     }
 
+    /**
+     * 选择「其他会议」(类型 6) 后，提示用户回复主题并标记 pending。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
+     */
     public void handleStartMeetingOtherPrompt(String openId, String chatId) {
         startMeetingPendingStore.markTypeSixThemePending(openId, chatId);
         feishuService.sendMessage(chatId,
                 "已选择「其他会议」。请直接回复会议主题，或发送：主题:会议名称\n（30 分钟内有效，发送「开始会议 1」等可取消等待）");
     }
 
+    /**
+     * 使用给定主题创建「其他会议」(预设类型 6)。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
+     * @param title  会议主题
+     */
     public void handleStartMeetingOtherWithTitle(String openId, String chatId, String title) {
         try {
             startMeetingPendingStore.clear(openId, chatId);
@@ -253,7 +310,13 @@ public class FeishuCommandHandler {
         }
     }
 
-    /** 用户在选择「6」后，下一条文本作为主题 */
+    /**
+     * 处理类型 6 待输入主题状态下的用户回复。
+     *
+     * @param openId  操作人 open_id
+     * @param chatId  会话 chat_id
+     * @param rawText 用户原文（可含「主题:」前缀）
+     */
     public void handlePendingOtherMeetingTitle(String openId, String chatId, String rawText) {
         startMeetingPendingStore.clear(openId, chatId);
         String t = rawText.trim();
@@ -267,6 +330,13 @@ public class FeishuCommandHandler {
         handleStartMeetingOtherWithTitle(openId, chatId, t);
     }
 
+    /**
+     * 处理「会议类型 N」快捷指令（1–6）。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
+     * @param n      类型序号 1–6
+     */
     public void handleMeetingTypeShort(String openId, String chatId, int n) {
         if (n >= 1 && n <= 5) {
             handleStartMeetingPreset(openId, chatId, n);
@@ -277,6 +347,9 @@ public class FeishuCommandHandler {
         }
     }
 
+    /**
+     * 委托协调器建会并通知飞书；业务异常时向群内发送错误文案。
+     */
     private void doCreateAndStart(String openId, String chatId, MeetingCreateRequest request) {
         try {
             feishuMeetingStartCoordinator.createMeetingStartAndNotifyFeishu(openId, chatId, request);
@@ -286,13 +359,13 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 处理结束会议命令
-     * 
-     * 流程:
-     * 1. 查找会议（指定ID或用户当前活跃会议）
-     * 2. 校验权限（只有创建者可结束）
-     * 3. 结束会议触发纪要生成
-     * 4. 发送处理中卡片
+     * 处理「结束会议」飞书指令（备用路径；主路径为录音页按钮）。
+     *
+     * <p>查找会议 → 校验发起人 → 发送处理中卡片 → 调用 {@link MeetingService#endMeeting}。
+     *
+     * @param openId    操作人 open_id
+     * @param chatId    会话 chat_id
+     * @param meetingId 可选会议 UUID；空则取当前用户活跃会议
      */
     public void handleStopMeeting(String openId, String chatId, String meetingId) {
         try {
@@ -346,7 +419,11 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 处理查看纪要命令
+     * 列出当前用户最近创建的会议及纪要链接摘要。
+     *
+     * @param openId 操作人 open_id
+     * @param chatId 会话 chat_id
+     * @param limit  最多条数
      */
     public void handleListMinutes(String openId, String chatId, int limit) {
         try {
@@ -386,7 +463,11 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 处理加入会议命令
+     * 将用户加入指定或当前群内的进行中会议。
+     *
+     * @param openId    操作人 open_id
+     * @param chatId    会话 chat_id
+     * @param meetingId 可选会议 UUID；空则查本群活跃会议
      */
     public void handleJoinMeeting(String openId, String chatId, String meetingId) {
         try {
@@ -448,13 +529,19 @@ public class FeishuCommandHandler {
         }
     }
 
-    /** 用户主动发「帮助」等关键词时发送完整指令说明（混合方案：未知指令不再自动贴全文） */
+    /**
+     * 发送完整 Bot 指令帮助（用户主动发「帮助」等关键词时）。
+     *
+     * @param chatId 会话 chat_id
+     */
     public void handleHelp(String chatId) {
         feishuService.sendMessage(chatId, commandRouter.getHelpText());
     }
 
     /**
-     * 未识别文本：短提示，避免与会议卡片、误触消息叠成长篇说明。
+     * 未识别文本时发送短提示（不自动附带全文帮助）。
+     *
+     * @param chatId 会话 chat_id
      */
     public void handleUnknown(String chatId) {
         feishuService.sendMessage(chatId,
@@ -462,13 +549,11 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 处理注册声纹命令
-     * 
-     * 流程:
-     * 1. 获取用户姓名（从指令参数或飞书API）
-     * 2. 检查是否已注册声纹
-     * 3. 生成注册token和链接
-     * 4. 发送飞书卡片（含注册链接）
+     * 处理「注册声纹」指令：校验既有声纹、创建 session 并发送含 H5 链接的卡片。
+     *
+     * @param openId   操作人 open_id
+     * @param chatId   会话 chat_id
+     * @param userName 可选姓名；空则从飞书 API 解析
      */
     public void handleRegisterVoiceprint(String openId, String chatId, String userName) {
         try {
@@ -521,6 +606,7 @@ public class FeishuCommandHandler {
         }
     }
 
+    /** 按会议状态返回展示用 emoji。 */
     private String getStatusIcon(String status) {
         if (MeetingStatus.COMPLETED.name().equals(status)) return "✅";
         if (MeetingStatus.PROCESSING.name().equals(status)) return "⏳";
