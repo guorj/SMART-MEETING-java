@@ -1,14 +1,10 @@
-# 智能会议系统 — MCP Server 配置参考
-# 将此文件内容合并到 OpenClaw Gateway 的 openclaw.json 中
-
-# ============================================================
-# MCP Server 1: 飞书多维表格（自定义，2 个工具）
-#   - read_bitable_rows: 读取表格记录
-#   - list_bitable_fields: 获取字段列表
-# 工具描述 Token 估算: ~200 tokens
-# ============================================================
+# OpenClaw Gateway MCP Server 配置参考
+#
+# 将以下 mcpServers 合并到 ~/.openclaw/openclaw.json 的 mcpServers 字段中。
+# 环境变量需在 Gateway 启动前设置（或直接替换为实际值）。
 
 mcpServers:
+  # 飞书多维表格 MCP Server（自定义，TypeScript 实现）
   feishu-bitable:
     command: node
     args:
@@ -18,15 +14,9 @@ mcpServers:
       FEISHU_APP_ID: ${FEISHU_APP_ID}
       FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
 
-  # ============================================================
-  # MCP Server 2: MySQL（官方预构建包，5 个工具）
-  #   - query: 执行 SELECT 查询
-  #   - list_tables: 列出所有表
-  #   - describe_table: 查看表结构
-  #   - insert: 插入记录（谨慎使用）
-  #   - update: 更新记录（谨慎使用）
-  # 工具描述 Token 估算: ~500 tokens
-  # ============================================================
+  # MySQL MCP Server（官方预构建包，无需自定义代码）
+  # 提供工具：query / list_tables / describe_table / insert / update
+  # 生产环境建议使用只读 MySQL 账号
   meeting-mysql:
     command: npx
     args:
@@ -39,12 +29,3 @@ mcpServers:
       MYSQL_USER: ${DB_USERNAME}
       MYSQL_PASSWORD: ${DB_PASSWORD}
       MYSQL_DATABASE: intelligence
-
-# ============================================================
-# Token 开销总计: ~700 tokens（2 个轻量 MCP Server）
-# 对比当前纯 prompt 方式: 每次 ~500 tokens prompt 描述工具用法
-# 净变化: +200 tokens，但消灭了 Agent 工具猜测/重试的不确定性
-#
-# ⚠️ 注意: 不推荐添加 GitHub（43+工具 ~3000 tokens）、Puppeteer 等重 MCP Server
-#     如需扩展，优先评估工具数 <5 的轻量 MCP Server
-# ============================================================

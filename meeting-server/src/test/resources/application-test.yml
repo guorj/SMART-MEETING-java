@@ -31,6 +31,8 @@ openclaw:
   enabled: false
   agent:
     provider: llm
+  # 测试环境不启用 Skill 模式
+  skill-mode: false
   cli:
     agent-name: JQClaw
     profile: clone-boss

@@ -28,7 +28,7 @@ spring:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
-      database: 0
+      database: 10
       timeout: 5000ms
 
   sql:
@@ -151,7 +151,7 @@ meeting:
       window-seconds: ${MEETING_HOST_ROLL_CALL_WINDOW_SEC:12}
       # 定稿常晚于实际开口：叠在 window 之上；与未到超时、答到判定共用 deadline（计时在点名话术播完后起算）
       asr-grace-seconds: ${MEETING_HOST_ROLL_CALL_ASR_GRACE_SEC:6}
-
+  # 讯飞 ISV 声纹
   isv:
     enabled: ${ISV_ENABLED:false}
     group-id: ${ISV_GROUP_ID:smart_meeting_vp}
@@ -161,7 +161,7 @@ meeting:
     register-timeout: 5.0
     debug-log: ${ISV_DEBUG_LOG:false}
     ttl-years: 10
-
+  # 大模型
   llm:
     provider: ${LLM_PROVIDER:deepseek}
     api-key: ${LLM_API_KEY:test}
@@ -174,7 +174,7 @@ meeting:
   matter-progress:
     allow-classpath-fallback: ${MATTER_PROGRESS_CLASSPATH_FALLBACK:false}
     classpath-sample: classpath:matter-progress/fallback-sample.txt
-
+  # 飞书
   feishu:
     app-id: ${FEISHU_APP_ID:test}
     app-secret: ${FEISHU_APP_SECRET:test}
@@ -189,7 +189,7 @@ meeting:
       instruction-card-on-first-start: false
       menu-event-key-start-meeting: start_meeting
       menu-v6-fallback-to-last-group-chat: true
-
+  
   jwt:
     secret: ${JWT_SECRET:this-is-…mum-key-change-in-production}
     expire-hours: 4
@@ -201,38 +201,30 @@ meeting:
     frontend-ws-close-timeout: ${FRONTEND_WS_CLOSE_TIMEOUT:5}
 
 # ============================================================
-<<<<<<< HEAD
-# AI Agent 配置（策略模式：openclaw / llm，未来可扩展 mcp）
-=======
-# OpenClaw AI Agent 配置（方案C：HTTP API + MCP + Skill）
->>>>>>> 33b6c5684d6e43088a5aef25a0e80692786b2de9
+# AI Agent 配置（策略模式：llm / openclaw / mcp）
 # ============================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:false}
-  # Agent 提供者：openclaw（CLI 子进程）/ llm（直调 LLM Chat API，默认）
+  # Agent 提供者：
+  #   llm       — 直调 LLM Chat API（默认，不依赖 OpenClaw 部署）
+  #   openclaw  — OpenClaw CLI 子进程（旧方案兼容，逐步弃用）
+  #   mcp       — OpenClaw Gateway HTTP API + MCP + Skill（推荐，需部署 Gateway + MCP Server）
   agent:
     provider: ${OPENCLAW_AGENT_PROVIDER:llm}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
   timeout-seconds: ${OPENCLAW_TIMEOUT:60}
-<<<<<<< HEAD
   auth-token: ${OPENCLAW_AUTH_TOKEN:}
+  # Skill 模式开关（仅 provider=mcp 时生效）：
+  #   true  — prompt 精简为 /skill:xxx + 业务数据，由 SKILL.md 定义工具调用和输出格式
+  #   false — 使用完整 prompt（兼容旧方案），可一键切回
+  skill-mode: ${OPENCLAW_SKILL_MODE:true}
   # OpenClaw CLI 参数（仅 provider=openclaw 时生效）
   cli:
     agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
     profile: ${OPENCLAW_CLI_PROFILE:clone-boss}
     state-dir: ${OPENCLAW_CLI_STATE_DIR:}
-  # 综合管理会多维表指令（两种 provider 均可使用）
-=======
-  # Gateway认证token（从openclaw.json获取）
-  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
-  # --- MCP + Skill 模式开关 ---
-  # skill-mode=true: prompt 仅传业务数据，输出格式和工具调用步骤由 SKILL.md 定义（推荐）
-  # skill-mode=false: 兼容旧方案，prompt 内含完整格式描述
-  skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  # --- 临时：综合管理会会前，指示 OpenClaw CLI 读取飞书多维表格后再输出 JSON 通报（默认关，线上设 OPENCLAW_COMP_BITABLE_PROGRESS=true）---
-  # 注意：skill-mode=true 后，飞书多维表格改由 feishu-bitable MCP Server 直接读取，此配置将逐步弃用
->>>>>>> 33b6c5684d6e43088a5aef25a0e80692786b2de9
+  # 综合管理会多维表指令（provider=llm/openclaw 时使用；provider=mcp + skill-mode=true 时由 MCP Server 直接读取）
   comprehensive-bitable-progress-enabled: ${OPENCLAW_COMP_BITABLE_PROGRESS:true}
   comprehensive-bitable-preset-codes: ${OPENCLAW_COMP_BITABLE_PRESETS:1}
   comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单}

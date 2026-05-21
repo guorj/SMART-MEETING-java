@@ -121,9 +121,10 @@ docker compose up -d
 | `ISV_ENABLED` | 声纹识别，默认 `false` |
 | `XFYUN_*` | 讯飞 ASR/TTS |
 | `LLM_*` | 纪要 LLM |
-| `OPENCLAW_AGENT_PROVIDER` | AI Agent 提供者：`llm`（默认，直调 LLM）或 `openclaw`（CLI 子进程） |
-| `OPENCLAW_ENABLED` | OpenClaw CLI 总开关（仅 provider=openclaw 时需设为 true） |
-| `OPENCLAW_CLI_*` | OpenClaw CLI 参数：agent-name、profile、state-dir |
+| `OPENCLAW_AGENT_PROVIDER` | AI Agent 提供者：`llm`（默认，直调 LLM）/ `openclaw`（CLI 子进程，旧方案）/ `mcp`（Gateway HTTP API + MCP + Skill，推荐） |
+| `OPENCLAW_ENABLED` | OpenClaw 总开关（provider=openclaw/mcp 时需设为 true） |
+| `OPENCLAW_SKILL_MODE` | Skill 模式开关（仅 provider=mcp 时生效）：`true`（默认，精简 prompt）/ `false`（完整 prompt，兼容旧方案） |
+| `OPENCLAW_CLI_*` | OpenClaw CLI 参数：agent-name、profile、state-dir（仅 provider=openclaw 时生效） |
 | `JWT_SECRET` | 生产务必更换 |
 
 完整默认值见 `meeting-server/src/main/resources/application.yml`。

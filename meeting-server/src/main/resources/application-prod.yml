@@ -100,7 +100,9 @@ meeting:
     frontend-ws-close-timeout: 5
 
 # ============================================================
-# AI Agent 配置（策略模式：openclaw / llm）
+# AI Agent 配置（策略模式：llm / openclaw / mcp）
+# 生产环境推荐 provider: mcp（需部署 OpenClaw Gateway + MCP Server）
+# 若未部署 Gateway，保持默认 llm 即可
 # ============================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:false}
@@ -110,6 +112,8 @@ openclaw:
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
   timeout-seconds: ${OPENCLAW_TIMEOUT:60}
   auth-token: ${OPENCLAW_AUTH_TOKEN:}
+  # Skill 模式开关（仅 provider=mcp 时生效）；生产环境推荐开启
+  skill-mode: ${OPENCLAW_SKILL_MODE:true}
   cli:
     agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
     profile: ${OPENCLAW_CLI_PROFILE:clone-boss}

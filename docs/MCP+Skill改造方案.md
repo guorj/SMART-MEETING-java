@@ -1,6 +1,6 @@
 # 智能会议系统 — MCP + Skill 改造方案
 
-> 日期：2026-05-20
+> 日期：2026-05-20（初始）、2026-05-21（策略模式结合版）
 > 分支：`feature/mcp-skill-refactor`
 > 提交：`f8fdc74 增加mcp+skill模式`
 
@@ -513,3 +513,72 @@ MCP 的协议开销仅 ~3ms，相对于上游飞书 API 50-500ms 响应时间几
 | MCP Server 健康检查 | 低 | 在 `isAgentAvailable()` 中增加 Gateway 连通性检测 |
 | MCP Tool Search 启用 | 低 | OpenClaw 4.24+ 支持动态工具发现，减少上下文占用 |
 | 升级 macOS git 版本 | 低 | 当前 git 2.24.3 不支持 `--trailer`，影响 Cursor IDE 提交体验 |
+---
+
+## 十一、与策略模式结合
+
+### 11.1 架构概述
+
+MCP+Skill 改造方案已融入 `AgentProvider` 策略模式架构，新增 `OpenClawMcpProvider` 作为第三个 Provider 实现。`AiAgentService` 保持纯门面，委托给 `AgentProvider`。
+
+`
+AiAgentService（门面）
+  ├── DirectLlmAgentProvider   (provider=llm，默认，不依赖 OpenClaw)
+  ├── OpenClawAgentProvider    (provider=openclaw，CLI 旧方案，逐步弃用)
+  └── OpenClawMcpProvider      (provider=mcp，推荐，Gateway HTTP API + MCP + Skill)
+        ├── HTTP POST /api/v1/sessions/send → OpenClaw Gateway
+        ├── Skill 加载 → skills/*.SKILL.md
+        └── MCP JSON-RPC → feishu-bitable / meeting-mysql MCP Server
+`
+
+### 11.2 各 Provider 定位
+
+| Provider | 配置值 | 传输 | 工具层 | 指令层 | 适用场景 |
+|----------|--------|------|--------|--------|---------|
+| `DirectLlmAgentProvider` | `llm`（默认） | HTTP 直调 LLM | 无（纯 prompt） | 完整 prompt 在 Java 中 | 不依赖 OpenClaw 的部署 |
+| `OpenClawAgentProvider` | `openclaw` | CLI ProcessBuilder | Agent 自行猜测 | 完整 prompt 在 Java 中 | 旧方案兼容，逐步弃用 |
+| `OpenClawMcpProvider` | `mcp` | Gateway HTTP API | MCP Server（确定性调用） | Skill（精简 prompt） | **推荐方案**，需部署 Gateway + MCP Server |
+
+### 11.3 关键设计决策
+
+1. **AiAgentService 保持纯门面**：所有传输/工具/指令层逻辑在 Provider 中，AiAgentService 只做委托
+2. **OpenClawMcpProvider 同时支持 skillMode=true 和 false**：通过 `openclaw.skill-mode` 一键切回旧方案，零风险
+3. **MCP Server 和 Skill 文件不打包进 Java JAR**：它们部署在 OpenClaw Gateway 侧，Java 端只负责发 HTTP 请求
+4. **默认 provider 仍为 `llm`**：新部署不需要 OpenClaw 即可运行；生产环境推荐 `mcp`
+
+### 11.4 BitableDirectiveBuilder 在 MCP 模式下的处理
+
+- `skillMode=true` 时：**不调用** `BitableDirectiveBuilder`——多维表数据由 `feishu-bitable` MCP Server 直接读取，Skill 定义了调用步骤
+- `skillMode=false` 时：保留调用 `BitableDirectiveBuilder`（兼容旧方案）
+
+MCP 模式下 `BitableDirectiveBuilder` 的 `appliesTo()` 结果仍可传入 `analyzePreviousProgress` 的 `feishuMultitableDirective` 参数，但 `OpenClawMcpProvider` 在 `skillMode=true` 时忽略该参数。
+
+### 11.5 新增配置项
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `openclaw.agent.provider` | `llm` | Agent 提供者选择，新增 `mcp` 选项 |
+| `openclaw.skill-mode` | `true` | Skill 模式开关（仅 provider=mcp 时生效） |
+
+### 11.6 文件变更清单
+
+| 文件 | 类型 | 说明 |
+|------|------|------|
+| `AiAgentService.java` | 修改 | 解决 merge 冲突，保留纯门面结构 |
+| `OpenClawMcpProvider.java` | 新增 | MCP+Skill Provider 实现（HTTP API + skillMode + 双格式响应解析） |
+| `application.yml` / `application-*.yml` | 修改 | 新增 `skill-mode` 配置、`provider=mcp` 注释 |
+| `mcp-servers/feishu-bitable/index.ts` | 新增 | 飞书多维表格 MCP Server |
+| `mcp-servers/feishu-bitable/package.json` | 新增 | MCP Server 依赖声明 |
+| `mcp-servers/feishu-bitable/tsconfig.json` | 新增 | TS 编译配置 |
+| `mcp-servers/openclaw-mcp-config.yml` | 新增 | OpenClaw Gateway MCP 配置参考 |
+| `skills/progress-analysis/SKILL.md` | 新增 | 上次待办进度分析 Skill |
+| `skills/matter-progress/SKILL.md` | 新增 | 事项进度通报 Skill |
+| `skills/minute-enhancement/SKILL.md` | 新增 | 纪要优化 Skill |
+
+### 11.7 不改动的文件
+
+- `AgentProvider.java` — 接口不变，三个方法签名不变
+- `DirectLlmAgentProvider.java` — 不变
+- `OpenClawAgentProvider.java` — 不变（旧方案兼容）
+- `MeetingProgressAIEnhancer.java` — 不变
+- `MatterProgressReportService.java` — 不变
