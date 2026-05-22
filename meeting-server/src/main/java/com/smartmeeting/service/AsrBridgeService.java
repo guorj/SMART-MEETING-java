@@ -3,6 +3,7 @@ package com.smartmeeting.service;
 import com.smartmeeting.api.config.AudioWebSocketHandler;
 import com.smartmeeting.asr.AsrResult;
 import com.smartmeeting.asr.XfyunRealtimeClient;
+import com.smartmeeting.config.MeetingAsrProperties;
 import com.smartmeeting.service.host.MeetingHostSessionService;
 import com.smartmeeting.service.host.RollCallAffirmationMatcher;
 import lombok.extern.slf4j.Slf4j;
@@ -45,6 +46,7 @@ public class AsrBridgeService {
     private final AudioWebSocketHandler audioWebSocketHandler;
     private final AudioCacheService audioCacheService;
     private final MeetingHostSessionService meetingHostSessionService;
+    private final MeetingAsrProperties asrProperties;
 
     private final Map<String, Integer> speakerCounters = new ConcurrentHashMap<>();
 
@@ -64,14 +66,21 @@ public class AsrBridgeService {
                             @Lazy AudioWebSocketHandler audioWebSocketHandler,
                             AudioCacheService audioCacheService,
                             TranscriptMapper transcriptMapper,
-                            @Lazy MeetingHostSessionService meetingHostSessionService) {
+                            @Lazy MeetingHostSessionService meetingHostSessionService,
+                            MeetingAsrProperties asrProperties) {
         this.xfyunClient = xfyunClient;
         this.audioWebSocketHandler = audioWebSocketHandler;
         this.audioCacheService = audioCacheService;
         this.transcriptMapper = transcriptMapper;
         this.meetingHostSessionService = meetingHostSessionService;
+        this.asrProperties = asrProperties;
 
         xfyunClient.setTranscriptCallback(this::onAsrResult);
+    }
+
+    /** 是否启用会中实时转写（由 {@code meeting.asr.realtime-enabled} 控制）。 */
+    public boolean isRealtimeEnabled() {
+        return asrProperties.isRealtimeEnabled();
     }
 
     /**
@@ -81,6 +90,10 @@ public class AsrBridgeService {
      * @return 连接成功为 true；主 ASR 非 xfyun 或连接失败为 false
      */
     public boolean startRealtimeAsr(String meetingId) {
+        if (!asrProperties.isRealtimeEnabled()) {
+            log.info("【ASR跳过】实时转写已关闭 meetingId={}", meetingId);
+            return false;
+        }
         if (!"xfyun".equals(primaryAsr)) {
             log.warn("Primary ASR is not xfyun: {}", primaryAsr);
             return false;
@@ -111,6 +124,9 @@ public class AsrBridgeService {
         }
         audioCacheService.writeAudioChunk(meetingId, pcmData);
 
+        if (!asrProperties.isRealtimeEnabled()) {
+            return;
+        }
         if (!xfyunClient.isConnected() || !meetingId.equals(xfyunClient.getCurrentMeetingId())) {
             return;
         }

@@ -67,6 +67,19 @@ public record FeishuResourceRef(
      *
      * @return 可在浏览器打开的飞书链接；无法构造时返回 {@code null}
      */
+    /**
+     * 去重键：同类型、同 token/table/view 视为同一份资料（忽略域名与 query 顺序差异）。
+     */
+    public String dedupeKey() {
+        if (kind == null || kind == FeishuResourceKind.UNKNOWN) {
+            return sourceUrl != null ? sourceUrl.trim() : "";
+        }
+        String token = primaryToken != null ? primaryToken.trim() : "";
+        String table = tableId != null ? tableId.trim() : "";
+        String view = viewId != null ? viewId.trim() : "";
+        return kind.name() + "|" + token + "|" + table + "|" + view;
+    }
+
     public String defaultOpenUrl() {
         if (hasLink()) {
             return sourceUrl.trim();

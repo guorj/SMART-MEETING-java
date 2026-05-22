@@ -27,11 +27,11 @@ public class FeishuCardBuilder {
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
-     * 构建「会议已开始」通知卡片（无「开始录音」按钮；发起人在 Web 录音页拾音）。
+     * 构建「会议已开始」通知卡片（无「开始录音」按钮；发起人在 Web 会议主页拾音）。
      *
      * @param meetingId    会议 ID
      * @param title        会议主题
-     * @param recordingUrl 备用录音页链接（可为 null）
+     * @param recordingUrl 会议主页操作员入口链接 /rec（可为 null）
      * @return 卡片 JSON 字符串
      */
     public String buildMeetingStartedNotifyCard(String meetingId, String title, String recordingUrl) {
@@ -54,14 +54,14 @@ public class FeishuCardBuilder {
         addMarkdownElement(elements, "**🆔 会议ID**：" + meetingId);
         addDividerElement(elements);
         addMarkdownElement(elements,
-                "**📱 录音**：发起人已在网页进入录音页拾音，**无需在本卡片上点击「开始录音」**。");
+                "**📱 录音**：发起人已在网页 **会议主页** 拾音（点「开始会议」同时启动录音与主持），**无需在本卡片上点击「开始录音」**。");
         addDividerElement(elements);
 
         ArrayList<String> notes = new ArrayList<>();
-        notes.add("📌 请在录音页点击「结束会议」生成纪要（飞书发「结束会议」仍为备用）");
+        notes.add("📌 请在会议主页点击「结束会议」生成纪要（飞书发「结束会议」仍为备用）");
         notes.add("⏱️ 最大录音时长4小时");
         if (recordingUrl != null && !recordingUrl.isBlank()) {
-            notes.add("✋ 备用录音页链接（同发起人 token）：" + recordingUrl);
+            notes.add("✋ 会议主页链接（操作员入口 /rec）：" + recordingUrl);
         }
         addNoteElement(elements, notes);
 
@@ -129,7 +129,7 @@ public class FeishuCardBuilder {
         addMarkdownElement(elements,
                 "**开始会议**\n发送 **开始会议** 或点菜单后，在**打开的网页**上选择会议类型；选「其他会议」时须在页面填写主题。仍可用「开始会议 1」等文字指令。\n");
         addMarkdownElement(elements,
-                "**会中与会后**\n• 录音页点「结束会议」生成纪要（飞书「结束会议」仍为备用）\n"
+                "**会中与会后**\n• 会议主页点「结束会议」生成纪要（飞书「结束会议」仍为备用）\n"
                         + "• 查看纪要 / 查看纪要 最近10条\n"
                         + "• 注册声纹 姓名:…\n");
         addNoteElement(elements, List.of(

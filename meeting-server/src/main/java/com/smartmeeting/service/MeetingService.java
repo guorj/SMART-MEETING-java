@@ -113,13 +113,22 @@ public class MeetingService {
      */
     @Transactional
     public MeetingResponse createMeeting(MeetingCreateRequest request) {
+        Integer presetForRefresh = request.getPresetTypeCode();
+        if (presetForRefresh != null && presetForRefresh >= 1 && presetForRefresh <= 5) {
+            presetAgendaDocService.refreshPresetBundle(presetForRefresh);
+        }
         meetingTypePresetService.mergeIntoCreateRequest(request);
 
         Meeting meeting = new Meeting();
         meeting.setId(UUID.randomUUID().toString());
         meeting.setTitle(request.getTitle());
         meeting.setAgenda(request.getAgenda() != null ? toJson(request.getAgenda()) : null);
-        meeting.setHostAgenda(hostAgendaItemsToJson(request.getHostAgendaItems()));
+        Integer presetCode = request.getPresetTypeCode();
+        if (presetCode != null && presetCode >= 1 && presetCode <= 5) {
+            meeting.setHostAgenda(presetAgendaDocService.syncHostAgendaForCreate(presetCode, request.getHostAgendaItems()));
+        } else {
+            meeting.setHostAgenda(hostAgendaItemsToJson(request.getHostAgendaItems()));
+        }
         meeting.setCompany(request.getCompany());
         meeting.setDepartment(request.getDepartment());
         meeting.setGroupName(request.getGroupName());

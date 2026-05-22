@@ -1,8 +1,9 @@
 ---
 name: minute-enhancement
 description: "优化会议纪要：校验初版纪要质量，补全缺失信息，标注重点待办"
+# MCP 工具全名见 mcp-servers/LARK-MCP-TOOLS.md
 allowed-tools:
-  - meeting-mysql__query
+  - meeting-mysql__query   # 仅读库；不写 meeting-mysql__insert / __update
 ---
 
 # 纪要优化

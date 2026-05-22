@@ -144,7 +144,7 @@ EXECUTE stmt_tt;
 DEALLOCATE PREPARE stmt_tt;
 
 ALTER TABLE int_matter_progress_doc_config
-    COMMENT = '会序飞书资料配置（主持页只读区 + 事项进度 legacy）';
+    COMMENT = '会序飞书资料配置（主持页外链与 OpenClaw 通报数据源）';
 
 -- -----------------------------------------------------------------------------
 -- 5. int_meeting：chat_id 扩长

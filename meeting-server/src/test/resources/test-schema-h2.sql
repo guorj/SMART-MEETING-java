@@ -142,6 +142,7 @@ CREATE TABLE int_matter_progress_doc_config (
     agenda_index         INT          NULL,
     resource_slot        INT          NOT NULL DEFAULT 0,
     feishu_doc_url       VARCHAR(2000) NULL,
+    openclaw_briefing    INT          NOT NULL DEFAULT 0,
     enabled              INT          NOT NULL DEFAULT 1,
     created_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,

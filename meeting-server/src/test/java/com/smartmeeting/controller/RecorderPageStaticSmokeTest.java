@@ -23,8 +23,8 @@ class RecorderPageStaticSmokeTest extends BaseTest {
     void recPathReturnsMergedHostShell() throws Exception {
         mockMvc.perform(get("/rec/1222b46e-7bcb-4b81-a543-cbd1000586c2"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("智能会议")))
-                .andExpect(content().string(containsString("事项进度通报")))
+                .andExpect(content().string(containsString("会议主页")))
+                .andExpect(content().string(containsString("主持模块")))
                 .andExpect(header().string("Cache-Control", containsString("no-store")));
     }
 
@@ -33,7 +33,7 @@ class RecorderPageStaticSmokeTest extends BaseTest {
     void hostPathReturnsHostHtml() throws Exception {
         mockMvc.perform(get("/host/1222b46e-7bcb-4b81-a543-cbd1000586c2"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("智能会议")))
+                .andExpect(content().string(containsString("会议主页")))
                 .andExpect(header().string("Cache-Control", containsString("no-store")));
     }
 

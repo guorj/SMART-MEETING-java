@@ -3,6 +3,8 @@ package com.smartmeeting.service.feishu;
 import com.smartmeeting.entity.MatterProgressDocConfig;
 
 import java.net.URI;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -127,7 +129,12 @@ public final class FeishuResourceResolver {
                     continue;
                 }
                 if (name.equalsIgnoreCase(part.substring(0, eq).trim())) {
-                    return part.substring(eq + 1).trim();
+                    String raw = part.substring(eq + 1).trim();
+                    try {
+                        return URLDecoder.decode(raw, StandardCharsets.UTF_8);
+                    } catch (Exception ignored) {
+                        return raw;
+                    }
                 }
             }
         } catch (Exception ignored) {

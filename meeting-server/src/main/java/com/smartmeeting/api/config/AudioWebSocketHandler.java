@@ -1,5 +1,6 @@
 package com.smartmeeting.api.config;
 
+import com.smartmeeting.config.MeetingAsrProperties;
 import com.smartmeeting.service.AsrBridgeService;
 import com.smartmeeting.service.RecordingService;
 import com.smartmeeting.util.JwtUtil;
@@ -27,6 +28,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
     private final JwtUtil jwtUtil;
     private final AsrBridgeService asrBridgeService;
     private final RecordingService recordingService;
+    private final MeetingAsrProperties asrProperties;
 
     /** 会议 ID → 当前活跃 WebSocket Session */
     private final Map<String, WebSocketSession> activeSessions = new ConcurrentHashMap<>();
@@ -43,10 +45,12 @@ public class AudioWebSocketHandler implements WebSocketHandler {
      * @param recordingService  本地录音服务
      */
     public AudioWebSocketHandler(JwtUtil jwtUtil, AsrBridgeService asrBridgeService,
-                                  RecordingService recordingService) {
+                                  RecordingService recordingService,
+                                  MeetingAsrProperties asrProperties) {
         this.jwtUtil = jwtUtil;
         this.asrBridgeService = asrBridgeService;
         this.recordingService = recordingService;
+        this.asrProperties = asrProperties;
     }
 
     /**
@@ -98,12 +102,16 @@ public class AudioWebSocketHandler implements WebSocketHandler {
                         session.getId(), meetingId));
         session.sendMessage(sessionMsg);
 
-        // 启动实时 ASR
-        boolean asrStarted = asrBridgeService.startRealtimeAsr(meetingId);
-        if (asrStarted) {
-            sendText(session, "{\"type\":\"asr_started\",\"provider\":\"xfyun\"}");
+        // 启动实时 ASR（可由 meeting.asr.realtime-enabled 关闭）
+        if (!asrProperties.isRealtimeEnabled()) {
+            sendText(session, "{\"type\":\"asr_disabled\",\"message\":\"实时转写已关闭，仅录音\"}");
         } else {
-            sendText(session, "{\"type\":\"asr_warning\",\"message\":\"ASR 连接失败，仅缓存音频\"}");
+            boolean asrStarted = asrBridgeService.startRealtimeAsr(meetingId);
+            if (asrStarted) {
+                sendText(session, "{\"type\":\"asr_started\",\"provider\":\"xfyun\"}");
+            } else {
+                sendText(session, "{\"type\":\"asr_warning\",\"message\":\"ASR 连接失败，仅缓存音频\"}");
+            }
         }
 
         // 开始录音

@@ -21,9 +21,6 @@ meeting:
     enabled: false
   audio:
     cache-dir: ./test-data/audio
-  matter-progress:
-    allow-classpath-fallback: true
-
 # ============================================================
 # AI Agent 配置（测试环境禁用 OpenClaw，走 LLM 降级）
 # ============================================================
@@ -31,9 +28,4 @@ openclaw:
   enabled: false
   agent:
     provider: llm
-  # 测试环境不启用 Skill 模式
   skill-mode: false
-  cli:
-    agent-name: JQClaw
-    profile: clone-boss
-    state-dir:

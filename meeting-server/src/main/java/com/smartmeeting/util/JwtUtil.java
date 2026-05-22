@@ -255,12 +255,22 @@ public class JwtUtil {
     /**
      * 校验任意有效会议页令牌（含个人入会链接，只读场景）。
      *
+     * <p>{@code type} 仅允许 {@link #TYPE_RECORDING}、{@link #TYPE_HOST}、{@link #TYPE_JOIN}；
+     * 缺省或其它值（如 admin）拒绝。
+     *
      * @param token     JWT 字符串
      * @param meetingId 期望的会议 ID
      * @throws BusinessException 校验失败时抛出
      */
     public void verifyRecordingPageToken(String token, String meetingId) {
-        parseParticipantMeetingToken(token, meetingId);
+        ParticipantMeetingToken t = parseParticipantMeetingToken(token, meetingId);
+        String pageType = t.pageType();
+        if (pageType != null && !pageType.isBlank()
+                && !TYPE_RECORDING.equals(pageType)
+                && !TYPE_HOST.equals(pageType)
+                && !TYPE_JOIN.equals(pageType)) {
+            throw new BusinessException(403, "令牌类型不允许访问该页面");
+        }
     }
 
     /**

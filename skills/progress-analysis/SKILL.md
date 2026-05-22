@@ -1,10 +1,11 @@
 ---
 name: progress-analysis
 description: "综合管理会会前进度通报：读取飞书多维表格与MySQL待办数据，交叉分析输出JSON"
+# MCP 工具全名见 mcp-servers/LARK-MCP-TOOLS.md
 allowed-tools:
-  - feishu-bitable__read_bitable_rows
-  - feishu-bitable__list_bitable_fields
-  - meeting-mysql__query
+  - lark-mcp__bitable_v1_appTableField_list      # bitable.v1.appTableField.list — 字段结构
+  - lark-mcp__bitable_v1_appTableRecord_search   # bitable.v1.appTableRecord.search — 读表记录
+  - meeting-mysql__query                         # SQL 查 int_meeting_todo 统计
 ---
 
 # 上次待办进度分析
@@ -26,9 +27,10 @@ delayedItems=（可选）延期项详情
 
 ## 执行步骤
 
-1. **读取飞书多维表格**
-   - 调用 `feishu-bitable__list_bitable_fields` 获取字段结构
-   - 调用 `feishu-bitable__read_bitable_rows` 读取「📋综合管理事项代办清单」全部记录
+1. **读取飞书多维表格**（lark-mcp，bot 身份）
+   - 从综合管理会多维表 URL 或业务上下文解析 `app_token`、`table_id`
+   - 调用 `lark-mcp__bitable_v1_appTableField_list`：path 参数 `app_token`、`table_id`，获取字段结构
+   - 调用 `lark-mcp__bitable_v1_appTableRecord_search`：path 参数 `app_token`、`table_id`；`page_size` 建议 100（最大 500）；首次不传 `page_token`，若有 `has_more` 则用返回的 `page_token` 分页直至读完「📋综合管理事项代办清单」相关记录
    - 筛选与当前会议组相关的待办事项
 
 2. **查询 MySQL 待办统计**
@@ -71,8 +73,12 @@ delayedItems=（可选）延期项详情
 
 ## 约束
 
-- 若无法读取飞书多维表格（MCP Server 异常），在 `progress_summary` 首句标注「⚠️ 多维表数据获取失败，以下分析基于 MySQL 数据」，并仅用 MySQL 数据分析
+- 若无法读取飞书多维表格（lark-mcp 异常或权限不足），在 `progress_summary` 首句标注「⚠️ 多维表数据获取失败，以下分析基于 MySQL 数据」，并仅用 MySQL 数据分析
 - 若 MySQL 查询失败，在 `progress_summary` 首句标注「⚠️ 数据库查询失败，以下分析基于飞书多维表格数据」
 - 两个数据源均不可用时，仅基于传入的统计数据（delayed/inProgress/completed）生成框架性分析
 - `recommendations` 不超过 5 条，`focus_items` 不超过 5 条
 - 输出必须是合法 JSON，不要包含注释
+
+## Tool 名称核对
+
+完整对照表：[mcp-servers/LARK-MCP-TOOLS.md](../mcp-servers/LARK-MCP-TOOLS.md)。若 tool 不存在，执行 `openclaw --profile clone-boss mcp list` 后更新 `allowed-tools`。

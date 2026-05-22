@@ -6,9 +6,7 @@ import com.smartmeeting.entity.Meeting;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.RestTemplate;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -16,7 +14,7 @@ import java.util.Map;
 /**
  * OpenClaw MCP+Skill 方式的 AgentProvider 实现。
  *
- * <p>通过 OpenClaw Gateway HTTP API（{@code POST /api/v1/sessions/send}）与 Agent 交互，
+ * <p>通过 OpenClaw Gateway WebSocket RPC（{@code chat.send}）与 Agent 交互，
  * 支持 Skill 模式（精简 prompt）和传统模式（完整 prompt）。
  *
  * <p>由配置 {@code openclaw.agent.provider=mcp} 激活。
@@ -38,7 +36,7 @@ import java.util.Map;
 @ConditionalOnProperty(name = "openclaw.agent.provider", havingValue = "mcp")
 public class OpenClawMcpProvider implements AgentProvider {
 
-    private final RestTemplate restTemplate;
+    private final OpenClawGatewayWsClient gatewayWsClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${openclaw.enabled:false}")
@@ -53,17 +51,18 @@ public class OpenClawMcpProvider implements AgentProvider {
     @Value("${openclaw.auth-token:}")
     private String authToken;
 
+    /** 可选：已配对设备的 deviceToken，用于跨机 WebSocket 写入（否则请用 127.0.0.1 Gateway） */
+    @Value("${openclaw.device-token:}")
+    private String deviceToken;
+
     @Value("${openclaw.timeout-seconds:60}")
     private int timeoutSeconds;
 
     @Value("${openclaw.skill-mode:true}")
     private boolean skillMode;
 
-    @Value("${openclaw.cli.agent-name:JQClaw}")
-    private String agentName;
-
-    public OpenClawMcpProvider(RestTemplate restTemplate) {
-        this.restTemplate = restTemplate;
+    public OpenClawMcpProvider(OpenClawGatewayWsClient gatewayWsClient) {
+        this.gatewayWsClient = gatewayWsClient;
     }
 
     // ========== analyzePreviousProgress ==========
@@ -105,6 +104,14 @@ public class OpenClawMcpProvider implements AgentProvider {
 
     @Override
     public String runMatterProgressReport(Meeting meeting, String bitableDirective) {
+        return runMatterProgressReport(meeting, bitableDirective, null, null);
+    }
+
+    @Override
+    public String runMatterProgressReport(Meeting meeting,
+                                          String bitableDirective,
+                                          String feishuUrl,
+                                          String agendaTitle) {
         if (!isAvailable()) {
             log.info("OpenClaw MCP Provider disabled or misconfigured, skip matter progress");
             return null;
@@ -114,9 +121,18 @@ public class OpenClawMcpProvider implements AgentProvider {
         if (skillMode) {
             prompt = buildSkillPrompt("matter-progress", map -> {
                 map.put("meetingId", meeting.getId());
-                map.put("title", meeting.getTitle());
-                map.put("company", meeting.getCompany());
-                map.put("groupName", meeting.getGroupName());
+                map.put("title", meeting.getTitle() != null ? meeting.getTitle() : "");
+                map.put("company", meeting.getCompany() != null ? meeting.getCompany() : "");
+                map.put("groupName", meeting.getGroupName() != null ? meeting.getGroupName() : "");
+                if (bitableDirective != null && !bitableDirective.isBlank()) {
+                    map.put("bitableHint", bitableDirective.trim());
+                }
+                if (feishuUrl != null && !feishuUrl.isBlank()) {
+                    map.put("feishuUrl", feishuUrl.trim());
+                }
+                if (agendaTitle != null && !agendaTitle.isBlank()) {
+                    map.put("agendaTitle", agendaTitle.trim());
+                }
             });
         } else {
             if (bitableDirective == null || bitableDirective.isBlank()) {
@@ -170,7 +186,9 @@ public class OpenClawMcpProvider implements AgentProvider {
 
     @Override
     public boolean isAvailable() {
-        return enabled && gatewayUrl != null && !gatewayUrl.isBlank();
+        boolean hasAuth = (authToken != null && !authToken.isBlank())
+                || (deviceToken != null && !deviceToken.isBlank());
+        return enabled && gatewayUrl != null && !gatewayUrl.isBlank() && hasAuth;
     }
 
     // ========== Gateway HTTP 调用 ==========
@@ -183,97 +201,23 @@ public class OpenClawMcpProvider implements AgentProvider {
      * @return Agent 回复文本；失败时返回 {@code null}
      */
     private String callGateway(String prompt, String taskType) {
-        log.info("OpenClaw MCP call: taskType={}, skillMode={}, promptLength={}",
-                taskType, skillMode, prompt.length());
+        log.info("OpenClaw MCP call: taskType={}, skillMode={}, gateway={}, promptLength={}",
+                taskType, skillMode, gatewayUrl, prompt.length());
 
-        try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            if (authToken != null && !authToken.isBlank()) {
-                headers.set("Authorization", "Bearer " + authToken);
-            }
-
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("sessionKey", sessionKey);
-            body.put("message", prompt);
-
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-            String endpoint = gatewayUrl.replaceAll("/$", "") + "/api/v1/sessions/send";
-
-            ResponseEntity<String> resp = restTemplate.exchange(
-                    endpoint, HttpMethod.POST, request, String.class);
-
-            return parseAgentReply(resp.getBody(), taskType);
-
-        } catch (Exception e) {
-            log.error("OpenClaw MCP call failed: taskType={}, error={}", taskType, e.getMessage());
+        String body = gatewayWsClient.sendChatMessage(
+                gatewayUrl, authToken, deviceToken, sessionKey, prompt, timeoutSeconds);
+        if (body == null || body.isBlank()) {
+            log.warn("OpenClaw MCP empty/failed response: taskType={}", taskType);
             return null;
         }
-    }
-
-    /**
-     * 解析 Agent 回复，同时兼容 CLI JSON 和 HTTP API 两种格式。
-     *
-     * <ul>
-     *   <li>CLI 格式：{@code {"status":"ok","result":{"payloads":[{"text":"..."}]}}}</li>
-     *   <li>HTTP 格式：{@code {"reply":"..."}} / {@code {"content":"..."}} /
-     *       {@code {"message":"..."}} / {@code {"response":"..."}}</li>
-     * </ul>
-     */
-    private String parseAgentReply(String responseBody, String taskType) {
-        if (responseBody == null || responseBody.isBlank()) {
-            log.warn("OpenClaw MCP empty response: taskType={}", taskType);
+        String markdown = OpenClawReplyExtractor.extractFromBody(body);
+        if (markdown == null || markdown.isBlank()) {
+            log.warn("OpenClaw MCP could not extract text: taskType={}, bodyPrefix={}",
+                    taskType, body.length() > 120 ? body.substring(0, 120) + "…" : body);
             return null;
         }
-
-        try {
-            JsonNode json = objectMapper.readTree(responseBody);
-
-            // CLI 格式：status=ok + result.payloads[0].text
-            if (json.has("status") && "ok".equals(json.path("status").asText())) {
-                JsonNode payloads = json.path("result").path("payloads");
-                if (payloads.isArray() && payloads.size() > 0) {
-                    String text = payloads.get(0).path("text").asText();
-                    log.info("OpenClaw MCP success (CLI format): taskType={}, replyLength={}",
-                            taskType, text.length());
-                    return text;
-                }
-            }
-
-            // HTTP 格式：依次尝试 reply / content / message / response
-            for (String field : new String[]{"reply", "content", "message", "response"}) {
-                if (json.has(field) && !json.get(field).isNull()) {
-                    String text = json.get(field).asText();
-                    if (!text.isEmpty()) {
-                        log.info("OpenClaw MCP success (HTTP format, field={}): taskType={}, replyLength={}",
-                                field, taskType, text.length());
-                        return text;
-                    }
-                }
-            }
-
-            // 嵌套在 data 字段中
-            JsonNode data = json.path("data");
-            if (!data.isMissingNode() && data.isObject()) {
-                for (String field : new String[]{"reply", "content", "message", "response", "text"}) {
-                    if (data.has(field) && !data.get(field).isNull()) {
-                        String text = data.get(field).asText();
-                        if (!text.isEmpty()) {
-                            log.info("OpenClaw MCP success (data.{}): taskType={}, replyLength={}",
-                                    field, taskType, text.length());
-                            return text;
-                        }
-                    }
-                }
-            }
-
-            log.warn("OpenClaw MCP unrecognized response format: taskType={}", taskType);
-            return null;
-
-        } catch (Exception e) {
-            log.error("OpenClaw MCP response parse error: taskType={}, error={}", taskType, e.getMessage());
-            return null;
-        }
+        log.info("OpenClaw MCP success: taskType={}, replyLength={}", taskType, markdown.length());
+        return markdown;
     }
 
     // ========== Skill prompt 构建 ==========

@@ -195,23 +195,6 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(jsonPath("$.data.recordingUrl").isNotEmpty());
     }
 
-    /** 事项进度通报接口应使用 classpath 联调样例返回分析 Markdown。 */
-    @Test
-    @Order(12)
-    @DisplayName("POST /api/v1/meetings/{id}/matter-progress-report - 录音 JWT + classpath 联调样例")
-    void testMatterProgressReport() throws Exception {
-        String id = createMeetingAndGetId();
-        mockMvc.perform(post("/api/v1/meetings/{id}/start", id)).andReturn();
-        String recJwt = jwtUtil.generateToken(id, Map.of("meetingId", id, "type", "recording"));
-
-        mockMvc.perform(post("/api/v1/meetings/{id}/matter-progress-report", id)
-                        .header("Authorization", "Bearer " + recJwt))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.source").value("classpath_fallback"))
-                .andExpect(jsonPath("$.data.analysisMarkdown").isNotEmpty());
-    }
-
     private MeetingCreateRequest createRequest() {
         MeetingCreateRequest request = new MeetingCreateRequest();
         request.setTitle("控制器测试会议");

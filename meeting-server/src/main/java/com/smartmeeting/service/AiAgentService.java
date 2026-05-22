@@ -12,12 +12,12 @@ import java.util.concurrent.CompletableFuture;
  * AI Agent 调用门面。
  *
  * <p>按配置 {@code openclaw.agent.provider} 将三大 AI 增强场景委托给
- * {@link AgentProvider} 的具体实现（直调 LLM、OpenClaw CLI、OpenClaw MCP+Skill 等）。
+ * {@link AgentProvider} 的具体实现（直调 LLM、OpenClaw Gateway MCP+Skill 等）。
  *
  * <p>介入场景：
  * <ul>
  *   <li>会议开始 — 上次待办进度 JSON 分析（{@link #analyzePreviousProgress}）</li>
- *   <li>录音页 — 综合管理会事项进度 Markdown（{@link #runMatterProgressReportViaOpenclaw}）</li>
+ *   <li>主持会序 — OpenClaw 会序通报 Markdown（{@link #runAgendaBriefingViaOpenclaw}）</li>
  *   <li>纪要生成 — 初版纪要质量优化（{@link #enhanceMeetingMinutes}）</li>
  * </ul>
  */
@@ -51,12 +51,13 @@ public class AiAgentService {
     }
 
     /**
-     * 录音页「事项进度通报」。
-     *
-     * @return Markdown 正文；不可用或失败时返回 {@code null}
+     * 主持会序通报（附带会序飞书 URL 与标题，供 matter-progress Skill 读取指定表/文档）。
      */
-    public String runMatterProgressReportViaOpenclaw(Meeting meeting, String bitableDirective) {
-        return provider.runMatterProgressReport(meeting, bitableDirective);
+    public String runAgendaBriefingViaOpenclaw(Meeting meeting,
+                                               String bitableDirective,
+                                               String feishuUrl,
+                                               String agendaTitle) {
+        return provider.runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle);
     }
 
     /**

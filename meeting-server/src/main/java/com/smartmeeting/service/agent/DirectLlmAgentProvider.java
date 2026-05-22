@@ -18,7 +18,7 @@ import java.util.Map;
  * 直调 LLM Chat Completions 的 AgentProvider 实现。
  *
  * <p>复用 {@code meeting.llm.*} 配置，将 AgentProvider 的三大场景
- * 转化为 Chat Completions 请求，不依赖 OpenClaw CLI。
+ * 转化为 Chat Completions 请求，不依赖 OpenClaw Gateway。
  *
  * <p>由配置 {@code openclaw.agent.provider=llm} 激活；
  * 当 {@code openclaw.agent.provider} 未配置时也默认激活（{@code matchIfMissing}）。

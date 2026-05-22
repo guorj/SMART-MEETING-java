@@ -2,7 +2,6 @@ package com.smartmeeting.api.controller;
 
 import com.smartmeeting.api.dto.AgendaDocContentResponse;
 import com.smartmeeting.api.dto.ApiResponse;
-import com.smartmeeting.api.dto.MatterProgressReportResponse;
 import com.smartmeeting.api.dto.MinuteResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
@@ -13,7 +12,6 @@ import com.smartmeeting.service.FeishuMeetingStartCoordinator;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
-import com.smartmeeting.service.MatterProgressReportService;
 import com.smartmeeting.service.MeetingMinuteQueryService;
 import com.smartmeeting.service.MeetingRecordingSessionEndService;
 import com.smartmeeting.service.MeetingService;
@@ -31,7 +29,7 @@ import java.util.List;
  * 会议 REST 控制器。
  * <p>
  * 基础路径 {@code /api/v1/meetings}，提供会议 CRUD、飞书 Web 一键创建并启动、
- * 录音页结束会议、事项进度通报、议程文档只读拉取、纪要查询、待办与看板查询等接口。
+ * 录音页结束会议、议程文档只读拉取、纪要查询、待办与看板查询等接口。
  *
  * @see MeetingService
  * @see com.smartmeeting.api.dto.MeetingResponse
@@ -46,7 +44,6 @@ public class MeetingController {
     private final JwtUtil jwtUtil;
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
     private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
-    private final MatterProgressReportService matterProgressReportService;
     private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingMapper meetingMapper;
     private final MeetingHostSessionService meetingHostSessionService;
@@ -120,23 +117,6 @@ public class MeetingController {
         String token = bearerToken(authorization);
         jwtUtil.verifyRecordingPageToken(token, id);
         return ApiResponse.ok(meetingRecordingSessionEndService.endFromRecordingPage(id));
-    }
-
-    /**
-     * 事项进度通报：需录音页 JWT；读取 MySQL 文档配置（飞书 Docx 正文或 classpath 联调样例），调用大模型返回 Markdown。
-     *
-     * @param id            会议 ID
-     * @param authorization {@code Bearer} 录音页 JWT
-     * @return 大模型分析后的 Markdown 通报正文
-     * @throws com.smartmeeting.exception.BusinessException 凭证无效时
-     */
-    @PostMapping("/{id}/matter-progress-report")
-    public ApiResponse<MatterProgressReportResponse> matterProgressReport(
-            @PathVariable String id,
-            @RequestHeader("Authorization") String authorization) {
-        String token = bearerToken(authorization);
-        jwtUtil.verifyRecordingPageToken(token, id);
-        return ApiResponse.ok(matterProgressReportService.analyzeForMeeting(id));
     }
 
     /**

@@ -66,7 +66,7 @@ VALUES
     ('preset1-comp-agenda-03', 1, 3, 0,
      'https://ovjde0k7vc1.feishu.cn/wiki/BO4Kwdv65izpo8knLdWcr2UZns2', 1),
     ('preset1-comp-agenda-04', 1, 4, 0,
-     'https://ovjde0k7vc1.feishu.cn/base/GYoHbrmQYaPtflsUubDcjGyknGd?table=tblcukp9eKr3REi7&view=vewM1Y9Vem', 1)
+     'https://ovjde0k7vc1.feishu.cn/base/GYoHbrmQYaPtflsUubDcJGyknGd?table=tblcukp9eKr3REI7&view=vewM1Y9Vem', 1)
 ON DUPLICATE KEY UPDATE
     enabled = VALUES(enabled);
     -- feishu_doc_url：已存在行不覆盖，避免重启/重复执行种子脚本冲掉生产已配置的飞书链接

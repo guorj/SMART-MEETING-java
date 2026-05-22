@@ -1,31 +1,56 @@
-# OpenClaw Gateway MCP Server 配置参考
+# OpenClaw Gateway MCP 配置参考
 #
-# 将以下 mcpServers 合并到 ~/.openclaw/openclaw.json 的 mcpServers 字段中。
-# 环境变量需在 Gateway 启动前设置（或直接替换为实际值）。
+# 合并到 profile 配置：instances/<profile>/config/openclaw.json 或
+# ~/.openclaw-<profile>/openclaw.json 的 mcp.servers（勿用顶层 mcpServers）。
+# 工具全名表：mcp-servers/LARK-MCP-TOOLS.md
+#
+# 文档：https://documentation.openclaw.ai/gateway/configuration-reference#mcp
 
-mcpServers:
-  # 飞书多维表格 MCP Server（自定义，TypeScript 实现）
-  feishu-bitable:
-    command: node
-    args:
-      - /opt/mcp-servers/feishu-bitable/dist/index.js
-    transport: stdio
-    env:
-      FEISHU_APP_ID: ${FEISHU_APP_ID}
-      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
+mcp:
+  servers:
+    # -------------------------------------------------------------------------
+    # lark-mcp — 飞书开放平台（@larksuiteoapi/lark-mcp）
+    # 白名单 -t 仅 2 个只读多维表 API，对应 OpenClaw 工具：
+    #   lark-mcp__bitable_v1_appTableField_list   — 字段列表
+    #   lark-mcp__bitable_v1_appTableRecord_search — 记录检索/分页
+    # -------------------------------------------------------------------------
+    lark-mcp:
+      command: npx
+      args:
+        - -y
+        - "@larksuiteoapi/lark-mcp"
+        - mcp
+        - -a
+        - ${FEISHU_APP_ID}          # 与 meeting.feishu / channels.feishu 同一应用
+        - -s
+        - ${FEISHU_APP_SECRET}
+        - -t
+        # OpenAPI 白名单（逗号分隔，勿用 preset.default，以免带入写接口）
+        - bitable.v1.appTableField.list,bitable.v1.appTableRecord.search
+        - --token-mode
+        - tenant_access_token       # bot 身份读表；读用户私有数据需 user_access_token + OAuth
+        - -l
+        - zh                        # 工具描述中文
+        - -c
+        - snake                     # 注册名：bitable_v1_* → OpenClaw：lark-mcp__bitable_v1_*
 
-  # MySQL MCP Server（官方预构建包，无需自定义代码）
-  # 提供工具：query / list_tables / describe_table / insert / update
-  # 生产环境建议使用只读 MySQL 账号
-  meeting-mysql:
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-mysql"
-    transport: stdio
-    env:
-      MYSQL_HOST: ${DB_HOST}
-      MYSQL_PORT: ${DB_PORT}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: intelligence
+    # -------------------------------------------------------------------------
+    # meeting-mysql — @modelcontextprotocol/server-mysql
+    # OpenClaw 工具（生产建议 DB 只读账号，Skill 仅放行 query）：
+    #   meeting-mysql__query           — 执行 SQL（progress-analysis / minute-enhancement）
+    #   meeting-mysql__list_tables     — 列库表（未写入 Skill allowed-tools）
+    #   meeting-mysql__describe_table  — 表结构（未写入 Skill allowed-tools）
+    #   meeting-mysql__insert          — 写（未放行）
+    #   meeting-mysql__update          — 写（未放行）
+    # -------------------------------------------------------------------------
+    meeting-mysql:
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-mysql"
+      env:
+        MYSQL_HOST: ${DB_HOST}
+        MYSQL_PORT: ${DB_PORT}
+        MYSQL_USER: ${DB_USERNAME}
+        MYSQL_PASSWORD: ${DB_PASSWORD}
+        MYSQL_DATABASE: intelligence

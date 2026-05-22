@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
  * 构建「读取指定多维表」的指令文本，供 {@link com.smartmeeting.service.agent.AgentProvider} 使用：
  * <ul>
  *   <li>会开始 — 上次待办进度 JSON 分析（{@link #buildDirectiveForPreviousMeetingProgress}）</li>
- *   <li>录音页 — 事项进度通报 Markdown（{@link #buildDirectiveForRecordingMatterProgress}）</li>
+ *   <li>主持会序 — OpenClaw 会序通报 Markdown（{@link #buildDirectiveForHostAgenda}）</li>
  * </ul>
  *
  * <p>默认多维表 URL 见 {@link #DEFAULT_COMPREHENSIVE_BITABLE_URL}；
@@ -79,24 +79,28 @@ public class BitableDirectiveBuilder {
     }
 
     /**
-     * 构建「录音页 → 事项进度通报」场景的多维表指令（仅输出 Markdown 正文）。
+     * 构建「主持会序 → OpenClaw 会序通报」场景指令：读取指定会序飞书资料 URL，输出 Markdown 通报。
      *
-     * @param current 当前会议
-     * @return 多维表必读指令；不适用时返回 {@code null}
+     * @param agendaTitle 会序标题（展示用）
+     * @param feishuUrl   当前会序飞书链接（docx/wiki/base）
+     * @param feishuKind  资源类型 BASE / DOCX / WIKI 等，可为空
+     * @return 指令正文；URL 无效时返回 {@code null}
      */
-    public String buildDirectiveForRecordingMatterProgress(Meeting current) {
-        if (!appliesTo(current)) {
+    public String buildDirectiveForHostAgenda(String agendaTitle, String feishuUrl, String feishuKind) {
+        String url = feishuUrl != null ? feishuUrl.trim() : "";
+        if (url.isEmpty()) {
             return null;
         }
+        String title = agendaTitle != null ? agendaTitle.trim() : "当前会序";
+        String kind = feishuKind != null && !feishuKind.isBlank() ? feishuKind.trim() : "UNKNOWN";
         StringBuilder sb = new StringBuilder();
-        sb.append("【飞书多维表格-录音页事项进度通报】当前会议命中综合管理会策略。\n");
-        sb.append("请读取飞书多维表格 **「").append(displayName.trim()).append("」** 的当前行数据，");
-        sb.append("生成「事项进度通报」：需含概览、分项进度（列表或表格）、风险与需协调事项、下一步建议；语言简洁专业。 不含数据源信息，统计时间精确到小时级\n");
-        appendUrlHint(sb);
-        sb.append("**仅输出 Markdown 正文**，不要使用 JSON 代码块包裹全文；不要输出除通报外的闲聊。\n");
-        sb.append("若无法读取该多维表格，正文开头单独一行写：「未读取到飞书多维表格。」其后可简述原因并列出你仍能从会话中推断的要点（若有）。");
-        log.info("Bitable directive: recording matter-progress meetingId={}, preset={}",
-                current.getId(), current.getPresetTypeCode());
+        sb.append("【飞书资料-主持会序通报】请读取以下会序绑定的飞书资料并生成「事项进度通报」Markdown。\n");
+        sb.append("- 会序标题：**").append(title).append("**\n");
+        sb.append("- 资料类型：").append(kind).append("\n");
+        sb.append("资料直达链接：").append(url).append("\n");
+        sb.append("**仅输出 Markdown 正文**（含分级标题、表格或列表），突出概览、分项进度、风险与建议；不要使用 JSON 代码块包裹全文。\n");
+        sb.append("若无法读取该资料，正文开头单独一行写：「未读取到飞书资料。」并简述原因。");
+        log.info("Bitable directive: host agenda briefing title={}, kind={}", title, kind);
         return sb.toString();
     }
 

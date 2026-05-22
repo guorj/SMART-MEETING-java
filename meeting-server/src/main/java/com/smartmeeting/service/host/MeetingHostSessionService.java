@@ -67,6 +67,7 @@ public class MeetingHostSessionService {
     private final ParticipantMapper participantMapper;
     private final MeetingTypePresetMapper presetMapper;
     private final PresetAgendaDocService presetAgendaDocService;
+    private final AgendaBriefingService agendaBriefingService;
     private final MeetingHostFeishuMuteRegistry muteRegistry;
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
@@ -74,6 +75,18 @@ public class MeetingHostSessionService {
 
     @Value("${meeting.host.enabled:true}")
     private boolean hostEnabled;
+
+    @Value("${meeting.host.agenda-enabled:true}")
+    private boolean hostAgendaEnabled;
+
+    @Value("${meeting.host.tts-enabled:true}")
+    private boolean hostTtsEnabled;
+
+    @Value("${meeting.host.roll-call-enabled:true}")
+    private boolean hostRollCallEnabled;
+
+    @Value("${meeting.host.auto-roll-call-after-opening:true}")
+    private boolean hostAutoRollCallAfterOpening;
 
     @Value("${meeting.host.reminder.topic-minutes-left:3}")
     private int topicWarnMinutes;
@@ -92,6 +105,9 @@ public class MeetingHostSessionService {
     /** 线上参会人打开个人链接盘点的等待秒数，结束后进入线下逐一点名 */
     @Value("${meeting.host.roll-call.online-inventory-seconds:60}")
     private int rollCallOnlineInventorySeconds;
+
+    @Value("${meeting.host.agenda-briefing.enabled:true}")
+    private boolean agendaBriefingEnabled;
 
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
@@ -125,6 +141,7 @@ public class MeetingHostSessionService {
                                      ParticipantMapper participantMapper,
                                      MeetingTypePresetMapper presetMapper,
                                      PresetAgendaDocService presetAgendaDocService,
+                                     AgendaBriefingService agendaBriefingService,
                                      MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
@@ -133,6 +150,7 @@ public class MeetingHostSessionService {
         this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
         this.presetAgendaDocService = presetAgendaDocService;
+        this.agendaBriefingService = agendaBriefingService;
         this.muteRegistry = muteRegistry;
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
@@ -284,8 +302,10 @@ public class MeetingHostSessionService {
         runtimes.put(meetingId, rt);
 
         pushHostState(meetingId);
+        scheduleAgendaBriefingIfNeeded(meetingId);
         String openingLine = "会议开始。当前进行：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。";
-        if (canAutoStartRollCall(meeting)) {
+        boolean autoRollCall = hostAutoRollCallAfterOpening && hostRollCallEnabled && canAutoStartRollCall(meeting);
+        if (autoRollCall && hostTtsEnabled) {
             final String mid = meetingId;
             speakAsyncFutureWithDurationMs(meetingId, openingLine).thenAccept(openingDurationMs -> {
                 long waitMs = Math.max(0L, openingDurationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
@@ -297,8 +317,17 @@ public class MeetingHostSessionService {
                     }
                 }, waitMs, TimeUnit.MILLISECONDS);
             });
-        } else {
+        } else if (hostTtsEnabled) {
             speakAsync(meetingId, openingLine);
+        } else if (autoRollCall) {
+            final String mid = meetingId;
+            scheduler.schedule(() -> {
+                try {
+                    startRollCall(mid);
+                } catch (Exception e) {
+                    log.warn("Auto roll-call after host opening failed: {}", e.getMessage());
+                }
+            }, 0, TimeUnit.MILLISECONDS);
         }
     }
 
@@ -366,8 +395,10 @@ public class MeetingHostSessionService {
             speakAsync(meetingId, "本议题时间到。请点击「下一议题」继续，或继续讨论后再切换。");
         }
 
-        rollCallOnlineInventoryMaybeTimeout(meetingId, rt, now);
-        rollCallMaybeTimeout(meetingId, rt, now);
+        if (hostRollCallEnabled) {
+            rollCallOnlineInventoryMaybeTimeout(meetingId, rt, now);
+            rollCallMaybeTimeout(meetingId, rt, now);
+        }
 
         pushHostState(meetingId);
     }
@@ -454,6 +485,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 未开启主持会话
      */
     public void nextTopic(String meetingId) {
+        requireHostAgendaEnabled();
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null) {
             throw new BusinessException(400, "未开启主持会话");
@@ -476,6 +508,7 @@ public class MeetingHostSessionService {
         rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
         speakAsync(meetingId, "现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
+        scheduleAgendaBriefingIfNeeded(meetingId);
     }
 
     /**
@@ -485,6 +518,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 未开启主持会话
      */
     public void skipTopic(String meetingId) {
+        requireHostAgendaEnabled();
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null) {
             throw new BusinessException(400, "未开启主持会话");
@@ -507,6 +541,7 @@ public class MeetingHostSessionService {
         rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
         speakAsync(meetingId, "跳过当前会序。现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
+        scheduleAgendaBriefingIfNeeded(meetingId);
     }
 
     /**
@@ -517,6 +552,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 未开启会话、无进行中议题、分钟数非法等
      */
     public void extendTopicTime(String meetingId, int minutes) {
+        requireHostAgendaEnabled();
         if (!ALLOWED_TOPIC_EXTEND_MINUTES.contains(minutes)) {
             throw new BusinessException(400, "加时分钟数仅支持：1、3、5、10");
         }
@@ -545,6 +581,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 未开启主持会话、检点已在进行、会议不存在、应到名单为空等
      */
     public void startRollCall(String meetingId) {
+        requireHostRollCallEnabled();
         synchronized (lockFor(meetingId)) {
             HostRuntime rt = runtimes.get(meetingId);
             if (rt == null) {
@@ -619,6 +656,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 未开启会话、当前不在检点点名中、当前人非 PENDING 等
      */
     public void skipCurrentRollCall(String meetingId) {
+        requireHostRollCallEnabled();
         synchronized (lockFor(meetingId)) {
             HostRuntime rt = runtimes.get(meetingId);
             if (rt == null) {
@@ -901,7 +939,7 @@ public class MeetingHostSessionService {
         if (code == null || code < 1 || code > 5) {
             throw new BusinessException(400, "会议检点需使用会务类型 1～5，以便从预设读取应到名单");
         }
-        MeetingTypePreset preset = presetMapper.selectById(code);
+        MeetingTypePreset preset = presetAgendaDocService.getPresetCached(code);
         if (preset == null) {
             throw new BusinessException(400, "未找到会务预设: " + code);
         }
@@ -1148,22 +1186,22 @@ public class MeetingHostSessionService {
         if (body != null && body.getItems() != null && !body.getItems().isEmpty()) {
             return topicsFromDtos(body.getItems());
         }
-        // preset_type_code 1-5：仅按 code 读 int_meeting_type_preset.host_agenda，再回退本会 host_agenda
+        // 本会 host_agenda 为创建时快照（含飞书绑定），优先于预设模板
+        List<HostTopic> fromOwn = topicsFromHostAgendaJson(meeting.getHostAgenda(), true);
+        if (!fromOwn.isEmpty()) {
+            return fromOwn;
+        }
         Integer presetCode = meeting.getPresetTypeCode();
         if (presetCode != null && presetCode >= 1 && presetCode <= 5) {
-            MeetingTypePreset preset = presetMapper.selectById(presetCode);
+            MeetingTypePreset preset = presetAgendaDocService.getPresetCached(presetCode);
             if (preset != null) {
-                List<HostTopic> fromPreset = topicsFromHostAgendaJson(preset.getHostAgenda());
+                List<HostTopic> fromPreset = topicsFromHostAgendaJson(preset.getHostAgenda(), true);
                 if (!fromPreset.isEmpty()) {
                     return fromPreset;
                 }
             }
         }
-        List<HostTopic> fromOwn = topicsFromHostAgendaJson(meeting.getHostAgenda());
-        if (!fromOwn.isEmpty()) {
-            return fromOwn;
-        }
-        List<HostTopic> fromDefaultJson = topicsFromHostAgendaJson(HostAgendaConstants.DEFAULT_HOST_AGENDA_JSON);
+        List<HostTopic> fromDefaultJson = topicsFromHostAgendaJson(HostAgendaConstants.DEFAULT_HOST_AGENDA_JSON, true);
         if (!fromDefaultJson.isEmpty()) {
             return fromDefaultJson;
         }
@@ -1207,10 +1245,11 @@ public class MeetingHostSessionService {
     /**
      * 解析 DB 中 {@code {"items":[...]}} 形态的 host_agenda JSON。
      *
-     * @param hostAgendaStr JSON 字符串，可为 null 或空白
+     * @param hostAgendaStr      JSON 字符串，可为 null 或空白
+     * @param includeFeishuBindings 是否解析 feishuDocUrl/feishuDocs；本会快照与预设模板传 true
      * @return 解析出的议题列表；解析失败或空数组时返回可变的空列表
      */
-    private List<HostTopic> topicsFromHostAgendaJson(String hostAgendaStr) {
+    private List<HostTopic> topicsFromHostAgendaJson(String hostAgendaStr, boolean includeFeishuBindings) {
         List<HostTopic> out = new ArrayList<>();
         if (hostAgendaStr == null || hostAgendaStr.isBlank()) {
             return out;
@@ -1233,23 +1272,25 @@ public class MeetingHostSessionService {
                     if (!detail.isEmpty()) {
                         t.detail = detail;
                     }
-                    JsonNode docsArr = n.path("feishuDocs");
-                    if (docsArr.isArray() && docsArr.size() > 0) {
-                        for (JsonNode d : docsArr) {
-                            appendDocNodeToTopic(t, d);
-                        }
-                    } else {
-                        String docUrl = n.path("feishuDocUrl").asText("").trim();
-                        if (docUrl.isEmpty()) {
-                            String legacyId = n.path("feishuDocToken").asText("").trim();
-                            docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
-                            if (docUrl == null) {
-                                docUrl = "";
+                    if (includeFeishuBindings) {
+                        JsonNode docsArr = n.path("feishuDocs");
+                        if (docsArr.isArray() && docsArr.size() > 0) {
+                            for (JsonNode d : docsArr) {
+                                appendDocNodeToTopic(t, d);
                             }
-                        }
-                        if (!docUrl.isEmpty()) {
-                            t.feishuDocUrl = docUrl;
-                            applyFeishuRefToHostTopic(t);
+                        } else {
+                            String docUrl = n.path("feishuDocUrl").asText("").trim();
+                            if (docUrl.isEmpty()) {
+                                String legacyId = n.path("feishuDocToken").asText("").trim();
+                                docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                                if (docUrl == null) {
+                                    docUrl = "";
+                                }
+                            }
+                            if (!docUrl.isEmpty()) {
+                                t.feishuDocUrl = docUrl;
+                                applyFeishuRefToHostTopic(t);
+                            }
                         }
                     }
                     syncPrimaryUrlFromDocs(t);
@@ -1260,6 +1301,16 @@ public class MeetingHostSessionService {
             log.warn("Parse host_agenda JSON failed: {}", e.getMessage());
         }
         return out;
+    }
+
+    private static boolean topicHasFeishuBinding(HostTopic t) {
+        if (t == null) {
+            return false;
+        }
+        if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
+            return true;
+        }
+        return FeishuResourceResolver.isRecognizedFeishuDocUrl(t.feishuDocUrl);
     }
 
     /** 将单条 feishuDocUrl 解析并追加到议题的资料列表。 */
@@ -1317,9 +1368,10 @@ public class MeetingHostSessionService {
         FeishuDocBinding binding = new FeishuDocBinding();
         binding.kind = ref.kind().name();
         binding.url = openUrl != null ? openUrl : "";
-        String key = binding.kind + "|" + binding.url;
+        String key = ref.dedupeKey();
         for (FeishuDocBinding existing : t.feishuDocs) {
-            String ek = existing.kind + "|" + existing.url;
+            FeishuResourceRef exRef = FeishuResourceResolver.resolve(existing.url);
+            String ek = exRef != null ? exRef.dedupeKey() : existing.kind + "|" + existing.url;
             if (ek.equals(key)) {
                 return;
             }
@@ -1337,9 +1389,6 @@ public class MeetingHostSessionService {
         t.feishuDocUrl = first.url;
     }
 
-    /**
-     * 将 int_matter_progress_doc_config 中 preset+agenda_index 的文档合并进运行时议题（不覆盖 JSON 已填 token/url）。
-     */
     private static void sanitizeTopicsFeishuRefs(List<HostTopic> topics) {
         if (topics == null) {
             return;
@@ -1361,6 +1410,7 @@ public class MeetingHostSessionService {
         if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
             t.feishuDocs.removeIf(d -> d == null || d.url == null
                     || !FeishuResourceResolver.isRecognizedFeishuDocUrl(d.url));
+            dedupeTopicFeishuDocsByResourceKey(t);
             if (t.feishuDocs.isEmpty()) {
                 t.feishuDocs = null;
             }
@@ -1368,12 +1418,27 @@ public class MeetingHostSessionService {
         syncPrimaryUrlFromDocs(t);
     }
 
+    /** 按资源 token 合并重复槽位（同表不同域名 URL）。 */
+    private static void dedupeTopicFeishuDocsByResourceKey(HostTopic t) {
+        if (t == null || t.feishuDocs == null || t.feishuDocs.size() < 2) {
+            return;
+        }
+        List<FeishuDocBinding> unique = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (FeishuDocBinding b : t.feishuDocs) {
+            FeishuResourceRef ref = FeishuResourceResolver.resolve(b.url);
+            String key = ref != null ? ref.dedupeKey() : b.kind + "|" + b.url;
+            if (seen.add(key)) {
+                unique.add(b);
+            }
+        }
+        t.feishuDocs = unique;
+    }
+
     /**
-     * 将预设会序文档配置（int_matter_progress_doc_config）合并进运行时议题，不覆盖 JSON 已有资料。
-     *
-     * @param presetTypeCode 会务类型 1～5；其他值跳过
-     * @param topics         运行时议题列表
-     * @param meetingId      会议 ID，仅用于日志
+     * 将 {@code int_matter_progress_doc_config} 作为默认资料合并进运行时议题。
+     * <p>
+     * 若预设模板 {@code host_agenda} 或当前议题已绑定飞书（含 POST /start 显式传入），则跳过该会序的配置表行。
      */
     private void mergePresetAgendaDocs(Integer presetTypeCode, List<HostTopic> topics, String meetingId) {
         if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5) {
@@ -1385,6 +1450,7 @@ public class MeetingHostSessionService {
         if (topics == null || topics.isEmpty()) {
             return;
         }
+        presetAgendaDocService.getPresetCached(presetTypeCode);
         for (MatterProgressDocConfig cfg : presetAgendaDocService.listEnabledByPreset(presetTypeCode)) {
             if (cfg.getAgendaIndex() == null) {
                 continue;
@@ -1396,12 +1462,30 @@ public class MeetingHostSessionService {
                 continue;
             }
             HostTopic t = topics.get(idx);
+            if (presetAgendaDocService.presetTemplateDefinesFeishuForIndex(presetTypeCode, idx)
+                    || topicHasFeishuBinding(t)) {
+                log.debug("mergePresetAgendaDocs skip agenda_index={} meetingId={}: preset host_agenda or runtime feishu",
+                        idx, meetingId);
+                continue;
+            }
             FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
             if (ref == null) {
                 continue;
             }
             appendResourceRefToTopic(t, ref);
             syncPrimaryUrlFromDocs(t);
+        }
+        applyOpenclawBriefingFromConfigTable(presetTypeCode, topics);
+    }
+
+    /** 会序 OpenClaw：配置表 openclaw_briefing=1 且 feishu_doc_url 有效时为 true。 */
+    private void applyOpenclawBriefingFromConfigTable(Integer presetTypeCode, List<HostTopic> topics) {
+        if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5 || topics == null || topics.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < topics.size(); i++) {
+            topics.get(i).openclawBriefing =
+                    presetAgendaDocService.matterProgressOpenclawBriefingForAgenda(presetTypeCode, i);
         }
     }
 
@@ -1436,11 +1520,6 @@ public class MeetingHostSessionService {
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null) {
             return;
-        }
-        Meeting meeting = meetingMapper.selectById(meetingId);
-        if (meeting != null) {
-            sanitizeTopicsFeishuRefs(rt.topics);
-            mergePresetAgendaDocs(meeting.getPresetTypeCode(), rt.topics, meetingId);
         }
         try {
             ObjectNode root = buildStateNode(rt);
@@ -1478,6 +1557,12 @@ public class MeetingHostSessionService {
             o.put("detail", t.detail == null ? "" : t.detail);
             o.put("feishuDocUrl", t.feishuDocUrl == null ? "" : t.feishuDocUrl);
             o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
+            o.put("openclawBriefing", t.openclawBriefing);
+            o.put("briefingStatus", t.briefingStatus == null ? "idle" : t.briefingStatus);
+            o.put("briefingMarkdown", t.briefingMarkdown == null ? "" : t.briefingMarkdown);
+            if (t.briefingError != null && !t.briefingError.isBlank()) {
+                o.put("briefingError", t.briefingError);
+            }
             ArrayNode docsArr = o.putArray("feishuDocs");
             if (t.feishuDocs != null) {
                 for (FeishuDocBinding b : t.feishuDocs) {
@@ -1536,6 +1621,9 @@ public class MeetingHostSessionService {
      * @return PCM 按 16k s16le 估算的播放时长（毫秒），供检点 deadline 与自动下一议题等链式调度使用；失败为 0
      */
     private CompletableFuture<Long> speakAsyncFutureWithDurationMs(String meetingId, String text) {
+        if (!hostTtsEnabled) {
+            return CompletableFuture.completedFuture(0L);
+        }
         return CompletableFuture.supplyAsync(() -> {
             try {
                 byte[] pcm = ttsSynthesizeService.synthesizeToPcm(text);
@@ -1598,6 +1686,18 @@ public class MeetingHostSessionService {
      * @param meetingId   会议主键
      * @param utteranceId 与 tts_meta / chunk 相同的 UUID
      */
+    private void requireHostAgendaEnabled() {
+        if (!hostAgendaEnabled) {
+            throw new BusinessException(400, "会序推进功能未启用");
+        }
+    }
+
+    private void requireHostRollCallEnabled() {
+        if (!hostRollCallEnabled) {
+            throw new BusinessException(400, "检点功能未启用");
+        }
+    }
+
     private void broadcastTtsAudioEnd(String meetingId, String utteranceId) {
         try {
             ObjectNode end = objectMapper.createObjectNode();
@@ -1666,6 +1766,147 @@ public class MeetingHostSessionService {
         }
     }
 
+    /**
+     * 当前会序进入 RUNNING 且 {@code openclawBriefing=true} 时，异步生成 OpenClaw 通报并写入议题缓存。
+     */
+    private void scheduleAgendaBriefingIfNeeded(String meetingId) {
+        if (!agendaBriefingEnabled) {
+            return;
+        }
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null || rt.currentIndex < 0 || rt.currentIndex >= rt.topics.size()) {
+            return;
+        }
+        final int index = rt.currentIndex;
+        final HostTopic topic;
+        synchronized (lockFor(meetingId)) {
+            HostRuntime locked = runtimes.get(meetingId);
+            if (locked == null || index >= locked.topics.size()) {
+                return;
+            }
+            Meeting meeting = meetingMapper.selectById(meetingId);
+            if (meeting != null) {
+                sanitizeTopicsFeishuRefs(locked.topics);
+                mergePresetAgendaDocs(meeting.getPresetTypeCode(), locked.topics, meetingId);
+            }
+            topic = locked.topics.get(index);
+            if (!"RUNNING".equals(topic.status)) {
+                return;
+            }
+            Integer presetCode = meeting != null ? meeting.getPresetTypeCode() : null;
+            FeishuResourceRef briefingRef = presetCode != null
+                    ? presetAgendaDocService.openclawBriefingConfigRefForAgenda(presetCode, index)
+                    : null;
+            if (briefingRef == null) {
+                topic.openclawBriefing = false;
+                String reason = presetCode != null
+                        ? presetAgendaDocService.openclawBriefingIneligibleReason(presetCode, index)
+                        : "会议无 presetTypeCode";
+                log.info("Agenda OpenClaw skip meetingId={} index={} title={}: {}",
+                        meetingId, index, topic.title, reason);
+                return;
+            }
+            topic.openclawBriefing = true;
+            if ("loading".equals(topic.briefingStatus)) {
+                return;
+            }
+            if ("ready".equals(topic.briefingStatus)
+                    && topic.briefingMarkdown != null && !topic.briefingMarkdown.isBlank()) {
+                return;
+            }
+            topic.briefingStatus = "loading";
+            topic.briefingError = null;
+        }
+        pushHostState(meetingId);
+
+        final String mid = meetingId;
+        scheduler.execute(() -> runAgendaBriefingTask(mid, index));
+    }
+
+    private void runAgendaBriefingTask(String meetingId, int agendaIndex) {
+        try {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null || agendaIndex < 0 || agendaIndex >= rt.topics.size()) {
+                return;
+            }
+            HostTopic topic;
+            Meeting meeting;
+            FeishuResourceRef briefingRef;
+            synchronized (lockFor(meetingId)) {
+                rt = runtimes.get(meetingId);
+                if (rt == null || agendaIndex >= rt.topics.size()) {
+                    return;
+                }
+                topic = rt.topics.get(agendaIndex);
+                if (!topic.openclawBriefing) {
+                    return;
+                }
+                meeting = meetingMapper.selectById(meetingId);
+                if (meeting == null || meeting.getPresetTypeCode() == null) {
+                    return;
+                }
+                sanitizeTopicsFeishuRefs(rt.topics);
+                mergePresetAgendaDocs(meeting.getPresetTypeCode(), rt.topics, meetingId);
+                topic = rt.topics.get(agendaIndex);
+                if (!topic.openclawBriefing) {
+                    return;
+                }
+                briefingRef = presetAgendaDocService.openclawBriefingConfigRefForAgenda(
+                        meeting.getPresetTypeCode(), agendaIndex);
+                if (briefingRef == null) {
+                    String reason = presetAgendaDocService.openclawBriefingIneligibleReason(
+                            meeting.getPresetTypeCode(), agendaIndex);
+                    topic.briefingStatus = "failed";
+                    topic.briefingError = reason != null ? reason : "OpenClaw 配置未满足条件";
+                    topic.openclawBriefing = false;
+                    pushHostState(meetingId);
+                    log.warn("Agenda OpenClaw aborted meetingId={} index={}: {}", meetingId, agendaIndex, reason);
+                    return;
+                }
+            }
+            String url = briefingRef.sourceUrl() != null ? briefingRef.sourceUrl() : "";
+            String kind = briefingRef.kind() != null ? briefingRef.kind().name() : "";
+            log.info("Agenda OpenClaw invoke meetingId={} index={} title={} url={}",
+                    meetingId, agendaIndex, topic.title, url.length() > 80 ? url.substring(0, 80) + "…" : url);
+            AgendaBriefingResult result = agendaBriefingService.generateBriefing(
+                    meetingId, topic.title, url, kind);
+
+            synchronized (lockFor(meetingId)) {
+                rt = runtimes.get(meetingId);
+                if (rt == null || agendaIndex >= rt.topics.size()) {
+                    return;
+                }
+                HostTopic t = rt.topics.get(agendaIndex);
+                if (!t.openclawBriefing) {
+                    return;
+                }
+                if (result.isSuccess()) {
+                    t.briefingStatus = "ready";
+                    t.briefingMarkdown = result.getMarkdown();
+                    t.briefingError = null;
+                } else {
+                    t.briefingStatus = "failed";
+                    t.briefingMarkdown = null;
+                    t.briefingError = result.getErrorMessage() != null
+                            ? result.getErrorMessage()
+                            : "会序通报生成失败";
+                }
+            }
+            pushHostState(meetingId);
+        } catch (Exception e) {
+            log.warn("Agenda briefing task failed meetingId={} index={}: {}", meetingId, agendaIndex, e.getMessage());
+            synchronized (lockFor(meetingId)) {
+                HostRuntime rt = runtimes.get(meetingId);
+                if (rt != null && agendaIndex >= 0 && agendaIndex < rt.topics.size()) {
+                    HostTopic t = rt.topics.get(agendaIndex);
+                    t.briefingStatus = "failed";
+                    t.briefingError = e.getMessage() != null ? e.getMessage() : "会序通报生成异常";
+                }
+            }
+            pushHostState(meetingId);
+        }
+    }
+
     /** 主持议程一项（来自 JSON 或开始请求） */
     private static final class HostTopic {
         /** 会序标题 */
@@ -1682,6 +1923,12 @@ public class MeetingHostSessionService {
         String feishuDocKind;
         /** 同一会序多条飞书资料 */
         List<FeishuDocBinding> feishuDocs;
+        /** 进入 RUNNING 时是否触发 OpenClaw 会序通报 */
+        boolean openclawBriefing;
+        /** idle / loading / ready / failed */
+        String briefingStatus = "idle";
+        String briefingMarkdown;
+        String briefingError;
     }
 
     private static final class FeishuDocBinding {

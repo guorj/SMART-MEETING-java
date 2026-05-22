@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>智能会议</title>
+    <title>智能会议 · 录音（旧版入口）</title>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f5f5f5;color:#333;min-height:100vh}
@@ -44,34 +44,6 @@
         .placeholder{color:#aaa;text-align:center;padding:20px}
         .notice{background:#fff3cd;color:#856404;border-radius:8px;padding:12px;margin-top:12px;font-size:13px}
         .error-banner{background:#ffebee;color:#c62828;border-radius:8px;padding:12px;margin-top:12px;font-size:13px;display:none}
-        /* 事项进度通报：Markdown 渲染区 */
-        .md-body{font-size:14px;line-height:1.6;color:#333;white-space:normal;word-break:break-word}
-        .md-body h1{font-size:1.35rem;margin:12px 0 8px;font-weight:700}
-        .md-body h2{font-size:1.2rem;margin:14px 0 8px;font-weight:700;border-bottom:1px solid #eee;padding-bottom:4px}
-        .md-body h3{font-size:1.05rem;margin:10px 0 6px;font-weight:600}
-        .md-body p{margin:8px 0}
-        .md-body ul,.md-body ol{margin:8px 0;padding-left:1.35rem}
-        .md-body li{margin:4px 0}
-        .md-body hr{border:none;border-top:1px solid #e0e0e0;margin:14px 0}
-        .md-body table{width:100%;border-collapse:collapse;font-size:13px;margin:10px 0;display:table}
-        .md-body th,.md-body td{border:1px solid #ddd;padding:8px 6px;text-align:left;vertical-align:top}
-        .md-body th{background:#f5f5f5;font-weight:600}
-        .md-body tr:nth-child(even) td{background:#fafafa}
-        .md-body code,.md-body pre{font-family:ui-monospace,Consolas,monospace;font-size:12px}
-        .md-body pre{background:#f5f5f5;padding:10px;border-radius:8px;overflow-x:auto;margin:8px 0}
-        .md-body code{background:#f0f0f0;padding:1px 5px;border-radius:4px}
-        .md-body pre code{background:transparent;padding:0}
-        .md-body blockquote{border-left:4px solid #1976d2;margin:8px 0;padding:4px 0 4px 12px;color:#555;background:#f9fcff}
-        .md-body a{color:#1565c0}
-        /* 事项进度通报标题行 + 语音播报 */
-        .progress-report-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
-        .progress-report-head h2{margin:0;flex:1;font-size:16px}
-        .tts-btn{flex-shrink:0;width:44px;height:44px;border:none;border-radius:10px;background:#e3f2fd;color:#1565c0;font-size:20px;line-height:1;cursor:pointer;transition:background .2s,transform .15s}
-        .tts-btn:hover:not(:disabled){background:#bbdefb}
-        .tts-btn:active:not(:disabled){transform:scale(.96)}
-        .tts-btn:disabled{opacity:.45;cursor:not-allowed}
-        .tts-btn.tts-playing{background:#1565c0;color:#fff;animation:tts-pulse 1.2s ease-in-out infinite}
-        @keyframes tts-pulse{0%,100%{opacity:1}50%{opacity:.72}}
         /* 会序飞书资料链接 */
         .agenda-feishu-section{margin-top:16px}
         .agenda-feishu-item{padding:12px 0;border-bottom:1px solid #f0f0f0}
@@ -88,6 +60,7 @@
         <header class="header">
             <h1>🎙️ 智能会议</h1>
             <p class="meeting-title" id="meetingTitle">加载中...</p>
+            <p class="notice" style="margin-top:8px;text-align:center">此为旧版纯录音页。请从飞书打开<strong>会议主页</strong>链接（/rec 或 /host）。</p>
         </header>
 
         <main class="main">
@@ -115,17 +88,6 @@
                 <div id="agendaFeishuBody"></div>
             </div>
 
-            <div class="transcript-section" id="progressReportSection" style="margin-top:16px;display:none">
-                <div class="progress-report-head">
-                    <h2>📊 事项进度通报（AI）</h2>
-                    <button type="button" class="tts-btn" id="progressReportTtsBtn" title="语音播报" aria-label="语音播报" disabled onclick="toggleProgressReportTts()">🔊</button>
-                </div>
-                <div style="margin-bottom:10px">
-                    <button type="button" class="btn btn-secondary" id="loadProgressReportBtn" onclick="loadMatterProgressReport()" style="width:100%;padding:10px">生成 AI 事项进度通报</button>
-                </div>
-                <div class="transcript-list md-body" id="progressReportBody" style="max-height:420px"></div>
-            </div>
-
             <div class="transcript-section" id="transcriptSection" style="display:none;margin-top:16px">
                 <h2>📝 实时转写</h2>
                 <div class="transcript-list" id="transcriptList">
@@ -144,8 +106,6 @@
     </div>
 
     <!-- 发版改静态 JS：同步改下面 ?v= 与 static/recorder.js 内 SM_STATIC_ASSET_V -->
-    <script src="/static/vendor/marked.min.js?v=sm-20260512-5"></script>
-    <script src="/static/vendor/purify.min.js?v=sm-20260512-5"></script>
     <script src="/static/recorder.js?v=sm-20260512-5"></script>
     <script>
     /**
@@ -177,76 +137,6 @@
         banner.style.display = msg ? 'block' : 'none';
     }
 
-    /** 将事项进度通报 Markdown 安全渲染为 HTML（依赖 static/vendor 下的 marked + DOMPurify） */
-    function renderProgressMarkdown(el, markdown) {
-        const text = markdown == null ? '' : String(markdown);
-        el.className = 'transcript-list md-body';
-        if (typeof marked !== 'undefined' && typeof DOMPurify !== 'undefined') {
-            try {
-                const rawHtml = marked.parse(text, { breaks: true, gfm: true, mangle: false, headerIds: false });
-                el.innerHTML = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
-                return;
-            } catch (err) {
-                console.warn('Markdown render failed', err);
-            }
-        }
-        el.textContent = text;
-    }
-
-    function setProgressReportTtsEnabled(on) {
-        const btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.disabled = !on;
-    }
-
-    function stopProgressReportTts() {
-        if (window.speechSynthesis) {
-            try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
-        }
-        const btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.classList.remove('tts-playing');
-    }
-
-    function pickZhVoice() {
-        const syn = window.speechSynthesis;
-        if (!syn) return null;
-        const voices = syn.getVoices() || [];
-        return voices.find(function (v) { return v.lang && /^zh/i.test(v.lang); })
-            || voices.find(function (v) { return v.lang && /CN|TW|HK/i.test(v.lang); })
-            || null;
-    }
-
-    /** 语音播报事项进度（用 innerText，与 Markdown 渲染结果一致）；再点一次停止 */
-    function toggleProgressReportTts() {
-        const syn = window.speechSynthesis;
-        if (!syn) {
-            showError('当前浏览器不支持语音播报');
-            return;
-        }
-        if (syn.speaking || syn.pending) {
-            stopProgressReportTts();
-            return;
-        }
-        const body = document.getElementById('progressReportBody');
-        const text = (body && body.innerText ? body.innerText : '').replace(/\s+/g, ' ').trim();
-        if (!text || text.indexOf('智能体正在生成') !== -1) {
-            showError('暂无播报内容，请等待通报生成完成');
-            return;
-        }
-        const u = new SpeechSynthesisUtterance(text);
-        u.lang = 'zh-CN';
-        u.rate = 0.92;
-        const v = pickZhVoice();
-        if (v) u.voice = v;
-        u.onend = function () {
-            const btn = document.getElementById('progressReportTtsBtn');
-            if (btn) btn.classList.remove('tts-playing');
-        };
-        u.onerror = u.onend;
-        const btn = document.getElementById('progressReportTtsBtn');
-        if (btn) btn.classList.add('tts-playing');
-        syn.speak(u);
-    }
-
     document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('meetingTitle').textContent = meetingId ? `会议: ${meetingId.substring(0,12)}...` : '会议ID: 未知';
 
@@ -266,10 +156,6 @@
             showError('录音链接无效，请从飞书机器人重新获取');
         } else {
             loadMeetingAgendaFeishuLinks();
-        }
-
-        if (window.speechSynthesis) {
-            window.speechSynthesis.onvoiceschanged = function () { pickZhVoice(); };
         }
 
         // 初始化波形canvas
@@ -422,43 +308,10 @@
             const j = await res.json();
             if (j.code !== 0 || !j.data) throw new Error(j.message || '加载会议失败');
             renderAgendaFeishuLinks(j.data.hostAgendaItems || []);
-            var sec = document.getElementById('progressReportSection');
-            if (sec) sec.style.display = 'block';
         } catch (e) {
             var hint = document.getElementById('agendaFeishuHint');
             if (hint) hint.textContent = '会序资料加载失败：' + (e.message || e);
             showError('会序资料加载失败：' + (e.message || e));
-        }
-    }
-
-    async function loadMatterProgressReport() {
-        if (!token || !meetingId) {
-            showError('录音链接无效');
-            return;
-        }
-        const sec = document.getElementById('progressReportSection');
-        const body = document.getElementById('progressReportBody');
-        if (sec) sec.style.display = 'block';
-        body.className = 'transcript-list md-body';
-        body.textContent = '智能体正在生成待办进度通报，请稍候…';
-        setProgressReportTtsEnabled(false);
-        stopProgressReportTts();
-        try {
-            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/matter-progress-report', {
-                method: 'POST',
-                headers: { 'Authorization': 'Bearer ' + token }
-            });
-            const j = await res.json();
-            if (j.code !== 0) throw new Error(j.message || '分析失败');
-            const md = (j.data && j.data.analysisMarkdown) ? j.data.analysisMarkdown : '';
-            renderProgressMarkdown(body, md);
-            setProgressReportTtsEnabled(!!String(md || '').trim());
-            sec.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        } catch (e) {
-            body.innerHTML = '';
-            body.textContent = '';
-            setProgressReportTtsEnabled(false);
-            showError('事项进度通报失败：' + (e.message || e));
         }
     }
 

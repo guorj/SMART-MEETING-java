@@ -8,7 +8,7 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      # - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
 
   datasource:
     url: jdbc:mysql://60.205.1.17:3306/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
@@ -100,24 +100,21 @@ meeting:
     frontend-ws-close-timeout: 5
 
 # ============================================================
-# AI Agent 配置（策略模式：llm / openclaw / mcp）
+# AI Agent 配置（策略模式：llm / mcp）
 # 生产环境推荐 provider: mcp（需部署 OpenClaw Gateway + MCP Server）
 # 若未部署 Gateway，保持默认 llm 即可
 # ============================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:false}
+  enabled: ${OPENCLAW_ENABLED:true}
   agent:
-    provider: ${OPENCLAW_AGENT_PROVIDER:llm}
-  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+    provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
+  # 与 Gateway 同机部署时用 127.0.0.1（可获得 operator.write）；跨机请配 device-token
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
+  device-token: ${OPENCLAW_DEVICE_TOKEN:}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
-  auth-token: ${OPENCLAW_AUTH_TOKEN:}
-  # Skill 模式开关（仅 provider=mcp 时生效）；生产环境推荐开启
+  timeout-seconds: ${OPENCLAW_TIMEOUT:120}
+  auth-token: ${OPENCLAW_AUTH_TOKEN:49a4395d662298ec7c4efa2d038411ae3aceb41bd4912271}
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  cli:
-    agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
-    profile: ${OPENCLAW_CLI_PROFILE:clone-boss}
-    state-dir: ${OPENCLAW_CLI_STATE_DIR:}
 
 logging:
   level:

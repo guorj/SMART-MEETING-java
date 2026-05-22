@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS int_meeting (
     id                   VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '会议UUID',
     title                VARCHAR(200) NOT NULL COMMENT '会议主题',
     agenda               JSON         NULL     COMMENT '会务议程：JSON 字符串数组',
-    host_agenda          JSON         NULL     COMMENT 'AI主持：{"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?}]}',
+    host_agenda          JSON         NULL     COMMENT 'AI主持：{"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?,"openclawBriefing"?}]}',
     company              VARCHAR(200) NOT NULL COMMENT '所属集团',
     department           VARCHAR(200) NULL     COMMENT '集团部门',
     group_name           VARCHAR(200) NOT NULL COMMENT '会议组',
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
     organizer_name       VARCHAR(100) NULL     COMMENT '组织人',
     leader_name          VARCHAR(100) NULL     COMMENT '会议主导',
     participants_names   TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔',
-    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes"},...]}'
+    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes","openclawBriefing"?},...]}'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设';
 
 CREATE TABLE IF NOT EXISTS int_meeting_participant (
@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
     agenda_index     INT UNSIGNED  NULL     COMMENT 'host_agenda.items 下标（0-based）',
     resource_slot    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '同会序多份资料槽位 0,1,2…',
     feishu_doc_url   VARCHAR(2000) NULL     COMMENT '飞书链接：/docx/、/wiki/、/base/?table=',
+    openclaw_briefing TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '1=该会序进入 RUNNING 时触发 OpenClaw 通报',
     enabled          TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
     created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -167,4 +168,4 @@ CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
     KEY idx_matter_progress_enabled_id (enabled, id),
     KEY idx_matter_progress_preset (preset_type_code, enabled, agenda_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会序飞书资料配置（主持页只读区 + 事项进度 legacy）';
+  COMMENT='会序飞书资料配置（主持页外链与 OpenClaw 通报数据源）';

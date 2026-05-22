@@ -44,6 +44,27 @@ class FeishuResourceResolverTest {
         assertTrue(ref.canFetchPlainText());
     }
 
+    /** 同资源不同域名 URL 的 dedupeKey 应一致。 */
+    @Test
+    void dedupeKeyIgnoresHostForSameBaseTable() {
+        FeishuResourceRef a = FeishuResourceResolver.resolve(
+                "https://ovjde0k7vc1.feishu.cn/base/GYoHbrmQYaPtflsUubDcJGyknGd?table=tblcukp9eKr3REI7&view=vewM1Y9Vem");
+        FeishuResourceRef b = FeishuResourceResolver.resolve(
+                "https://bytedance.feishu.cn/base/GYoHbrmQYaPtflsUubDcJGyknGd?table=tblcukp9eKr3REI7&view=vewM1Y9Vem");
+        assertNotNull(a);
+        assertNotNull(b);
+        assertEquals(a.dedupeKey(), b.dedupeKey());
+    }
+
+    /** query 中 table 参数支持 URL 编码。 */
+    @Test
+    void parsesBaseUrlWithEncodedTableParam() {
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(
+                "https://a.feishu.cn/base/bascnApp?table=tbl%2FXY&view=vew02");
+        assertNotNull(ref);
+        assertEquals("tbl/XY", ref.tableId());
+    }
+
     /** 解析 base URL 应提取 appToken、tableId 与 viewId。 */
     @Test
     void parsesBaseUrlWithTable() {

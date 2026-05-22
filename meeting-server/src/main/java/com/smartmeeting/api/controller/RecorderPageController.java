@@ -13,9 +13,10 @@ import java.nio.charset.StandardCharsets;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 录音 / 主持 / 入会入口页控制器。
+ * 会议主页 / 入会入口页控制器。
  * <p>
- * 提供 {@code /rec/{meetingId}}、{@code /host/{meetingId}}、{@code /join/{meetingId}} 等 HTML 入口，
+ * 提供会议主页 {@code /rec/{meetingId}}（操作员）、{@code /host/{meetingId}}（主持）、{@code /join/{meetingId}} 等 HTML 入口；
+ * {@code /rec} 与 {@code /host} 共用 {@code host-meeting.html}（录音 / 会序 / 主持三模块）。
  * 不再 forward 到 {@code /static/*.html}：否则仍套用 {@code /static/**} 的缓存周期，浏览器易长期保留旧壳。
  * 此处直接返回 HTML 并 {@code Cache-Control: no-store}，保证入口始终与 JAR 内资源一致。
  */
@@ -23,19 +24,18 @@ import java.util.concurrent.TimeUnit;
 public class RecorderPageController {
 
     /**
-     * 录音页入口（与主持页共用同一 HTML 壳）。
+     * 会议主页 · 操作员入口（{@code /rec}，JWT type=recording）。
      *
      * @param meetingId 会议 ID（路径占位，前端从 URL 解析）
      * @return classpath 下 {@code static/host-meeting.html}，不存在则 404
      */
     @GetMapping("/rec/{meetingId}")
     public ResponseEntity<Resource> recorderPage(@PathVariable @SuppressWarnings("unused") String meetingId) {
-        // 与 /host 同一壳：录音 + 议程主持 + 事项进度通报（飞书「录音链接」与「主持链接」均打开此页）
         return serveClasspathHtml("static/host-meeting.html");
     }
 
     /**
-     * AI 主持页入口（与录音页共用同一 HTML 壳）。
+     * 会议主页 · 主持入口（{@code /host}，JWT type=host；与 {@code /rec} 同页三模块）。
      *
      * @param meetingId 会议 ID（路径占位，前端从 URL 解析）
      * @return classpath 下 {@code static/host-meeting.html}，不存在则 404

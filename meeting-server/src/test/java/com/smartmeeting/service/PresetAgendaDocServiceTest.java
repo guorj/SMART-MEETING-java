@@ -1,20 +1,31 @@
 package com.smartmeeting.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.MeetingTypePreset;
+import com.smartmeeting.repository.MeetingTypePresetMapper;
+import com.smartmeeting.service.cache.MeetingPresetCacheService;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * {@link PresetAgendaDocService} 单元测试：验证预设会序文档 URL 填充与多资源槽解析。
  */
 class PresetAgendaDocServiceTest {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final MeetingPresetCacheService PRESET_CACHE = new MeetingPresetCacheService(JSON, null);
 
     /** 议题已有 URL 时不应被配置表覆盖。 */
     @Test
@@ -30,7 +41,7 @@ class PresetAgendaDocServiceTest {
         cfg.setAgendaIndex(1);
         cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
 
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, null) {
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
             @Override
             public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
                 return List.of(cfg);
@@ -52,7 +63,7 @@ class PresetAgendaDocServiceTest {
         cfg.setResourceSlot(0);
         cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
 
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, null) {
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
             @Override
             public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
                 return List.of(cfg);
@@ -76,9 +87,9 @@ class PresetAgendaDocServiceTest {
         wiki.setResourceSlot(1);
         wiki.setFeishuDocUrl("https://x.feishu.cn/wiki/wiki1");
 
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, null) {
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
             @Override
-            public List<MatterProgressDocConfig> listConfigsForAgenda(int presetTypeCode, int agendaIndex) {
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
                 return List.of(base, wiki);
             }
         };
@@ -88,10 +99,140 @@ class PresetAgendaDocServiceTest {
         assertEquals(2, refs.size());
     }
 
+    /** 拉取资料：本场 host_agenda 快照优先于预设模板与配置表。 */
+    @Test
+    void resolveAllResources_meetingHostAgendaOverridesPresetAndConfigTable() {
+        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
+        cfg.setAgendaIndex(0);
+        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
+
+        MeetingTypePreset preset = new MeetingTypePreset();
+        preset.setCode(1);
+        preset.setHostAgenda("""
+                {"items":[{"title":"会序1","feishuDocUrl":"https://x.feishu.cn/docx/doxFromPreset"}]}
+                """);
+
+        MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
+        when(presetMapper.selectById(1)).thenReturn(preset);
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, presetMapper, PRESET_CACHE, null, JSON) {
+            @Override
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+                return List.of(cfg);
+            }
+        };
+        Meeting meeting = new Meeting();
+        meeting.setPresetTypeCode(1);
+        meeting.setHostAgenda("""
+                {"items":[{"title":"会序1","feishuDocUrl":"https://x.feishu.cn/docx/doxFromMeetingRecord"}]}
+                """);
+        var refs = svc.resolveAllResources(meeting, 0, null);
+        assertEquals(1, refs.size());
+        assertEquals("doxFromMeetingRecord", refs.get(0).primaryToken());
+    }
+
+    /** enrich：无本会记录时先填预设模板，再填配置表。 */
+    @Test
+    void enrichHostAgendaItems_prefersPresetTemplateThenConfigTable() {
+        HostAgendaItemDto item = new HostAgendaItemDto();
+        item.setTitle("会序1");
+        List<HostAgendaItemDto> items = List.of(item);
+
+        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
+        cfg.setAgendaIndex(0);
+        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
+
+        MeetingTypePreset preset = new MeetingTypePreset();
+        preset.setCode(1);
+        preset.setHostAgenda("""
+                {"items":[{"title":"会序1","feishuDocUrl":"https://x.feishu.cn/docx/doxFromPreset"}]}
+                """);
+
+        MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
+        when(presetMapper.selectById(1)).thenReturn(preset);
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, presetMapper, PRESET_CACHE, null, JSON) {
+            @Override
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+                return List.of(cfg);
+            }
+        };
+        svc.enrichHostAgendaItems(1, items);
+        assertEquals("https://x.feishu.cn/docx/doxFromPreset", items.get(0).getFeishuDocUrl());
+    }
+
+    /** 配置表 openclaw_briefing=0 时 enrich 仅补 URL，不设通报开关。 */
+    @Test
+    void enrichHostAgendaItems_doesNotSetOpenclawBriefingWhenConfigColumnZero() {
+        HostAgendaItemDto item = new HostAgendaItemDto();
+        item.setTitle("会序2");
+        List<HostAgendaItemDto> items = List.of(item);
+
+        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
+        cfg.setAgendaIndex(0);
+        cfg.setOpenclawBriefing(0);
+        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
+
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
+            @Override
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+                return List.of(cfg);
+            }
+        };
+        svc.enrichHostAgendaItems(1, items);
+        assertEquals("https://x.feishu.cn/docx/doxFromTable", items.get(0).getFeishuDocUrl());
+        assertFalse(Boolean.TRUE.equals(items.get(0).getOpenclawBriefing()));
+    }
+
+    /** 配置表 openclaw_briefing=1 时 enrich 应设置 openclawBriefing。 */
+    @Test
+    void enrichHostAgendaItems_setsOpenclawBriefingWhenConfigColumnOne() {
+        HostAgendaItemDto item = new HostAgendaItemDto();
+        item.setTitle("会序2");
+        List<HostAgendaItemDto> items = List.of(item);
+
+        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
+        cfg.setAgendaIndex(0);
+        cfg.setOpenclawBriefing(1);
+        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
+
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
+            @Override
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+                return List.of(cfg);
+            }
+        };
+        svc.enrichHostAgendaItems(1, items);
+        assertTrue(Boolean.TRUE.equals(items.get(0).getOpenclawBriefing()));
+    }
+
+    /** matterProgressOpenclawBriefingForAgenda 须 openclaw_briefing=1 且 feishu_doc_url 有效。 */
+    @Test
+    void matterProgressOpenclawBriefingForAgenda_respectsColumn() {
+        MatterProgressDocConfig off = new MatterProgressDocConfig();
+        off.setAgendaIndex(1);
+        off.setOpenclawBriefing(0);
+        MatterProgressDocConfig onNoUrl = new MatterProgressDocConfig();
+        onNoUrl.setAgendaIndex(2);
+        onNoUrl.setOpenclawBriefing(1);
+        MatterProgressDocConfig on = new MatterProgressDocConfig();
+        on.setAgendaIndex(3);
+        on.setOpenclawBriefing(1);
+        on.setFeishuDocUrl("https://x.feishu.cn/docx/doxBriefing");
+
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
+            @Override
+            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+                return List.of(off, onNoUrl, on);
+            }
+        };
+        assertFalse(svc.matterProgressOpenclawBriefingForAgenda(1, 1));
+        assertFalse(svc.matterProgressOpenclawBriefingForAgenda(1, 2));
+        assertTrue(svc.matterProgressOpenclawBriefingForAgenda(1, 3));
+    }
+
     /** resolveDocumentId 应优先使用运行时 URL。 */
     @Test
     void resolveDocumentId_prefersRuntimeUrl() {
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, null);
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON);
         String id = svc.resolveDocumentId(null, 0, "https://x.feishu.cn/docx/doxRuntime");
         assertEquals("doxRuntime", id);
         assertNull(svc.resolveDocumentId(null, 0, ""));

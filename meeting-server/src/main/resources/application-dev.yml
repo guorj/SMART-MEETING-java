@@ -9,7 +9,6 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
-      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
 
   datasource:
     url: jdbc:mysql://60.205.1.17:3306/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
@@ -38,10 +37,6 @@ meeting:
 
   # 公网入口：WSL frpc (tcp) → Windows 本机 8765；需与飞书/浏览器实际访问一致（无 TLS 反代时用 http + 端口）
   base-url: "https://39.97.61.212"
-
-  # ---- 事项进度通报（本地测试允许classpath回退）----
-  matter-progress:
-    allow-classpath-fallback: true
 
   # ---- 飞书开放平台 ----
   feishu:
@@ -139,22 +134,18 @@ meeting:
     frontend-ws-close-timeout: 5
 
 # ============================================================
-# AI Agent 配置（策略模式：llm / openclaw / mcp）
+# AI Agent 配置（策略模式：llm / mcp）
 # ============================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:false}
+  enabled: ${OPENCLAW_ENABLED:true}
   agent:
-    provider: ${OPENCLAW_AGENT_PROVIDER:llm}
-  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+    provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  timeout-seconds: ${OPENCLAW_TIMEOUT:60}
-  auth-token: ${OPENCLAW_AUTH_TOKEN:}
-  # Skill 模式开关（仅 provider=mcp 时生效）；开发环境默认开启
+  timeout-seconds: ${OPENCLAW_TIMEOUT:120}
+  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
+  device-token: ${OPENCLAW_DEVICE_TOKEN:}
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  cli:
-    agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
-    profile: ${OPENCLAW_CLI_PROFILE:clone-boss}
-    state-dir: ${OPENCLAW_CLI_STATE_DIR:}
 
 # ---- 日志 ----
 logging:
@@ -169,7 +160,8 @@ logging:
 # ---- MyBatis-Plus ----
 mybatis-plus:
   configuration:
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    # 勿用 StdOutImpl：会把每条 SQL 打到控制台（主持 tick 每秒 push 时刷屏）
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:
       id-type: assign_uuid

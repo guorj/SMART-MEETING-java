@@ -519,9 +519,28 @@ public class FeishuService {
         if (tableId == null || tableId.isBlank()) {
             throw new IllegalArgumentException("多维表格链接缺少 table 参数，请使用 .../base/{app}?table=tblXXX");
         }
+        String app = appToken.trim();
+        String table = tableId.trim();
+        try {
+            return searchBitableRecords(app, table);
+        } catch (RuntimeException first) {
+            if (!isWrongTableIdError(first)) {
+                throw first;
+            }
+            List<String> available = listBitableTableIds(app);
+            String corrected = resolveTableIdFromListing(table, available);
+            if (corrected != null && !corrected.equals(table)) {
+                log.warn("Bitable WrongTableId: retry app={} table {} -> {}", app, table, corrected);
+                return searchBitableRecords(app, corrected);
+            }
+            throw new RuntimeException(formatWrongTableIdHint(app, table, available), first);
+        }
+    }
+
+    private String searchBitableRecords(String appToken, String tableId) {
         String tenantToken = getTenantToken();
-        String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken.trim()
-                + "/tables/" + tableId.trim() + "/records/search?page_size=50";
+        String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken
+                + "/tables/" + tableId + "/records/search?page_size=50";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -561,6 +580,78 @@ public class FeishuService {
             out.append('\n');
         }
         return out.toString().trim();
+    }
+
+    /**
+     * 列出多维表格应用下全部数据表 table_id（用于 WrongTableId 诊断与大小写纠错）。
+     */
+    List<String> listBitableTableIds(String appToken) {
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken.trim() + "/tables?page_size=100";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
+            JsonNode json = response.getBody();
+            if (json == null || json.path("code").asInt(-1) != 0) {
+                return List.of();
+            }
+            JsonNode items = json.path("data").path("items");
+            if (!items.isArray()) {
+                return List.of();
+            }
+            List<String> ids = new ArrayList<>();
+            for (JsonNode item : items) {
+                String id = item.path("table_id").asText("").trim();
+                if (!id.isEmpty()) {
+                    ids.add(id);
+                }
+            }
+            return ids;
+        } catch (Exception e) {
+            log.warn("listBitableTableIds failed app={}: {}", appToken, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private static boolean isWrongTableIdError(Throwable e) {
+        String msg = e != null ? e.getMessage() : null;
+        return msg != null && msg.contains("1254004") && msg.contains("WrongTableId");
+    }
+
+    /** 配置 table 与 API 列表仅大小写不一致时自动纠正（飞书 table_id 区分大小写）。 */
+    private static String resolveTableIdFromListing(String configured, List<String> available) {
+        if (configured == null || configured.isBlank() || available == null || available.isEmpty()) {
+            return null;
+        }
+        if (available.contains(configured)) {
+            return configured;
+        }
+        String want = configured.toLowerCase(Locale.ROOT);
+        String match = null;
+        for (String id : available) {
+            if (id != null && id.toLowerCase(Locale.ROOT).equals(want)) {
+                if (match != null) {
+                    return null;
+                }
+                match = id;
+            }
+        }
+        return match;
+    }
+
+    private static String formatWrongTableIdHint(String appToken, String tableId, List<String> available) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("飞书 bitable table_id 无效（1254004 WrongTableId）。")
+                .append(" app_token=").append(appToken)
+                .append(" 配置的 table=").append(tableId)
+                .append("。请从浏览器重新复制完整链接（须含 ?table=tbl...），")
+                .append("或更新 int_meeting_type_preset.host_agenda / int_matter_progress_doc_config。");
+        if (available != null && !available.isEmpty()) {
+            sb.append(" 当前应用下可用 table_id：").append(String.join(", ", available));
+        }
+        return sb.toString();
     }
 
     private static String fieldValueAsText(JsonNode v) {

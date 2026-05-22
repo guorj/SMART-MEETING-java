@@ -103,7 +103,7 @@ public class MeetingTypePresetService {
         if (code < 1 || code > 5) {
             throw new BusinessException(400, "presetTypeCode 仅支持 1-6");
         }
-        MeetingTypePreset p = presetMapper.selectById(code);
+        MeetingTypePreset p = presetAgendaDocService.getPresetCached(code);
         if (p == null) {
             throw new BusinessException(400, "未找到会议类型预设: " + code);
         }
@@ -156,7 +156,7 @@ public class MeetingTypePresetService {
         if (code < 1 || code > 5) {
             return null;
         }
-        MeetingTypePreset p = presetMapper.selectById(code);
+        MeetingTypePreset p = presetAgendaDocService.getPresetCached(code);
         if (p == null) {
             return null;
         }

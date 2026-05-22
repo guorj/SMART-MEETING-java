@@ -2,9 +2,14 @@ package com.smartmeeting.api.controller;
 
 import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
+import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.service.MeetingTypePresetService;
+import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.service.cache.PresetBundle;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -25,6 +30,7 @@ import java.util.List;
 public class MeetingPresetController {
 
     private final MeetingTypePresetService meetingTypePresetService;
+    private final PresetAgendaDocService presetAgendaDocService;
 
     /**
      * 固定 1-5 类会务预设 + 虚拟第 6 项「其他会议」（不入库，由前端/用户填主题）。
@@ -46,5 +52,18 @@ public class MeetingPresetController {
                 .participantNames(List.of())
                 .build());
         return ApiResponse.ok(list);
+    }
+
+    /**
+     * 运维：从 DB 强制刷新指定 preset 的 Redis 缓存（code 1～5）。
+     */
+    @PostMapping("/{code}/cache/refresh")
+    public ApiResponse<String> refreshPresetCache(@PathVariable int code) {
+        if (code < 1 || code > 5) {
+            throw new BusinessException(400, "仅支持 preset code 1-5");
+        }
+        PresetBundle bundle = presetAgendaDocService.refreshPresetBundle(code);
+        int docCount = bundle.matterDocs() != null ? bundle.matterDocs().size() : 0;
+        return ApiResponse.ok("refreshed preset " + code + ", matter-doc configs=" + docCount);
     }
 }

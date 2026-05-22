@@ -108,6 +108,8 @@ meeting:
     role-type: 2
     eng-speaker-match: 1
     audio-encode: pcm_s16le
+    # 会中实时转写（录音页/主持页字幕、int_transcript_segment）；false 时仅本地录音，会后依赖离线 ASR
+    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:true}
     mock-enabled: ${MOCK_ASR:false}
     xfyun:
       app-id: ${XFYUN_APP_ID:test}
@@ -139,11 +141,30 @@ meeting:
     max-text-utf8-bytes: ${XFYUN_TTS_MAX_TEXT_UTF8_BYTES:5300}
 
   # AI 会议主持人（Web 主持页 + 会中零飞书）
+  cache:
+    # 会务预设 / 会序飞书资料配置 Redis 缓存 TTL（需 spring.data.redis 可用）
+    preset-ttl-hours: ${MEETING_CACHE_PRESET_TTL_HOURS:24}
+    # 定时全量预热 preset 1～5（改库后无新会议时仍能对齐 Redis）
+    refresh-enabled: ${MEETING_CACHE_REFRESH_ENABLED:true}
+    refresh-cron: ${MEETING_CACHE_REFRESH_CRON:0 */10 * * * ?}
+
   host:
     enabled: ${MEETING_HOST_ENABLED:true}
+    # 会序推进（下一议题/跳过/加时）；轻量主持须保持 true
+    agenda-enabled: ${MEETING_HOST_AGENDA_ENABLED:true}
+    # 讯飞 TTS 播报与主持页 tts_* WebSocket；false 时仅计时与 host_state
+    tts-enabled: ${MEETING_HOST_TTS_ENABLED:true}
+    # 混合检点（线上盘点 + 线下点名）
+    roll-call-enabled: ${MEETING_HOST_ROLL_CALL_ENABLED:true}
+    # 开场白播完后自动进入检点（须 roll-call-enabled=true 且预设有应到名单）
+    auto-roll-call-after-opening: ${MEETING_HOST_AUTO_ROLL_CALL_AFTER_OPENING:true}
     reminder:
       topic-minutes-left: 1
       meeting-minutes-left: "10,3"
+    # 会序 RUNNING 且配置表同行 openclaw_briefing=1、feishu_doc_url 有效时调 OpenClaw（无 LLM 兜底）
+    agenda-briefing:
+      enabled: ${MEETING_HOST_AGENDA_BRIEFING_ENABLED:true}
+      timeout-seconds: ${MEETING_HOST_AGENDA_BRIEFING_TIMEOUT_SEC:120}
     roll-call:
       # 线上参会人个人链接盘点等待秒数，结束后进入线下答到点名
       online-inventory-seconds: ${MEETING_HOST_ROLL_CALL_ONLINE_INVENTORY_SEC:60}
@@ -170,10 +191,6 @@ meeting:
     timeout-seconds: 120
     max-retries: 2
 
-  # 事项进度通报：库表仅存飞书 URL/token；正文由飞书 API 拉取（待接入）。classpath 样例仅用于本地/测试，生产勿开。
-  matter-progress:
-    allow-classpath-fallback: ${MATTER_PROGRESS_CLASSPATH_FALLBACK:false}
-    classpath-sample: classpath:matter-progress/fallback-sample.txt
   # 飞书
   feishu:
     app-id: ${FEISHU_APP_ID:test}
@@ -201,30 +218,25 @@ meeting:
     frontend-ws-close-timeout: ${FRONTEND_WS_CLOSE_TIMEOUT:5}
 
 # ============================================================
-# AI Agent 配置（策略模式：llm / openclaw / mcp）
+# AI Agent 配置（策略模式：llm / mcp）
 # ============================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:false}
+  enabled: ${OPENCLAW_ENABLED:true}
   # Agent 提供者：
-  #   llm       — 直调 LLM Chat API（默认，不依赖 OpenClaw 部署）
-  #   openclaw  — OpenClaw CLI 子进程（旧方案兼容，逐步弃用）
-  #   mcp       — OpenClaw Gateway HTTP API + MCP + Skill（推荐，需部署 Gateway + MCP Server）
+  #   llm  — 直调 LLM Chat API（默认，不依赖 OpenClaw 部署）
+  #   mcp  — OpenClaw Gateway WebSocket + MCP + Skill（需部署 Gateway + MCP Server）
   agent:
-    provider: ${OPENCLAW_AGENT_PROVIDER:llm}
+    provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
   timeout-seconds: ${OPENCLAW_TIMEOUT:60}
   auth-token: ${OPENCLAW_AUTH_TOKEN:}
+  device-token: ${OPENCLAW_DEVICE_TOKEN:}
   # Skill 模式开关（仅 provider=mcp 时生效）：
   #   true  — prompt 精简为 /skill:xxx + 业务数据，由 SKILL.md 定义工具调用和输出格式
-  #   false — 使用完整 prompt（兼容旧方案），可一键切回
+  #   false — 使用完整 prompt（兼容无 Skill 部署）
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  # OpenClaw CLI 参数（仅 provider=openclaw 时生效）
-  cli:
-    agent-name: ${OPENCLAW_CLI_AGENT_NAME:JQClaw}
-    profile: ${OPENCLAW_CLI_PROFILE:clone-boss}
-    state-dir: ${OPENCLAW_CLI_STATE_DIR:}
-  # 综合管理会多维表指令（provider=llm/openclaw 时使用；provider=mcp + skill-mode=true 时由 MCP Server 直接读取）
+  # 会开始「上次待办进度」多维表指令（会序通报改用 buildDirectiveForHostAgenda + 会序 feishuUrl）
   comprehensive-bitable-progress-enabled: ${OPENCLAW_COMP_BITABLE_PROGRESS:true}
   comprehensive-bitable-preset-codes: ${OPENCLAW_COMP_BITABLE_PRESETS:1}
   comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单}

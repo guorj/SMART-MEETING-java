@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.repository.MatterProgressDocConfigMapper;
 import com.smartmeeting.repository.MeetingMinuteMapper;
+import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.service.feishu.FeishuResourceRef;
 import com.smartmeeting.service.feishu.FeishuResourceResolver;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +38,7 @@ public class DatabaseSeedStartupValidator {
     private final MeetingDatabaseProperties databaseProperties;
     private final MatterProgressDocConfigMapper docConfigMapper;
     private final MeetingMinuteMapper meetingMinuteMapper;
+    private final PresetAgendaDocService presetAgendaDocService;
 
     /**
      * 应用就绪事件回调，执行启动校验流程。
@@ -54,7 +56,29 @@ public class DatabaseSeedStartupValidator {
             return;
         }
         validatePresetAgendaDocConfigs();
+        validateOpenclawBriefingConfigs();
+        refreshPresetCachesAfterValidation();
         validateMeetingMinuteTable();
+    }
+
+    private void refreshPresetCachesAfterValidation() {
+        try {
+            presetAgendaDocService.refreshPresetBundle(PRESET_COMPREHENSIVE);
+            log.info("已刷新 preset={} Redis/本地缓存（含 openclaw_briefing）", PRESET_COMPREHENSIVE);
+        } catch (Exception e) {
+            log.warn("刷新 preset 缓存失败: {}", e.getMessage());
+        }
+    }
+
+    private void validateOpenclawBriefingConfigs() {
+        for (int idx : EXPECTED_AGENDA_INDICES) {
+            String reason = presetAgendaDocService.openclawBriefingIneligibleReason(PRESET_COMPREHENSIVE, idx);
+            if (reason == null) {
+                log.info("OpenClaw 会序通报已配置: preset=1 agenda_index={}", idx);
+            } else {
+                log.warn("OpenClaw 会序通报未就绪 preset=1 agenda_index={}: {}", idx, reason);
+            }
+        }
     }
 
     private void validateMeetingMinuteTable() {

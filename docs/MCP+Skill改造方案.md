@@ -8,9 +8,11 @@
 
 ## 一、改造背景
 
-### 1.1 原始架构（方案B：CLI + 纯 Prompt）
+### 1.1 原始架构（方案B：CLI + 纯 Prompt，已废弃）
 
-Java 后端 `AiAgentService` 通过 `ProcessBuilder` 调用 `openclaw` CLI 命令触发 Agent 任务。Agent 接收一段手工拼接的 prompt 文本，自行判断如何访问外部数据（飞书多维表格、MySQL 等），输出分析结果。
+> **2026-05 起已移除**：`OpenClawAgentProvider`（`provider=openclaw`）及 `openclaw.cli.*` 配置已从代码库删除，仅保留本节作改造背景说明。
+
+历史上 Java 后端曾通过 `ProcessBuilder` 调用 `openclaw` CLI 子进程触发 Agent 任务。Agent 接收一段手工拼接的 prompt 文本，自行判断如何访问外部数据（飞书多维表格、MySQL 等），输出分析结果。
 
 **核心瓶颈：**
 
@@ -37,7 +39,7 @@ Java 后端 `AiAgentService` 通过 `ProcessBuilder` 调用 `openclaw` CLI 命�
 | 层次 | 改动内容 | 收益 | Token 影响 |
 |------|---------|------|-----------|
 | **L1 传输层** | CLI → Gateway HTTP API | 省 3-5s 进程启动开销 | 不变 |
-| **L2 工具层** | 飞书多维表格 MCP Server + MySQL MCP Server | 消灭 Agent 工具猜测/重试（2-5s） | 增加 ~700 tokens（2个轻量 MCP Server 工具描述） |
+| **L2 工具层** | 官方 **lark-mcp**（白名单 2 个 bitable 读 API）+ MySQL MCP Server | 消灭 Agent 工具猜测/重试（2-5s） | MCP 定义约 **~950–1,450 tokens**（较自研 feishu-bitable **+250～750**） |
 | **L3 指令层** | Skill 替代冗长 prompt | prompt 更短 → LLM 推理更快（1-3s） | 从每次 ~500 tokens prompt → Skill ~800 tokens 按需加载 + prompt ~100 tokens |
 
 **预估总效果：**
@@ -45,7 +47,7 @@ Java 后端 `AiAgentService` 通过 `ProcessBuilder` 调用 `openclaw` CLI 命�
 | | 改造前 | 改造后 |
 |--|--------|--------|
 | 总耗时 | 15-35s | **5-8s** |
-| 上下文 Token | ~1,865/次（CLI 1,365 + prompt 500） | **~1,600/次**（MCP 700 + Skill 800 + 业务数据 100） |
+| 上下文 Token | ~1,865/次（CLI 1,365 + prompt 500） | **~1,850–2,350/次**（lark-mcp 2 tool + mysql + Skill 800 + 业务数据 100） |
 | 可靠性 | Agent 自行猜测工具 | MCP 确定性调用 |
 
 ---
@@ -131,7 +133,7 @@ MCP（Model Context Protocol）是由 Anthropic 发起的开放标准协议（Li
 - 错误处理：API 调用失败时返回 `isError: true` 标记
 - 传输方式：stdio（与 Gateway 同机部署，延迟最低）
 
-**源码位置：** `mcp-servers/feishu-bitable/index.ts`
+**飞书多维表：** 官方 **lark-mcp** 白名单，配置见 `mcp-servers/openclaw-mcp-config.yml`（说明 `mcp-servers/LARK-MCP-MIGRATION.md`）
 
 ### 4.3 MySQL MCP Server
 
@@ -149,36 +151,46 @@ MCP（Model Context Protocol）是由 Anthropic 发起的开放标准协议（Li
 
 ### 4.4 MCP 配置
 
-合并到 OpenClaw Gateway 的 `openclaw.json`：
+合并到 OpenClaw Gateway 的 `openclaw.json`（字段为 **`mcp.servers`**，不是 `mcpServers`）：
 
 ```yaml
-mcpServers:
-  feishu-bitable:
-    command: node
-    args:
-      - /opt/mcp-servers/feishu-bitable/dist/index.js
-    transport: stdio
-    env:
-      FEISHU_APP_ID: ${FEISHU_APP_ID}
-      FEISHU_APP_SECRET: ${FEISHU_APP_SECRET}
-
-  meeting-mysql:
-    command: npx
-    args:
-      - -y
-      - "@modelcontextprotocol/server-mysql"
-    transport: stdio
-    env:
-      MYSQL_HOST: ${DB_HOST}
-      MYSQL_PORT: ${DB_PORT}
-      MYSQL_USER: ${DB_USERNAME}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_DATABASE: intelligence
+mcp:
+  servers:
+    lark-mcp:
+      command: npx
+      args:
+        - -y
+        - "@larksuiteoapi/lark-mcp"
+        - mcp
+        - -a
+        - ${FEISHU_APP_ID}
+        - -s
+        - ${FEISHU_APP_SECRET}
+        - -t
+        - bitable.v1.appTableField.list,bitable.v1.appTableRecord.search
+        - --token-mode
+        - tenant_access_token
+        - -l
+        - zh
+        - -c
+        - snake
+    meeting-mysql:
+      command: npx
+      args:
+        - -y
+        - "@modelcontextprotocol/server-mysql"
+      env:
+        MYSQL_HOST: ${DB_HOST}
+        MYSQL_PORT: ${DB_PORT}
+        MYSQL_USER: ${DB_USERNAME}
+        MYSQL_PASSWORD: ${DB_PASSWORD}
+        MYSQL_DATABASE: intelligence
 ```
 
-**Token 开销总计：** ~700 tokens（2个轻量 MCP Server）
+**Token 开销总计：** ~950–1,450 tokens（lark-mcp 2 tool + meeting-mysql；见 `LARK-MCP-MIGRATION.md`）
 
-**配置参考文件：** `mcp-servers/openclaw-mcp-config.yml`
+**配置参考文件：** `mcp-servers/openclaw-mcp-config.yml`  
+**Tool 名称参考：** `mcp-servers/LARK-MCP-TOOLS.md`
 
 ### 4.5 MCP Server 不推荐添加的重量服务
 
@@ -215,34 +227,34 @@ mcpServers:
 name: progress-analysis
 description: "综合管理会会前进度通报：读取飞书多维表格与MySQL待办数据，交叉分析输出JSON"
 allowed-tools:
-  - feishu-bitable__read_bitable_rows
-  - feishu-bitable__list_bitable_fields
+  - lark-mcp__bitable_v1_appTableField_list
+  - lark-mcp__bitable_v1_appTableRecord_search
   - meeting-mysql__query
 ---
 ```
 
 核心流程：
-1. 调用 `feishu-bitable__read_bitable_rows` 读取飞书多维表格
+1. 调用 `lark-mcp__bitable_v1_appTableRecord_search` 读取飞书多维表格（先 `appTableField.list` 了解字段）
 2. 调用 `meeting-mysql__query` 查询 int_meeting_todo 统计
 3. 交叉对比两个数据源，标注矛盾项
 4. 输出 JSON：progress_summary、delay_reasons、high_priority_alerts、recommendations、focus_items
 
 **源码位置：** `skills/progress-analysis/SKILL.md`
 
-#### matter-progress（事项进度通报）
+#### matter-progress（主持会序 OpenClaw 通报）
 
 ```yaml
 ---
 name: matter-progress
-description: "录音页事项进度通报：读取飞书多维表格，输出Markdown进度通报正文"
+description: "主持会序 OpenClaw 通报：读取当前会序飞书资料，输出 Markdown 进度通报正文"
 allowed-tools:
-  - feishu-bitable__read_bitable_rows
-  - feishu-bitable__list_bitable_fields
+  - lark-mcp__bitable_v1_appTableField_list
+  - lark-mcp__bitable_v1_appTableRecord_search
 ---
 ```
 
 核心流程：
-1. 调用 `feishu-bitable__read_bitable_rows` 读取多维表格
+1. 调用 `lark-mcp__bitable_v1_appTableRecord_search` 读取多维表格
 2. 生成 Markdown 通报正文（概览 + 分项进度 + 风险 + 建议）
 
 **源码位置：** `skills/matter-progress/SKILL.md`
@@ -267,13 +279,18 @@ allowed-tools:
 
 ### 5.3 allowed-tools 白名单
 
-每个 Skill 通过 `allowed-tools` 字段限定只使用必要的 MCP 工具：
+每个 Skill 通过 `allowed-tools` 字段限定只使用必要的 MCP 工具。**全名对照表：** [mcp-servers/LARK-MCP-TOOLS.md](../mcp-servers/LARK-MCP-TOOLS.md)。
 
-| Skill | 允许的工具 | 限定原因 |
-|-------|----------|---------|
-| progress-analysis | feishu-bitable（2个）+ meeting-mysql（1个） | 进度分析只需读表格和查待办 |
-| matter-progress | feishu-bitable（2个） | 通报只需读表格，不需要 MySQL |
-| minute-enhancement | meeting-mysql（1个） | 纪要优化只需查参会人辅助校验 |
+| Skill | OpenClaw 工具全名 | 限定原因 |
+|-------|-------------------|---------|
+| progress-analysis | `lark-mcp__bitable_v1_appTableField_list` | 多维表字段结构 |
+| progress-analysis | `lark-mcp__bitable_v1_appTableRecord_search` | 多维表记录 |
+| progress-analysis | `meeting-mysql__query` | `int_meeting_todo` 统计 |
+| matter-progress | `lark-mcp__bitable_v1_appTableField_list` | 多维表字段 |
+| matter-progress | `lark-mcp__bitable_v1_appTableRecord_search` | 多维表记录 |
+| minute-enhancement | `meeting-mysql__query` | 纪要相关 SQL |
+
+未放行：`meeting-mysql__insert`、`meeting-mysql__update`（写库；生产建议只读 DB 账号）。
 
 **效果：** `allowed-tools` 既限制了行为边界，也减少了上下文中需要加载的工具描述数量。
 
@@ -287,7 +304,7 @@ allowed-tools:
 【任务】分析上次会议待办进度，给出智能洞察和建议
 
 【飞书多维表格-会前必读】当前会议命中「综合管理会」会前进度通报临时策略。
-请你通过 **OpenClaw CLI / 会话内可用工具** 读取飞书多维表格 **「📋综合管理事项代办清单」** ...
+请你通过 **会话内 MCP 工具** 读取飞书多维表格 **「📋综合管理事项代办清单」** ...
 
 上次会议：XX项目周例会
 会议ID：meeting-001
@@ -342,27 +359,27 @@ openclaw:
   # --- 旧配置：逐步弃用 ---
   comprehensive-bitable-progress-enabled: ...
   comprehensive-bitable-preset-codes: ...
-  # 注意：skill-mode=true 后，飞书多维表格改由 feishu-bitable MCP Server 直接读取
+  # 注意：skill-mode=true 后，飞书多维表格改由 lark-mcp（白名单）直接读取
 ```
 
-### 6.2 AiAgentService 新增字段
+### 6.2 当前配置项（`openclaw.*`）
 
-| 字段 | 默认值 | 说明 |
-|------|--------|------|
-| `transport` | `http` | 传输方式：http（推荐）或 cli（旧方案） |
-| `cliProfile` | `clone-boss` | CLI 专属配置（保留兼容） |
-| `cliStateDir` | `/home/alan/.openclaw-clone-boss` | CLI 专属目录（保留兼容） |
-| `skillMode` | `true` | Skill 触发模式：true（推荐）/ false（兼容旧方案） |
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `openclaw.agent.provider` | `llm` | `llm` 或 `mcp`（CLI 方案已移除） |
+| `openclaw.enabled` | `false` | `mcp` 时须为 `true` |
+| `openclaw.gateway-url` | — | Gateway HTTP 基址（代码内转 WebSocket） |
+| `openclaw.agent-session-key` | — | Gateway 会话标识 |
+| `openclaw.auth-token` / `openclaw.device-token` | — | 鉴权（二选一或组合） |
+| `openclaw.skill-mode` | `true` | 仅 `mcp`：`true` 用 Skill 精简 prompt；`false` 用完整 prompt |
 
 ### 6.3 渐进式切换策略
 
-| 配置组合 | 效果 | 适用阶段 |
-|---------|------|---------|
-| `skill-mode=false` + CLI ProcessBuilder | 旧方案，完整 prompt | 验证 HTTP API 基本连通性 |
-| `skill-mode=false` + HTTP API | HTTP 调用 + 旧 prompt（省进程启动） | 过渡期第一步 |
-| `skill-mode=true` + HTTP API + MCP | **推荐方案**（完整 MCP+Skill） | 正式上线 |
-
-通过一个配置开关 `openclaw.skill-mode` 即可随时切回旧方案，零风险上线。
+| 配置组合 | 效果 |
+|---------|------|
+| `provider=llm` | 直调 LLM，不连 Gateway |
+| `provider=mcp` + `skill-mode=false` | Gateway + 完整 prompt |
+| `provider=mcp` + `skill-mode=true` | **推荐**：Gateway + MCP + Skill |
 
 ---
 
@@ -372,12 +389,10 @@ openclaw:
 |------|------|------|
 | `AiAgentService.java` | Java（修改） | callAgent 从 CLI → HTTP API；3个业务方法增加 skillMode 分支 |
 | `application.yml` | 配置（修改） | 新增 openclaw.skill-mode 配置项 |
-| `mcp-servers/feishu-bitable/index.ts` | TypeScript（新增） | 飞书多维表格 MCP Server |
-| `mcp-servers/feishu-bitable/package.json` | JSON（新增） | MCP Server 依赖声明 |
-| `mcp-servers/feishu-bitable/tsconfig.json` | JSON（新增） | TypeScript 编译配置 |
+| `mcp-servers/openclaw-mcp-config.yml` | YAML | lark-mcp + meeting-mysql Gateway 配置 |
 | `mcp-servers/openclaw-mcp-config.yml` | YAML（新增） | OpenClaw MCP Server 配置参考 |
 | `skills/progress-analysis/SKILL.md` | Markdown（新增） | 上次待办进度分析 Skill |
-| `skills/matter-progress/SKILL.md` | Markdown（新增） | 事项进度通报 Skill |
+| `skills/matter-progress/SKILL.md` | Markdown（新增） | 主持会序 OpenClaw 通报 Skill |
 | `skills/minute-enhancement/SKILL.md` | Markdown（新增） | 纪要优化 Skill |
 
 ---
@@ -387,14 +402,13 @@ openclaw:
 ### 8.1 构建飞书 MCP Server
 
 ```bash
-cd /opt/mcp-servers/feishu-bitable
-npm install
-npm run build
+# 飞书多维表已改用 npx @larksuiteoapi/lark-mcp，无需构建 feishu-bitable
+# 确保 Gateway 主机已安装 Node.js 与 npx
 ```
 
 ### 8.2 配置 OpenClaw Gateway
 
-将 `mcp-servers/openclaw-mcp-config.yml` 中的 MCP Server 配置合并到 `~/.openclaw/openclaw.json` 的 `mcpServers` 字段中。
+将 `mcp-servers/openclaw-mcp-config.yml` 中的 `mcp.servers` 合并到 profile 配置（如 `instances/clone-boss/config/openclaw.json` 或 `~/.openclaw/openclaw.json`）。
 
 ### 8.3 部署 Skill 文件
 
@@ -524,11 +538,10 @@ MCP+Skill 改造方案已融入 `AgentProvider` 策略模式架构，新增 `Ope
 `
 AiAgentService（门面）
   ├── DirectLlmAgentProvider   (provider=llm，默认，不依赖 OpenClaw)
-  ├── OpenClawAgentProvider    (provider=openclaw，CLI 旧方案，逐步弃用)
-  └── OpenClawMcpProvider      (provider=mcp，推荐，Gateway HTTP API + MCP + Skill)
-        ├── HTTP POST /api/v1/sessions/send → OpenClaw Gateway
+  └── OpenClawMcpProvider      (provider=mcp，Gateway WebSocket + MCP + Skill)
+        ├── WebSocket chat.send → OpenClaw Gateway
         ├── Skill 加载 → skills/*.SKILL.md
-        └── MCP JSON-RPC → feishu-bitable / meeting-mysql MCP Server
+        └── MCP JSON-RPC → lark-mcp / meeting-mysql MCP Server
 `
 
 ### 11.2 各 Provider 定位
@@ -536,8 +549,7 @@ AiAgentService（门面）
 | Provider | 配置值 | 传输 | 工具层 | 指令层 | 适用场景 |
 |----------|--------|------|--------|--------|---------|
 | `DirectLlmAgentProvider` | `llm`（默认） | HTTP 直调 LLM | 无（纯 prompt） | 完整 prompt 在 Java 中 | 不依赖 OpenClaw 的部署 |
-| `OpenClawAgentProvider` | `openclaw` | CLI ProcessBuilder | Agent 自行猜测 | 完整 prompt 在 Java 中 | 旧方案兼容，逐步弃用 |
-| `OpenClawMcpProvider` | `mcp` | Gateway HTTP API | MCP Server（确定性调用） | Skill（精简 prompt） | **推荐方案**，需部署 Gateway + MCP Server |
+| `OpenClawMcpProvider` | `mcp` | Gateway WebSocket | MCP Server（确定性调用） | Skill（精简 prompt） | **推荐**，需部署 Gateway + MCP Server |
 
 ### 11.3 关键设计决策
 
@@ -548,7 +560,7 @@ AiAgentService（门面）
 
 ### 11.4 BitableDirectiveBuilder 在 MCP 模式下的处理
 
-- `skillMode=true` 时：**不调用** `BitableDirectiveBuilder`——多维表数据由 `feishu-bitable` MCP Server 直接读取，Skill 定义了调用步骤
+- `skillMode=true` 时：**不调用** `BitableDirectiveBuilder`——多维表数据由 `lark-mcp` 直接读取，Skill 定义了调用步骤
 - `skillMode=false` 时：保留调用 `BitableDirectiveBuilder`（兼容旧方案）
 
 MCP 模式下 `BitableDirectiveBuilder` 的 `appliesTo()` 结果仍可传入 `analyzePreviousProgress` 的 `feishuMultitableDirective` 参数，但 `OpenClawMcpProvider` 在 `skillMode=true` 时忽略该参数。
@@ -567,18 +579,22 @@ MCP 模式下 `BitableDirectiveBuilder` 的 `appliesTo()` 结果仍可传入 `an
 | `AiAgentService.java` | 修改 | 解决 merge 冲突，保留纯门面结构 |
 | `OpenClawMcpProvider.java` | 新增 | MCP+Skill Provider 实现（HTTP API + skillMode + 双格式响应解析） |
 | `application.yml` / `application-*.yml` | 修改 | 新增 `skill-mode` 配置、`provider=mcp` 注释 |
-| `mcp-servers/feishu-bitable/index.ts` | 新增 | 飞书多维表格 MCP Server |
-| `mcp-servers/feishu-bitable/package.json` | 新增 | MCP Server 依赖声明 |
-| `mcp-servers/feishu-bitable/tsconfig.json` | 新增 | TS 编译配置 |
+| `mcp-servers/openclaw-mcp-config.yml` | 更新 | lark-mcp 白名单替代 feishu-bitable |
+| `instances/clone-boss/config/openclaw.json` | 更新 | 新增 `mcp.servers` + `plugins.bundledDiscovery` |
 | `mcp-servers/openclaw-mcp-config.yml` | 新增 | OpenClaw Gateway MCP 配置参考 |
 | `skills/progress-analysis/SKILL.md` | 新增 | 上次待办进度分析 Skill |
-| `skills/matter-progress/SKILL.md` | 新增 | 事项进度通报 Skill |
+| `skills/matter-progress/SKILL.md` | 新增 | 主持会序 OpenClaw 通报 Skill |
 | `skills/minute-enhancement/SKILL.md` | 新增 | 纪要优化 Skill |
 
-### 11.7 不改动的文件
+### 11.7 已移除（CLI 废弃清理）
 
-- `AgentProvider.java` — 接口不变，三个方法签名不变
+- `OpenClawAgentProvider.java` — 已删除
+- `openclaw.cli.*` / `OPENCLAW_CLI_*` — 已从 `application*.yml` 移除
+- `openclaw.agent.provider=openclaw` — 不再支持
+
+### 11.8 不改动的文件
+
+- `AgentProvider.java` — 接口不变
 - `DirectLlmAgentProvider.java` — 不变
-- `OpenClawAgentProvider.java` — 不变（旧方案兼容）
 - `MeetingProgressAIEnhancer.java` — 不变
-- `MatterProgressReportService.java` — 不变
+- 录音页 `matter-progress-report` API 与 `MatterProgressReportService` — **已移除**；会序通报由 `AgendaBriefingService` + `matter-progress` Skill 在 **会议主页 · 会序模块** 承担

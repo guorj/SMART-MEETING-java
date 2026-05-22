@@ -8,7 +8,7 @@ import java.util.Map;
  * AI Agent 能力提供者接口。
  *
  * <p>定义三大 AI 增强场景的统一抽象，由具体实现决定底层调用方式
- * （OpenClaw CLI、直调 LLM、MCP 等）。
+ * （直调 LLM、OpenClaw Gateway MCP+Skill 等）。
  *
  * <p>返回 {@code null} 表示不可用或调用失败，由调用方决定降级策略。
  */
@@ -40,6 +40,17 @@ public interface AgentProvider {
      * @return Markdown 正文；不可用或失败时返回 {@code null}
      */
     String runMatterProgressReport(Meeting meeting, String bitableDirective);
+
+    /**
+     * 主持会序通报：在 {@link #runMatterProgressReport} 基础上附带会序飞书 URL 与标题（Skill 可选参数）。
+     * 默认实现忽略额外参数，仅使用 {@code bitableDirective}。
+     */
+    default String runMatterProgressReport(Meeting meeting,
+                                           String bitableDirective,
+                                           String feishuUrl,
+                                           String agendaTitle) {
+        return runMatterProgressReport(meeting, bitableDirective);
+    }
 
     /**
      * 优化会议纪要。
