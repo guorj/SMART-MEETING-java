@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
@@ -109,11 +110,21 @@ public class MeetingHostSessionService {
     @Value("${meeting.host.agenda-briefing.enabled:true}")
     private boolean agendaBriefingEnabled;
 
+    /** 预取路径下 failed 状态的重试冷却（秒）；≤0 表示不冷却 */
+    @Value("${meeting.host.agenda-briefing.failed-retry-cooldown-seconds:60}")
+    private int agendaBriefingFailedRetryCooldownSeconds;
+
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
 
     /** 每会议一把锁：检点与 ASR 回调与 tick 并发修改同一 {@link HostRuntime} 时串行化 */
     private final Map<String, Object> runtimeLocks = new ConcurrentHashMap<>();
+
+    /**
+     * 每会议最多一路 OpenClaw 会序通报在执行（公平队列）。
+     * <p>多会序预取 + 当前会序共用 {@code openclaw.agent-session-key} 时，避免 Gateway 会话串话。
+     */
+    private final Map<String, Semaphore> briefingInvokeSemaphores = new ConcurrentHashMap<>();
 
     /** 秒级 tick（议题/会议剩余、检点超时、推送状态），线程数为 2 避免与 TTS supplyAsync 过度争用 */
     private final ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(2, r -> {
@@ -303,6 +314,7 @@ public class MeetingHostSessionService {
 
         pushHostState(meetingId);
         scheduleAgendaBriefingIfNeeded(meetingId);
+        prefetchUpcomingAgendaBriefings(meetingId);
         String openingLine = "会议开始。当前进行：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。";
         boolean autoRollCall = hostAutoRollCallAfterOpening && hostRollCallEnabled && canAutoStartRollCall(meeting);
         if (autoRollCall && hostTtsEnabled) {
@@ -509,6 +521,7 @@ public class MeetingHostSessionService {
         speakAsync(meetingId, "现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
         scheduleAgendaBriefingIfNeeded(meetingId);
+        prefetchUpcomingAgendaBriefings(meetingId);
     }
 
     /**
@@ -542,6 +555,7 @@ public class MeetingHostSessionService {
         speakAsync(meetingId, "跳过当前会序。现在进入：" + next.title + "，预计 " + min + " 分钟。");
         pushHostState(meetingId);
         scheduleAgendaBriefingIfNeeded(meetingId);
+        prefetchUpcomingAgendaBriefings(meetingId);
     }
 
     /**
@@ -896,6 +910,13 @@ public class MeetingHostSessionService {
                 }
                 list.add(p);
             }
+            // 表内无顺序字段，须按 preset participants_names 重排点名顺序
+            try {
+                List<String> presetOrder = loadRollCallSnapshot(meeting);
+                RollCallOrderHelper.sortByPresetOrder(list, presetOrder, p -> p.name);
+            } catch (BusinessException ex) {
+                log.warn("Roll-call preset order unavailable meetingId={}: {}", meeting.getId(), ex.getMessage());
+            }
             return list;
         }
         List<String> names = loadRollCallSnapshot(meeting);
@@ -1165,6 +1186,7 @@ public class MeetingHostSessionService {
             rt.tick.cancel(false);
         }
         runtimeLocks.remove(meetingId);
+        briefingInvokeSemaphores.remove(meetingId);
         Meeting m = meetingMapper.selectById(meetingId);
         if (m != null && m.getChatId() != null) {
             muteRegistry.unmuteChat(m.getChatId());
@@ -1770,60 +1792,175 @@ public class MeetingHostSessionService {
      * 当前会序进入 RUNNING 且 {@code openclawBriefing=true} 时，异步生成 OpenClaw 通报并写入议题缓存。
      */
     private void scheduleAgendaBriefingIfNeeded(String meetingId) {
-        if (!agendaBriefingEnabled) {
-            return;
-        }
         HostRuntime rt = runtimes.get(meetingId);
         if (rt == null || rt.currentIndex < 0 || rt.currentIndex >= rt.topics.size()) {
             return;
         }
-        final int index = rt.currentIndex;
-        final HostTopic topic;
+        scheduleAgendaBriefingInternal(meetingId, rt.currentIndex, false);
+    }
+
+    /** 主持开始后或切题后，对后续 openclaw 会序预取通报（议题可仍为 PENDING）。 */
+    private void prefetchUpcomingAgendaBriefings(String meetingId) {
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null) {
+            return;
+        }
+        for (int i = rt.currentIndex + 1; i < rt.topics.size(); i++) {
+            scheduleAgendaBriefingPrefetch(meetingId, i);
+        }
+    }
+
+    private void scheduleAgendaBriefingPrefetch(String meetingId, int agendaIndex) {
+        scheduleAgendaBriefingInternal(meetingId, agendaIndex, true);
+    }
+
+    private void scheduleAgendaBriefingInternal(String meetingId, int agendaIndex, boolean prefetch) {
+        if (!agendaBriefingEnabled) {
+            return;
+        }
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null || agendaIndex < 0 || agendaIndex >= rt.topics.size()) {
+            return;
+        }
+        final int index = agendaIndex;
+        final int taskGeneration;
         synchronized (lockFor(meetingId)) {
             HostRuntime locked = runtimes.get(meetingId);
             if (locked == null || index >= locked.topics.size()) {
                 return;
             }
             Meeting meeting = meetingMapper.selectById(meetingId);
+            HostTopic topic = locked.topics.get(index);
+            if (!prefetch && !"RUNNING".equals(topic.status)) {
+                return;
+            }
             if (meeting != null) {
                 sanitizeTopicsFeishuRefs(locked.topics);
                 mergePresetAgendaDocs(meeting.getPresetTypeCode(), locked.topics, meetingId);
-            }
-            topic = locked.topics.get(index);
-            if (!"RUNNING".equals(topic.status)) {
-                return;
+                topic = locked.topics.get(index);
             }
             Integer presetCode = meeting != null ? meeting.getPresetTypeCode() : null;
             FeishuResourceRef briefingRef = presetCode != null
                     ? presetAgendaDocService.openclawBriefingConfigRefForAgenda(presetCode, index)
                     : null;
             if (briefingRef == null) {
-                topic.openclawBriefing = false;
-                String reason = presetCode != null
-                        ? presetAgendaDocService.openclawBriefingIneligibleReason(presetCode, index)
-                        : "会议无 presetTypeCode";
-                log.info("Agenda OpenClaw skip meetingId={} index={} title={}: {}",
-                        meetingId, index, topic.title, reason);
+                if (!prefetch) {
+                    topic.openclawBriefing = false;
+                    String reason = presetCode != null
+                            ? presetAgendaDocService.openclawBriefingIneligibleReason(presetCode, index)
+                            : "会议无 presetTypeCode";
+                    log.info("Agenda OpenClaw skip meetingId={} index={} title={}: {}",
+                            meetingId, index, topic.title, reason);
+                }
                 return;
             }
             topic.openclawBriefing = true;
             if ("loading".equals(topic.briefingStatus)) {
+                // 预取或当前会序已有 OpenClaw 任务在执行：不重复入队，仅同步 UI 为 loading
+                if (!prefetch) {
+                    log.debug("Agenda briefing in flight, wait existing task meetingId={} index={} gen={}",
+                            meetingId, index, topic.briefingGeneration);
+                    pushHostState(meetingId);
+                }
                 return;
             }
-            if ("ready".equals(topic.briefingStatus)
-                    && topic.briefingMarkdown != null && !topic.briefingMarkdown.isBlank()) {
+            long cooldownMs = agendaBriefingFailedRetryCooldownSeconds > 0
+                    ? agendaBriefingFailedRetryCooldownSeconds * 1000L
+                    : 0L;
+            if (AgendaBriefingScheduleHelper.shouldSkipPrefetchRetry(
+                    prefetch, topic.briefingStatus, topic.briefingFailedAtMs,
+                    System.currentTimeMillis(), cooldownMs)) {
+                log.debug("Agenda briefing prefetch skip (failed cooldown) meetingId={} index={}",
+                        meetingId, index);
                 return;
             }
+            String configUrl = AgendaBriefingScheduleHelper.normalizeUrl(briefingRef.sourceUrl());
+            if (AgendaBriefingScheduleHelper.isCacheHit(
+                    topic.briefingStatus, topic.briefingMarkdown, topic.briefingFeishuUrl, configUrl)) {
+                if (!prefetch) {
+                    log.info("Agenda briefing cache hit meetingId={} index={} title={}",
+                            meetingId, index, topic.title);
+                    pushHostState(meetingId);
+                }
+                return;
+            }
+            // 新任务入队：代次 +1，写回时仅接受与本代次一致的结果，避免旧任务覆盖新结果
+            topic.briefingGeneration++;
+            taskGeneration = topic.briefingGeneration;
             topic.briefingStatus = "loading";
             topic.briefingError = null;
         }
-        pushHostState(meetingId);
+        if (!prefetch) {
+            pushHostState(meetingId);
+        } else {
+            log.debug("Agenda briefing prefetch scheduled meetingId={} index={} generation={}",
+                    meetingId, index, taskGeneration);
+        }
 
         final String mid = meetingId;
-        scheduler.execute(() -> runAgendaBriefingTask(mid, index));
+        scheduler.execute(() -> runAgendaBriefingTask(mid, index, prefetch, taskGeneration));
     }
 
-    private void runAgendaBriefingTask(String meetingId, int agendaIndex) {
+    private Semaphore briefingInvokeSemaphoreFor(String meetingId) {
+        return briefingInvokeSemaphores.computeIfAbsent(meetingId, id -> new Semaphore(1, true));
+    }
+
+    /**
+     * 异步任务异常或前置校验失败时，仅在本任务代次仍有效时把 loading 置为 failed，避免 UI 永久 loading。
+     */
+    private void failBriefingForGeneration(String meetingId,
+                                           int agendaIndex,
+                                           int taskGeneration,
+                                           boolean prefetch,
+                                           String errorMessage) {
+        failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch, errorMessage, false);
+    }
+
+    /**
+     * 将本任务代次下的 loading 置为 failed；可选清除 {@code openclawBriefing}（配置已不可用）。
+     */
+    private void failBriefingForGeneration(String meetingId,
+                                           int agendaIndex,
+                                           int taskGeneration,
+                                           boolean prefetch,
+                                           String errorMessage,
+                                           boolean clearOpenclawBriefing) {
+        synchronized (lockFor(meetingId)) {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null || agendaIndex < 0 || agendaIndex >= rt.topics.size()) {
+                return;
+            }
+            HostTopic t = rt.topics.get(agendaIndex);
+            if (t.briefingGeneration != taskGeneration) {
+                return;
+            }
+            t.briefingStatus = "failed";
+            t.briefingMarkdown = null;
+            t.briefingFeishuUrl = null;
+            t.briefingError = errorMessage;
+            t.briefingFailedAtMs = System.currentTimeMillis();
+            if (clearOpenclawBriefing) {
+                t.openclawBriefing = false;
+            }
+        }
+        pushHostStateIfBriefingRelevant(meetingId, agendaIndex, prefetch);
+    }
+
+    /** 预取任务仅在为「当前会序」或用户可见路径时推送 host_state。 */
+    private void pushHostStateIfBriefingRelevant(String meetingId, int agendaIndex, boolean prefetch) {
+        if (!prefetch) {
+            pushHostState(meetingId);
+            return;
+        }
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt != null && agendaIndex == rt.currentIndex) {
+            pushHostState(meetingId);
+        }
+    }
+
+    private void runAgendaBriefingTask(String meetingId, int agendaIndex, boolean prefetch, int taskGeneration) {
+        long t0 = System.currentTimeMillis();
+        Semaphore invokeSlot = briefingInvokeSemaphoreFor(meetingId);
         try {
             HostRuntime rt = runtimes.get(meetingId);
             if (rt == null || agendaIndex < 0 || agendaIndex >= rt.topics.size()) {
@@ -1838,17 +1975,29 @@ public class MeetingHostSessionService {
                     return;
                 }
                 topic = rt.topics.get(agendaIndex);
+                if (topic.briefingGeneration != taskGeneration) {
+                    return;
+                }
                 if (!topic.openclawBriefing) {
+                    failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch,
+                            "OpenClaw 通报已关闭");
                     return;
                 }
                 meeting = meetingMapper.selectById(meetingId);
                 if (meeting == null || meeting.getPresetTypeCode() == null) {
+                    failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch,
+                            meeting == null ? "会议不存在" : "会议缺少 presetTypeCode");
                     return;
                 }
                 sanitizeTopicsFeishuRefs(rt.topics);
                 mergePresetAgendaDocs(meeting.getPresetTypeCode(), rt.topics, meetingId);
                 topic = rt.topics.get(agendaIndex);
+                if (topic.briefingGeneration != taskGeneration) {
+                    return;
+                }
                 if (!topic.openclawBriefing) {
+                    failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch,
+                            "OpenClaw 通报已关闭");
                     return;
                 }
                 briefingRef = presetAgendaDocService.openclawBriefingConfigRefForAgenda(
@@ -1856,21 +2005,33 @@ public class MeetingHostSessionService {
                 if (briefingRef == null) {
                     String reason = presetAgendaDocService.openclawBriefingIneligibleReason(
                             meeting.getPresetTypeCode(), agendaIndex);
-                    topic.briefingStatus = "failed";
-                    topic.briefingError = reason != null ? reason : "OpenClaw 配置未满足条件";
-                    topic.openclawBriefing = false;
-                    pushHostState(meetingId);
-                    log.warn("Agenda OpenClaw aborted meetingId={} index={}: {}", meetingId, agendaIndex, reason);
+                    failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch,
+                            reason != null ? reason : "OpenClaw 配置未满足条件", true);
+                    log.warn("Agenda OpenClaw aborted meetingId={} index={} prefetch={} gen={}: {}",
+                            meetingId, agendaIndex, prefetch, taskGeneration, reason);
                     return;
                 }
             }
-            String url = briefingRef.sourceUrl() != null ? briefingRef.sourceUrl() : "";
+            long tPrep = System.currentTimeMillis();
+            String url = AgendaBriefingScheduleHelper.normalizeUrl(briefingRef.sourceUrl());
             String kind = briefingRef.kind() != null ? briefingRef.kind().name() : "";
-            log.info("Agenda OpenClaw invoke meetingId={} index={} title={} url={}",
-                    meetingId, agendaIndex, topic.title, url.length() > 80 ? url.substring(0, 80) + "…" : url);
-            AgendaBriefingResult result = agendaBriefingService.generateBriefing(
-                    meetingId, topic.title, url, kind);
+            log.info("Agenda OpenClaw invoke meetingId={} index={} title={} prefetch={} gen={} prepMs={} url={}",
+                    meetingId, agendaIndex, topic.title, prefetch, taskGeneration, tPrep - t0,
+                    url.length() > 80 ? url.substring(0, 80) + "…" : url);
 
+            AgendaBriefingResult result;
+            long tOpenclawStart;
+            long tOpenclawEnd;
+            invokeSlot.acquire();
+            try {
+                tOpenclawStart = System.currentTimeMillis();
+                result = agendaBriefingService.generateBriefing(meetingId, topic.title, url, kind);
+                tOpenclawEnd = System.currentTimeMillis();
+            } finally {
+                invokeSlot.release();
+            }
+
+            boolean applied;
             synchronized (lockFor(meetingId)) {
                 rt = runtimes.get(meetingId);
                 if (rt == null || agendaIndex >= rt.topics.size()) {
@@ -1878,32 +2039,89 @@ public class MeetingHostSessionService {
                 }
                 HostTopic t = rt.topics.get(agendaIndex);
                 if (!t.openclawBriefing) {
-                    return;
-                }
-                if (result.isSuccess()) {
+                    if (AgendaBriefingScheduleHelper.shouldFailLoadingAfterStaleDiscard(
+                            taskGeneration, t.briefingGeneration, t.briefingStatus)) {
+                        t.briefingStatus = "failed";
+                        t.briefingMarkdown = null;
+                        t.briefingFeishuUrl = null;
+                        t.briefingError = "OpenClaw 通报已关闭";
+                        t.briefingFailedAtMs = System.currentTimeMillis();
+                        applied = true;
+                    } else {
+                        applied = false;
+                    }
+                } else {
+                FeishuResourceRef currentRef = presetAgendaDocService.openclawBriefingConfigRefForAgenda(
+                        meeting.getPresetTypeCode(), agendaIndex);
+                String currentConfigUrl = currentRef != null
+                        ? AgendaBriefingScheduleHelper.normalizeUrl(currentRef.sourceUrl())
+                        : "";
+                if (!AgendaBriefingScheduleHelper.shouldApplyTaskResult(
+                        taskGeneration, t.briefingGeneration, url, currentConfigUrl)) {
+                    log.info("Agenda briefing result discarded (stale) meetingId={} index={} taskGen={} currentGen={}",
+                            meetingId, agendaIndex, taskGeneration, t.briefingGeneration);
+                    if (AgendaBriefingScheduleHelper.shouldFailLoadingAfterStaleDiscard(
+                            taskGeneration, t.briefingGeneration, t.briefingStatus)) {
+                        t.briefingStatus = "failed";
+                        t.briefingMarkdown = null;
+                        t.briefingFeishuUrl = null;
+                        t.briefingError = AgendaBriefingScheduleHelper.staleDiscardErrorMessage(
+                                url, currentConfigUrl);
+                        t.briefingFailedAtMs = System.currentTimeMillis();
+                        applied = true;
+                    } else {
+                        applied = false;
+                    }
+                } else if (result.isSuccess()) {
                     t.briefingStatus = "ready";
                     t.briefingMarkdown = result.getMarkdown();
+                    t.briefingFeishuUrl = url;
                     t.briefingError = null;
+                    t.briefingFailedAtMs = 0L;
+                    applied = true;
                 } else {
-                    t.briefingStatus = "failed";
-                    t.briefingMarkdown = null;
-                    t.briefingError = result.getErrorMessage() != null
+                    String err = result.getErrorMessage() != null
                             ? result.getErrorMessage()
                             : "会序通报生成失败";
+                    // 预取阶段 OpenClaw 为空常因上一会序仍占用 Gateway；切到本会序时会重新调度
+                    if (prefetch && AgendaBriefingScheduleHelper.isOpenClawEmptyError(err)
+                            && AgendaBriefingScheduleHelper.shouldFailLoadingAfterStaleDiscard(
+                            taskGeneration, t.briefingGeneration, t.briefingStatus)) {
+                        t.briefingStatus = "idle";
+                        t.briefingMarkdown = null;
+                        t.briefingFeishuUrl = null;
+                        t.briefingError = null;
+                        log.info("Agenda briefing prefetch empty, defer retry meetingId={} index={} gen={}",
+                                meetingId, agendaIndex, taskGeneration);
+                        applied = false;
+                    } else {
+                        t.briefingStatus = "failed";
+                        t.briefingMarkdown = null;
+                        t.briefingFeishuUrl = null;
+                        t.briefingError = err;
+                        t.briefingFailedAtMs = System.currentTimeMillis();
+                        applied = true;
+                    }
+                }
                 }
             }
-            pushHostState(meetingId);
+            long tComplete = System.currentTimeMillis();
+            int replyLen = result.getMarkdown() != null ? result.getMarkdown().length() : 0;
+            log.info("Agenda briefing timings meetingId={} index={} prefetch={} gen={} applied={} success={} prepMs={} openclawMs={} totalMs={} replyLength={}",
+                    meetingId, agendaIndex, prefetch, taskGeneration, applied, result.isSuccess(),
+                    tPrep - t0, tOpenclawEnd - tOpenclawStart, tComplete - t0, replyLen);
+            if (applied) {
+                pushHostStateIfBriefingRelevant(meetingId, agendaIndex, prefetch);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch, "会序通报任务被中断");
+            log.warn("Agenda briefing interrupted meetingId={} index={} gen={}", meetingId, agendaIndex, taskGeneration);
         } catch (Exception e) {
-            log.warn("Agenda briefing task failed meetingId={} index={}: {}", meetingId, agendaIndex, e.getMessage());
-            synchronized (lockFor(meetingId)) {
-                HostRuntime rt = runtimes.get(meetingId);
-                if (rt != null && agendaIndex >= 0 && agendaIndex < rt.topics.size()) {
-                    HostTopic t = rt.topics.get(agendaIndex);
-                    t.briefingStatus = "failed";
-                    t.briefingError = e.getMessage() != null ? e.getMessage() : "会序通报生成异常";
-                }
-            }
-            pushHostState(meetingId);
+            log.warn("Agenda briefing task failed meetingId={} index={} prefetch={} gen={} elapsedMs={}: {}",
+                    meetingId, agendaIndex, prefetch, taskGeneration, System.currentTimeMillis() - t0, e.getMessage());
+            failBriefingForGeneration(meetingId, agendaIndex, taskGeneration, prefetch,
+                    e.getMessage() != null ? e.getMessage() : "会序通报生成异常");
         }
     }
 
@@ -1928,6 +2146,14 @@ public class MeetingHostSessionService {
         /** idle / loading / ready / failed */
         String briefingStatus = "idle";
         String briefingMarkdown;
+        /** 生成 ready 通报时对应的配置表 feishu_doc_url，用于预取缓存校验 */
+        String briefingFeishuUrl;
+        /**
+         * 通报任务代次：每次进入 loading 前自增；写回时须与任务捕获值一致，防止旧任务覆盖新结果。
+         */
+        int briefingGeneration;
+        /** 最近一次 failed 的时间戳（毫秒），用于预取路径的失败冷却 */
+        long briefingFailedAtMs;
         String briefingError;
     }
 

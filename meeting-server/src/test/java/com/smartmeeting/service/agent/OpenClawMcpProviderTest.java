@@ -80,6 +80,7 @@ class OpenClawMcpProviderTest {
         ReflectionTestUtils.setField(target, "gatewayUrl", devConfig.gatewayUrl());
         ReflectionTestUtils.setField(target, "sessionKey", devConfig.sessionKey());
         ReflectionTestUtils.setField(target, "timeoutSeconds", devConfig.timeoutSeconds());
+        ReflectionTestUtils.setField(target, "agendaBriefingTimeoutSeconds", devConfig.timeoutSeconds());
         ReflectionTestUtils.setField(target, "skillMode", devConfig.skillMode());
         ReflectionTestUtils.setField(target, "authToken", "");
         ReflectionTestUtils.setField(target, "deviceToken", "");

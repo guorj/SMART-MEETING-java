@@ -70,6 +70,8 @@ meeting:
     # 库内持久化纪要正文（与飞书 doc_url 双写）
     persist-enabled: ${MEETING_MINUTE_PERSIST:true}
     expose-content-in-api: ${MEETING_MINUTE_EXPOSE_API:true}
+    # LLM 初稿后是否走 AI 纪要增强（OpenClaw minute-enhancement / 直调 LLM）；false 仅用初稿
+    ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
 
   notification:
     # 会后通知经 feishu-scheduled-bot POST /api/push（方案二）
@@ -165,6 +167,8 @@ meeting:
     agenda-briefing:
       enabled: ${MEETING_HOST_AGENDA_BRIEFING_ENABLED:true}
       timeout-seconds: ${MEETING_HOST_AGENDA_BRIEFING_TIMEOUT_SEC:120}
+      # 预取失败后在此秒数内不再后台重试；用户切到该会序（非预取）仍会立即重试
+      failed-retry-cooldown-seconds: ${MEETING_HOST_AGENDA_BRIEFING_FAILED_COOLDOWN_SEC:60}
     roll-call:
       # 线上参会人个人链接盘点等待秒数，结束后进入线下答到点名
       online-inventory-seconds: ${MEETING_HOST_ROLL_CALL_ONLINE_INVENTORY_SEC:60}

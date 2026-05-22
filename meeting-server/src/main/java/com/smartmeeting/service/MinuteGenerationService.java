@@ -9,6 +9,7 @@ import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.enums.MinuteGenerationStatus;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.entity.TranscriptSegment;
 import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
@@ -46,6 +47,7 @@ public class MinuteGenerationService {
     private final ObjectMapper objectMapper;
     private final MinuteAIEnhancer minuteAIEnhancer;
     private final MeetingMinuteService meetingMinuteService;
+    private final MeetingMinuteProperties minuteProperties;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -125,23 +127,27 @@ public class MinuteGenerationService {
             minuteText = generateMinuteByLLM(meeting, correctedText, participants);
             log.info("Step 4: LLM generation completed, text length={}", minuteText.length());
 
-            // 🤖 【环节2介入】调用AI优化纪要质量
-            try {
-                String participantsNames = participants.stream()
-                    .map(Participant::getName)
-                    .collect(java.util.stream.Collectors.joining(","));
-                
-                minuteText = minuteAIEnhancer.enhanceMinute(
-                    meetingId,
-                    minuteText,
-                    meeting.getTitle(),
-                    meeting.getPresetTypeCode(),
-                    participantsNames,
-                    correctedText
-                );
-                log.info("Step 4.1: AI minute enhancement completed");
-            } catch (Exception e) {
-                log.warn("AI enhancement failed, use original minute: {}", e.getMessage());
+            // 🤖 【环节2】AI 纪要增强（可经 meeting.minute.ai-enhancement-enabled 关闭）
+            if (minuteProperties.isAiEnhancementEnabled()) {
+                try {
+                    String participantsNames = participants.stream()
+                            .map(Participant::getName)
+                            .collect(java.util.stream.Collectors.joining(","));
+
+                    minuteText = minuteAIEnhancer.enhanceMinute(
+                            meetingId,
+                            minuteText,
+                            meeting.getTitle(),
+                            meeting.getPresetTypeCode(),
+                            participantsNames,
+                            correctedText
+                    );
+                    log.info("Step 4.1: AI minute enhancement completed");
+                } catch (Exception e) {
+                    log.warn("AI enhancement failed, use original minute: {}", e.getMessage());
+                }
+            } else {
+                log.info("Step 4.1: AI minute enhancement skipped (meeting.minute.ai-enhancement-enabled=false)");
             }
 
             // 5. 库内持久化（与飞书双写；飞书失败时库内仍可查）

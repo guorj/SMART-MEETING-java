@@ -58,6 +58,10 @@ public class OpenClawMcpProvider implements AgentProvider {
     @Value("${openclaw.timeout-seconds:60}")
     private int timeoutSeconds;
 
+    /** 会序通报专用上限；与 {@link #timeoutSeconds} 取较小值，避免仅改一处配置不生效 */
+    @Value("${meeting.host.agenda-briefing.timeout-seconds:120}")
+    private int agendaBriefingTimeoutSeconds;
+
     @Value("${openclaw.skill-mode:true}")
     private boolean skillMode;
 
@@ -201,23 +205,37 @@ public class OpenClawMcpProvider implements AgentProvider {
      * @return Agent 回复文本；失败时返回 {@code null}
      */
     private String callGateway(String prompt, String taskType) {
-        log.info("OpenClaw MCP call: taskType={}, skillMode={}, gateway={}, promptLength={}",
-                taskType, skillMode, gatewayUrl, prompt.length());
+        int effectiveTimeout = effectiveTimeoutSeconds(taskType);
+        log.info("OpenClaw MCP call: taskType={}, skillMode={}, gateway={}, promptLength={}, timeoutSec={}",
+                taskType, skillMode, gatewayUrl, prompt.length(), effectiveTimeout);
 
+        long t0 = System.currentTimeMillis();
         String body = gatewayWsClient.sendChatMessage(
-                gatewayUrl, authToken, deviceToken, sessionKey, prompt, timeoutSeconds);
+                gatewayUrl, authToken, deviceToken, sessionKey, prompt, effectiveTimeout);
+        long gatewayMs = System.currentTimeMillis() - t0;
         if (body == null || body.isBlank()) {
-            log.warn("OpenClaw MCP empty/failed response: taskType={}", taskType);
+            log.warn("OpenClaw MCP empty/failed response: taskType={}, gatewayMs={}", taskType, gatewayMs);
             return null;
         }
         String markdown = OpenClawReplyExtractor.extractFromBody(body);
         if (markdown == null || markdown.isBlank()) {
-            log.warn("OpenClaw MCP could not extract text: taskType={}, bodyPrefix={}",
-                    taskType, body.length() > 120 ? body.substring(0, 120) + "…" : body);
+            log.warn("OpenClaw MCP could not extract text: taskType={}, gatewayMs={}, bodyPrefix={}",
+                    taskType, gatewayMs, body.length() > 120 ? body.substring(0, 120) + "…" : body);
             return null;
         }
-        log.info("OpenClaw MCP success: taskType={}, replyLength={}", taskType, markdown.length());
+        log.info("OpenClaw MCP success: taskType={}, gatewayMs={}, replyLength={}",
+                taskType, gatewayMs, markdown.length());
         return markdown;
+    }
+
+    /** matter_progress 使用会序通报与全局 OpenClaw 超时中的较小值。 */
+    private int effectiveTimeoutSeconds(String taskType) {
+        int openclawSec = timeoutSeconds > 0 ? timeoutSeconds : 60;
+        if ("matter_progress".equals(taskType)) {
+            int agendaSec = agendaBriefingTimeoutSeconds > 0 ? agendaBriefingTimeoutSeconds : 120;
+            return Math.min(openclawSec, agendaSec);
+        }
+        return openclawSec;
     }
 
     // ========== Skill prompt 构建 ==========

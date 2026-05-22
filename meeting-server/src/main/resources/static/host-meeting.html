@@ -1322,6 +1322,12 @@
         return '';
       }
 
+      /** 当前会序是否为「会议检点」环节（标题含检点或首项） */
+      function isRollCallChapterTopic(topic, topicIndex) {
+        if (topic && String(topic.title || '').indexOf('检点') >= 0) return true;
+        return (topicIndex | 0) === 0;
+      }
+
       /**
        * 根据当前议题索引刷新「当前议程」面板（标题、时长状态、detail Markdown）。
        * @param {Array<{title?:string,minutes?:number,status?:string,detail?:string}>} topics host_state.topics
@@ -1433,9 +1439,14 @@
         var rc = obj.rollCall || {};
         var phase = rc.phase || 'NONE';
         var people = rc.people || [];
-        /** 检点与会序 1 绑定；进入后续会序后隐藏，避免左侧仍显示已结束的名单（会序 3 时仍像会序 1） */
+        /**
+         * 检点面板仅在与检点会序相关时展示：进行中任意会序可见；已结束后仅当前仍在检点会序时保留（可再次开始）。
+         * 进入会序 2 及以后须隐藏，避免 DONE 阶段仍占位遮挡会序通报。
+         */
         var rollCallActive = phase === 'ACTIVE' || phase === 'ONLINE_INVENTORY' || phase === 'OFFLINE_ROLL_CALL';
-        var showRollCallPanel = rollCallActive || phase === 'DONE' || curTopicIdx === 0;
+        var curTopic = topics.length > curTopicIdx ? topics[curTopicIdx] : null;
+        var onRollCallChapter = isRollCallChapterTopic(curTopic, curTopicIdx);
+        var showRollCallPanel = rollCallActive || onRollCallChapter;
         if (rcw) rcw.style.display = showRollCallPanel ? 'block' : 'none';
         var rcList = document.getElementById('rollCallList');
         var rcCd = document.getElementById('rollCallCountdown');

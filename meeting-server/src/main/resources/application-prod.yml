@@ -25,6 +25,9 @@ meeting:
   kafka:
     enabled: false
 
+  minute:
+    ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
+
   # 与 dev 一致：公网入口（frp / 反代）
   base-url: "http://39.97.61.212:8765"
 

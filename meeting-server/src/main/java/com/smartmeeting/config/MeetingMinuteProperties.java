@@ -17,4 +17,10 @@ public class MeetingMinuteProperties {
 
     /** GET /minute 是否返回全文（false 时仅返回 docUrl 等元数据） */
     private boolean exposeContentInApi = true;
+
+    /**
+     * 是否在 LLM 初稿后调用 AI 增强（OpenClaw {@code minute-enhancement} 或直调 LLM）。
+     * false 时仅使用 Step 4 LLM 初稿，不经过 {@link com.smartmeeting.service.MinuteAIEnhancer}。
+     */
+    private boolean aiEnhancementEnabled = true;
 }

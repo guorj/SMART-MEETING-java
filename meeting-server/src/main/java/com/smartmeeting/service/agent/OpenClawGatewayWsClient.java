@@ -57,6 +57,11 @@ public class OpenClawGatewayWsClient {
 
         String connectId = "connect-" + UUID.randomUUID();
         String sendId = "send-" + UUID.randomUUID();
+        final long t0 = System.currentTimeMillis();
+        final long[] tWsConnected = {0L};
+        final long[] tHandshakeOk = {0L};
+        final long[] tChatSendAccepted = {0L};
+        final long[] tFirstDelta = {0L};
 
         try {
             WebSocketClient client = new WebSocketClient(URI.create(wsUrl)) {
@@ -65,6 +70,7 @@ public class OpenClawGatewayWsClient {
 
                 @Override
                 public void onOpen(ServerHandshake handshake) {
+                    tWsConnected[0] = System.currentTimeMillis();
                     log.debug("OpenClaw WS connected: {}", wsUrl);
                 }
 
@@ -82,6 +88,11 @@ public class OpenClawGatewayWsClient {
                             }
                             if ("chat".equals(event)) {
                                 JsonNode payload = json.path("payload");
+                                if (tFirstDelta[0] == 0L && payload.has("deltaText")
+                                        && !payload.get("deltaText").isNull()
+                                        && !payload.get("deltaText").asText("").isBlank()) {
+                                    tFirstDelta[0] = System.currentTimeMillis();
+                                }
                                 captureChatAssistant(payload, assistantText);
                                 if (chatSendAccepted && isChatStreamComplete(payload)) {
                                     done.countDown();
@@ -101,6 +112,7 @@ public class OpenClawGatewayWsClient {
                                     return;
                                 }
                                 handshakeDone = true;
+                                tHandshakeOk[0] = System.currentTimeMillis();
                                 JsonNode auth = json.path("payload").path("auth");
                                 JsonNode scopes = auth.path("scopes");
                                 log.info("OpenClaw connected: loopback={}, role={}, scopes={}",
@@ -122,6 +134,7 @@ public class OpenClawGatewayWsClient {
                                     return;
                                 }
                                 chatSendAccepted = true;
+                                tChatSendAccepted[0] = System.currentTimeMillis();
                                 extractReplyFromPayload(json.path("payload"), assistantText);
                                 if (assistantText.get() != null && !assistantText.get().isBlank()) {
                                     done.countDown();
@@ -199,23 +212,40 @@ public class OpenClawGatewayWsClient {
             };
 
             if (!client.connectBlocking(15, TimeUnit.SECONDS)) {
-                log.warn("OpenClaw WS connect timeout: {}", wsUrl);
+                log.warn("OpenClaw WS connect timeout: {} elapsedMs={}", wsUrl, System.currentTimeMillis() - t0);
                 return null;
+            }
+            if (tWsConnected[0] == 0L) {
+                tWsConnected[0] = System.currentTimeMillis();
             }
 
             long waitMs = Math.max(1000, deadlineMs - System.currentTimeMillis());
             if (!done.await(waitMs, TimeUnit.MILLISECONDS)) {
-                log.warn("OpenClaw WS chat.send timeout after {}s sessionKey={}", timeoutSeconds, sessionKey);
+                log.warn("OpenClaw WS chat.send timeout after {}s sessionKey={} timings={}",
+                        timeoutSeconds, sessionKey, formatWsTimings(t0, tWsConnected, tHandshakeOk,
+                                tChatSendAccepted, tFirstDelta, assistantText.get()));
                 client.close();
                 return assistantText.get();
             }
+
+            long tComplete = System.currentTimeMillis();
+            String reply = assistantText.get();
+            int replyLen = reply != null ? reply.length() : 0;
+            log.info("OpenClaw WS timings sessionKey={} connectMs={} handshakeMs={} chatSendMs={} firstDeltaMs={} totalMs={} replyLength={}",
+                    sessionKey,
+                    deltaMs(tWsConnected[0], t0),
+                    deltaMs(tHandshakeOk[0], tWsConnected[0]),
+                    deltaMs(tChatSendAccepted[0], tHandshakeOk[0]),
+                    deltaMs(tFirstDelta[0], tChatSendAccepted[0]),
+                    tComplete - t0,
+                    replyLen);
 
             if (errorRef.get() != null) {
                 log.warn("OpenClaw WS error: {}", errorRef.get());
                 return null;
             }
 
-            return assistantText.get();
+            return reply;
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -324,5 +354,23 @@ public class OpenClawGatewayWsClient {
 
     private static void extractReplyFromPayload(JsonNode payload, AtomicReference<String> out) {
         captureChatAssistant(payload, out);
+    }
+
+    private static long deltaMs(long endMs, long startMs) {
+        if (endMs <= 0L || startMs <= 0L) {
+            return -1L;
+        }
+        return Math.max(0L, endMs - startMs);
+    }
+
+    private static String formatWsTimings(long t0, long[] tWsConnected, long[] tHandshakeOk,
+                                          long[] tChatSendAccepted, long[] tFirstDelta, String reply) {
+        int replyLen = reply != null ? reply.length() : 0;
+        return "connectMs=" + deltaMs(tWsConnected[0], t0)
+                + " handshakeMs=" + deltaMs(tHandshakeOk[0], tWsConnected[0])
+                + " chatSendMs=" + deltaMs(tChatSendAccepted[0], tHandshakeOk[0])
+                + " firstDeltaMs=" + deltaMs(tFirstDelta[0], tChatSendAccepted[0])
+                + " totalMs=" + (System.currentTimeMillis() - t0)
+                + " replyLength=" + replyLen;
     }
 }
