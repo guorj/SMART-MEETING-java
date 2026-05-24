@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
  * <ul>
  *   <li>DOCX：分页遍历 blocks API，提取 text_run + equation</li>
  *   <li>WIKI：get_node 解析 obj_type/obj_token 后递归到 docx 或 bitable</li>
- *   <li>BASE：bitable records/search 导出前 50 条，含 WrongTableId 自动纠正</li>
+ *   <li>BASE：bitable records/search 分页导出全部记录，含 WrongTableId 自动纠正</li>
  * </ul>
  * 写入仍为 docx 创建 + block 追加。
  */
@@ -295,37 +295,71 @@ public class RestFeishuDocClient implements FeishuDocClient {
         }
     }
 
-    /** 调用 bitable records/search API 获取最多 50 条记录。 */
+    /** 调用 bitable records/search API 分页拉取全部记录（单页最多 500 条）。 */
     private String searchBitableRecords(String appToken, String tableId) {
         String tenantToken = getTenantToken();
-        String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken
-                + "/tables/" + tableId + "/records/search?page_size=50";
+        int pageSize = 500;
+        String pageToken = null;
+        boolean hasMore = true;
+        List<JsonNode> allItems = new ArrayList<>();
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(tenantToken);
-
         Map<String, Object> body = Map.of("automatic_fields", false);
-        HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
 
-        ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
-        JsonNode json = response.getBody();
-        if (json == null) {
-            throw new RuntimeException("飞书 bitable search 响应为空");
+        while (hasMore) {
+            UriComponentsBuilder ub = UriComponentsBuilder
+                    .fromUriString(baseUrl + "/open-apis/bitable/v1/apps/" + appToken
+                            + "/tables/" + tableId + "/records/search")
+                    .queryParam("page_size", pageSize);
+            if (pageToken != null && !pageToken.isBlank()) {
+                ub.queryParam("page_token", pageToken);
+            }
+            String url = ub.toUriString();
+            HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
+
+            ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
+            JsonNode json = response.getBody();
+            if (json == null) {
+                throw new RuntimeException("飞书 bitable search 响应为空");
+            }
+            int code = json.path("code").asInt(-1);
+            if (code != 0) {
+                throw new RuntimeException("飞书 bitable search code=" + code + " msg=" + json.path("msg").asText(""));
+            }
+            JsonNode data = json.path("data");
+            JsonNode items = data.path("items");
+            if (items.isArray()) {
+                for (JsonNode item : items) {
+                    allItems.add(item);
+                }
+            }
+            hasMore = data.path("has_more").asBoolean(false);
+            pageToken = data.path("page_token").asText(null);
+            if (hasMore && (pageToken == null || pageToken.isBlank())) {
+                break;
+            }
+            if (hasMore) {
+                try {
+                    Thread.sleep(200);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
         }
-        int code = json.path("code").asInt(-1);
-        if (code != 0) {
-            throw new RuntimeException("飞书 bitable search code=" + code + " msg=" + json.path("msg").asText(""));
-        }
-        JsonNode items = json.path("data").path("items");
+
+        BitableRecordSorter.sort(allItems);
+
         StringBuilder out = new StringBuilder();
-        out.append("【多维表格摘要，最多 50 条】\n\n");
-        if (!items.isArray() || items.isEmpty()) {
+        out.append("【多维表格摘要，共 ").append(allItems.size()).append(" 条】\n\n");
+        if (allItems.isEmpty()) {
             out.append("（无记录）");
             return out.toString().trim();
         }
         int row = 0;
-        for (JsonNode item : items) {
+        for (JsonNode item : allItems) {
             row++;
             out.append("--- 记录 ").append(row).append(" ---\n");
             JsonNode fields = item.path("fields");
@@ -333,7 +367,9 @@ public class RestFeishuDocClient implements FeishuDocClient {
                 Iterator<Entry<String, JsonNode>> it = fields.fields();
                 while (it.hasNext()) {
                     Entry<String, JsonNode> e = it.next();
-                    out.append(e.getKey()).append(": ").append(fieldValueAsText(e.getValue())).append('\n');
+                    String fieldName = e.getKey();
+                    out.append(fieldName).append(": ")
+                            .append(BitableFieldFormatter.format(e.getValue(), fieldName)).append('\n');
                 }
             }
             out.append('\n');
@@ -428,16 +464,7 @@ public class RestFeishuDocClient implements FeishuDocClient {
     }
 
     private static String fieldValueAsText(JsonNode v) {
-        if (v == null || v.isNull()) {
-            return "";
-        }
-        if (v.isTextual()) {
-            return v.asText();
-        }
-        if (v.isNumber() || v.isBoolean()) {
-            return v.asText();
-        }
-        return v.toString();
+        return BitableFieldFormatter.format(v, null);
     }
 
     // ---------------------------------------------------------------

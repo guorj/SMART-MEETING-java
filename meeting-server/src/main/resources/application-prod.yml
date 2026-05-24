@@ -32,7 +32,7 @@ meeting:
   base-url: "http://39.97.61.212:8765"
 
   feishu:
-    app-id: "cli_a96266a59238dbc8"
+    app-id: "cli_a955948fda78dbc2"
     app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
     verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
     encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"

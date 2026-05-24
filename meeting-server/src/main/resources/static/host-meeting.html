@@ -229,17 +229,32 @@
       overflow: auto; border-radius: 10px; border: 1px solid #dde3ea;
       background: #fff; box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
     }
-    .feishu-bitable-table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+    .feishu-bitable-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
     .feishu-bitable-table th {
       position: sticky; top: 0; z-index: 1;
       background: linear-gradient(180deg, #f5f7fa, #eceff1); color: #37474f;
       font-weight: 600; padding: 10px 12px; text-align: left;
       border-bottom: 2px solid #cfd8dc; white-space: nowrap;
     }
+    .feishu-bitable-table th.col-narrow,
+    .feishu-bitable-table td.col-narrow { min-width: 56px; max-width: 96px; }
+    .feishu-bitable-table th.col-medium,
+    .feishu-bitable-table td.col-medium { min-width: 88px; max-width: 160px; }
+    .feishu-bitable-table th.col-wide,
+    .feishu-bitable-table td.col-wide { min-width: 220px; max-width: 520px; }
     .feishu-bitable-table td {
       padding: 10px 12px; border-bottom: 1px solid #eef2f6;
-      vertical-align: top; color: #263238; line-height: 1.5; max-width: 280px;
+      vertical-align: top; color: #263238; line-height: 1.5;
+      word-break: break-word; white-space: pre-wrap;
     }
+    .feishu-bitable-table td.cell-truncated { max-height: 8.5em; overflow: hidden; position: relative; }
+    .feishu-bitable-table td.cell-truncated.expanded { max-height: none; }
+    .feishu-bitable-expand {
+      display: inline-block; margin-top: 6px; padding: 0; border: none; background: none;
+      color: #1565c0; font-size: 12px; font-weight: 600; cursor: pointer;
+    }
+    .feishu-bitable-expand:hover { text-decoration: underline; }
+    .weekly-report-block h4 { font-size: 14px; font-weight: 700; color: #333; margin: 0 0 8px; }
     .feishu-bitable-table tbody tr:nth-child(even) td { background: #fafbfc; }
     .feishu-bitable-table tbody tr:hover td { background: #e8f4fd; }
     .feishu-bitable-empty { padding: 28px 16px; text-align: center; color: #90a4ae; font-size: 14px; }
@@ -336,7 +351,7 @@
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
-          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，会先播报<strong>会议开场</strong>，播完后再<strong>自动</strong>进入检点（一般无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）；主持端仅根据定稿语音与顺序记到会，不校验说话人身份。检点结束后若当前议题为「检点」类，将自动进入下一议题。</p>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，会先播报<strong>会议开场</strong>，播完后再<strong>自动</strong>进入检点（一般无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点；前者记为已完成，后者记为跳过）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
           <div class="row" style="margin-top:0">
             <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
             <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
@@ -787,25 +802,37 @@
 
       /**
        * 在飞书资料 panel 末尾追加会前事项对比通报与 OUTPUT 补充资料外链。
-       * 数据来自 host_state：generatedReportUrl / generatedReportAt / outputFeishuDocUrl。
-       * @param {HTMLElement|null} panel 已有 .feishu-doc-panel 根节点
-       * @param {object|null} topic 当前会序 topic
+       * @param {object|null} weeklyFromApi agenda-doc-content 返回的 weeklyReport（含 plainText）
        */
-      function appendWeeklyReportBlocks(panel, topic) {
+      function appendWeeklyReportBlocks(panel, topic, weeklyFromApi) {
         if (!panel || !topic) return;
+        var apiReport = weeklyFromApi || null;
         if (topicHasWeeklyReport(topic)) {
           var reportBlock = document.createElement('section');
           reportBlock.className = 'feishu-part-block weekly-report-block';
           var title = document.createElement('h4');
           title.textContent = '会前事项对比通报';
           reportBlock.appendChild(title);
-          if (topic.generatedReportAt) {
+          var reportAt = (apiReport && apiReport.generatedReportAt) || topic.generatedReportAt;
+          if (reportAt) {
             var at = document.createElement('p');
             at.className = 'muted';
-            at.textContent = '生成时间：' + topic.generatedReportAt;
+            at.textContent = '生成时间：' + reportAt;
             reportBlock.appendChild(at);
           }
-          var reportLink = buildFeishuOpenLink(topic.generatedReportUrl, 'DOCX');
+          if (apiReport && apiReport.plainText) {
+            var body = document.createElement('div');
+            body.className = 'feishu-doc-body';
+            appendFeishuDocBodyContent(body, apiReport.plainText, 'DOCX');
+            reportBlock.appendChild(body);
+          } else if (apiReport && apiReport.fetchError) {
+            var err = document.createElement('div');
+            err.className = 'feishu-fetch-error';
+            err.textContent = apiReport.fetchError;
+            reportBlock.appendChild(err);
+          }
+          var reportUrl = (apiReport && apiReport.generatedReportUrl) || topic.generatedReportUrl;
+          var reportLink = buildFeishuOpenLink(reportUrl, 'DOCX');
           if (reportLink) reportBlock.appendChild(reportLink);
           panel.appendChild(reportBlock);
         }
@@ -840,24 +867,55 @@
         return escapeHtml(s).replace(/'/g, '&#39;');
       }
 
-      function parseFeishuFieldValue(raw) {
+      function formatEpochMs(ms, fieldName) {
+        var d = new Date(ms);
+        if (isNaN(d.getTime())) return String(ms);
+        var y = d.getFullYear();
+        var mo = String(d.getMonth() + 1).padStart(2, '0');
+        var day = String(d.getDate()).padStart(2, '0');
+        var hh = String(d.getHours()).padStart(2, '0');
+        var mi = String(d.getMinutes()).padStart(2, '0');
+        var dateOnly = fieldName && fieldName.indexOf('日期') >= 0 && fieldName.indexOf('时间') < 0;
+        if (dateOnly || (hh === '00' && mi === '00')) {
+          return y + '-' + mo + '-' + day;
+        }
+        return y + '-' + mo + '-' + day + ' ' + hh + ':' + mi;
+      }
+
+      function looksLikeEpochMs(n) {
+        return n >= 946684800000 && n <= 4102444800000;
+      }
+
+      function parseFeishuFieldValue(raw, fieldName) {
+        fieldName = fieldName == null ? '' : String(fieldName);
         if (raw == null) return '';
         var s = String(raw).trim();
         if (!s) return '';
+        if (s === 'true' || s === 'false') {
+          return s === 'true' ? '是' : '否';
+        }
+        if (/^-?\d+$/.test(s)) {
+          var num = parseInt(s, 10);
+          if (looksLikeEpochMs(num) && (fieldName.indexOf('日期') >= 0 || fieldName.indexOf('时间') >= 0
+              || fieldName.toLowerCase().indexOf('date') >= 0 || fieldName === '')) {
+            return formatEpochMs(num, fieldName);
+          }
+        }
         if (s.charAt(0) === '[' || s.charAt(0) === '{') {
           try {
             var j = JSON.parse(s);
             if (Array.isArray(j)) {
               return j.map(function (x) {
-                if (!x) return '';
-                if (typeof x === 'string') return x;
-                if (x.text) return String(x.text);
-                if (x.name) return String(x.name);
-                return '';
+                return parseFeishuFieldValue(typeof x === 'object' ? JSON.stringify(x) : x, fieldName);
               }).filter(Boolean).join('、');
             }
-            if (j.text) return String(j.text);
-            if (j.name) return String(j.name);
+            if (j && typeof j === 'object') {
+              if (j.value != null) {
+                return parseFeishuFieldValue(JSON.stringify(j.value), fieldName);
+              }
+              if (j.text) return String(j.text);
+              if (j.name) return String(j.name);
+            }
           } catch (ignore) {}
         }
         return s;
@@ -886,7 +944,7 @@
             if (colon <= 0) return;
             fields.push({
               name: li.substring(0, colon).trim(),
-              value: parseFeishuFieldValue(li.substring(colon + 1).trim())
+              value: parseFeishuFieldValue(li.substring(colon + 1).trim(), li.substring(0, colon).trim())
             });
           });
           if (fields.length) records.push({ index: recNum, fields: fields });
@@ -911,6 +969,57 @@
         return cols;
       }
 
+      /** 按列名与单元格字数估算窄/中/宽列，供表格布局使用。 */
+      function computeBitableColumnProfiles(records, cols) {
+        return cols.map(function (col) {
+          var maxLen = col.length;
+          var totalLen = 0;
+          var count = 0;
+          records.forEach(function (rec) {
+            var map = {};
+            (rec.fields || []).forEach(function (f) { map[f.name] = f.value; });
+            var v = map[col] != null ? String(map[col]) : '';
+            totalLen += v.length;
+            if (v.length > maxLen) maxLen = v.length;
+            count++;
+          });
+          return { name: col, maxLen: maxLen, avgLen: count ? totalLen / count : 0 };
+        });
+      }
+
+      function bitableColumnWidthClass(profile) {
+        if (profile.avgLen > 100 || profile.maxLen > 160) return 'col-wide';
+        if (profile.avgLen < 18 && profile.maxLen < 28) return 'col-narrow';
+        return 'col-medium';
+      }
+
+      /** 列数多且含长文本列时改用卡片布局，避免表格挤压。 */
+      function shouldUseBitableCards(cols, profiles) {
+        if (cols.length > 8) {
+          var longCols = profiles.filter(function (p) { return p.avgLen > 80 || p.maxLen > 140; }).length;
+          if (longCols >= 1) return true;
+        }
+        return profiles.filter(function (p) { return p.avgLen > 120 || p.maxLen > 200; }).length >= 2;
+      }
+
+      function setBitableCellContent(td, text, profile) {
+        var s = text != null && String(text).trim() !== '' ? String(text) : '—';
+        td.textContent = s;
+        if (profile && s.length > 280) {
+          td.classList.add('cell-truncated');
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'feishu-bitable-expand';
+          btn.textContent = '展开全文';
+          btn.onclick = function () {
+            var expanded = td.classList.toggle('expanded');
+            btn.textContent = expanded ? '收起' : '展开全文';
+          };
+          td.appendChild(document.createElement('br'));
+          td.appendChild(btn);
+        }
+      }
+
       function buildBitableTableDom(parsed) {
         var wrap = document.createElement('div');
         wrap.className = 'feishu-bitable-wrap';
@@ -927,7 +1036,9 @@
           return wrap;
         }
         var cols = collectBitableColumns(parsed.records);
-        var useTable = parsed.records.length >= 2 && cols.length >= 2 && cols.length <= 14;
+        var profiles = computeBitableColumnProfiles(parsed.records, cols);
+        var useTable = parsed.records.length >= 2 && cols.length >= 2 && cols.length <= 14
+            && !shouldUseBitableCards(cols, profiles);
         if (useTable) {
           var scroll = document.createElement('div');
           scroll.className = 'feishu-bitable-scroll';
@@ -936,11 +1047,13 @@
           var thead = document.createElement('thead');
           var hr = document.createElement('tr');
           var th0 = document.createElement('th');
+          th0.className = 'col-narrow';
           th0.textContent = '#';
           hr.appendChild(th0);
-          cols.forEach(function (c) {
+          profiles.forEach(function (p) {
             var th = document.createElement('th');
-            th.textContent = c;
+            th.className = bitableColumnWidthClass(p);
+            th.textContent = p.name;
             hr.appendChild(th);
           });
           thead.appendChild(hr);
@@ -949,13 +1062,15 @@
           parsed.records.forEach(function (rec) {
             var tr = document.createElement('tr');
             var td0 = document.createElement('td');
+            td0.className = 'col-narrow';
             td0.textContent = String(rec.index);
             tr.appendChild(td0);
             var map = {};
             (rec.fields || []).forEach(function (f) { map[f.name] = f.value; });
-            cols.forEach(function (c) {
+            profiles.forEach(function (p) {
               var td = document.createElement('td');
-              td.textContent = map[c] != null ? map[c] : '—';
+              td.className = bitableColumnWidthClass(p);
+              setBitableCellContent(td, map[p.name], p);
               tr.appendChild(td);
             });
             tbody.appendChild(tr);
@@ -1128,7 +1243,7 @@
         var el = targets.mirrorBody;
         var lines = [];
         if (topicHasWeeklyReport(topic)) {
-          lines.push('会前事项对比通报已生成，请见左侧主区链接。');
+          lines.push('会前事项对比通报已生成，请见左侧主区正文。');
           if (topic.generatedReportAt) {
             lines.push('生成时间：' + topic.generatedReportAt);
           }
@@ -1249,9 +1364,63 @@
             });
       }
 
+      function topicNeedsAgendaDocFetch(topic) {
+        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic);
+      }
+
+      function ensureFeishuDocPanel(containerEl) {
+        if (!containerEl) return null;
+        var panel = containerEl.querySelector('.feishu-doc-panel');
+        if (panel) return panel;
+        panel = document.createElement('div');
+        panel.className = 'feishu-doc-panel';
+        containerEl.appendChild(panel);
+        return panel;
+      }
+
+      function applyAgendaDocApiResult(targets, topic, opts, res, agendaIndex, agendaTitle) {
+        var weeklyReport = res.data && res.data.weeklyReport ? res.data.weeklyReport : null;
+        if (res.ok && res.data && res.data.parts && res.data.parts.length) {
+          renderAgendaDocParts(targets.body, res.data.parts, opts);
+          appendWeeklyReportBlocks(targets.body.querySelector('.feishu-doc-panel'), topic, weeklyReport);
+          var firstUrl = res.data.feishuDocUrl;
+          var firstKind = res.data.docKind;
+          if (!firstUrl && res.data.parts[0]) {
+            firstUrl = res.data.parts[0].feishuDocUrl;
+            firstKind = res.data.parts[0].docKind;
+          }
+          if (targets.linkEl && firstUrl) {
+            showAgendaDocExternalLink(targets.linkEl, firstUrl, firstKind);
+          }
+          return;
+        }
+        if (res.ok && res.data && weeklyReport) {
+          applyAgendaDocContainerStyles(targets.body, opts.useMainPanel);
+          targets.body.innerHTML = '';
+          appendWeeklyReportBlocks(ensureFeishuDocPanel(targets.body), topic, weeklyReport);
+          return;
+        }
+        if (res.ok || res.status === 404) {
+          renderAgendaDocPanelContent(targets.body, topic, opts);
+          return;
+        }
+        renderAgendaDocLinksOnly(targets.body, topic, opts);
+        var errPanel = targets.body.querySelector('.feishu-doc-panel');
+        if (errPanel) {
+          var errBox = document.createElement('div');
+          errBox.className = 'feishu-fetch-error';
+          errBox.textContent = res.message || ('加载会序「' + (agendaTitle || ('第 ' + (agendaIndex + 1) + ' 项')) + '」资料失败');
+          errPanel.insertBefore(errBox, errPanel.firstChild);
+          appendWeeklyReportBlocks(errPanel, topic, null);
+        } else {
+          renderAgendaDocPanelContent(targets.body, topic, opts);
+        }
+        showProgressErr(res.message || '加载飞书资料失败');
+      }
+
       /**
        * 加载并渲染左侧会序参考资料区（#progressReportBody）。
-       * 有 SOURCE 链接时请求 agenda-doc-content；无 SOURCE 仅渲染会前对比/外链。
+       * 有 SOURCE 或会前通报时请求 agenda-doc-content 拉取正文。
        * @param {number} agendaIndex
        * @param {string} agendaTitle 展示用标题（错误提示）
        * @param {object} topic host_state.topics[i]
@@ -1274,7 +1443,7 @@
           syncAgendaDetailSidebarHint(targets, agendaIndex, topic);
         }
 
-        if (!topicHasFeishuDoc(topic)) {
+        if (!topicNeedsAgendaDocFetch(topic)) {
           renderAgendaDocPanelContent(targets.body, topic, opts);
           finishRender();
           return;
@@ -1285,37 +1454,7 @@
 
         fetchAgendaDocContent(meetingId, token, agendaIndex).then(function (res) {
           if (agendaDocFetchingIndex !== agendaIndex) return;
-          if (res.ok && res.data && res.data.parts && res.data.parts.length) {
-            renderAgendaDocParts(targets.body, res.data.parts, opts);
-            var panel = targets.body.querySelector('.feishu-doc-panel');
-            appendWeeklyReportBlocks(panel, topic);
-            var firstUrl = res.data.feishuDocUrl;
-            var firstKind = res.data.docKind;
-            if (!firstUrl && res.data.parts[0]) {
-              firstUrl = res.data.parts[0].feishuDocUrl;
-              firstKind = res.data.parts[0].docKind;
-            }
-            if (targets.linkEl && firstUrl) {
-              showAgendaDocExternalLink(targets.linkEl, firstUrl, firstKind);
-            }
-          } else if (res.ok) {
-            renderAgendaDocPanelContent(targets.body, topic, opts);
-          } else if (res.status === 404) {
-            renderAgendaDocPanelContent(targets.body, topic, opts);
-          } else {
-            renderAgendaDocLinksOnly(targets.body, topic, opts);
-            var errPanel = targets.body.querySelector('.feishu-doc-panel');
-            if (errPanel) {
-              var errBox = document.createElement('div');
-              errBox.className = 'feishu-fetch-error';
-              errBox.textContent = res.message || ('加载会序「' + (agendaTitle || ('第 ' + (agendaIndex + 1) + ' 项')) + '」资料失败');
-              errPanel.insertBefore(errBox, errPanel.firstChild);
-              appendWeeklyReportBlocks(errPanel, topic);
-            } else {
-              renderAgendaDocPanelContent(targets.body, topic, opts);
-            }
-            showProgressErr(res.message || '加载飞书资料失败');
-          }
+          applyAgendaDocApiResult(targets, topic, opts, res, agendaIndex, agendaTitle);
           finishRender();
         });
       }

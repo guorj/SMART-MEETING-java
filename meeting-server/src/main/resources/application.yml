@@ -111,7 +111,7 @@ meeting:
     eng-speaker-match: 1
     audio-encode: pcm_s16le
     # 会中实时转写（录音页/主持页字幕、int_transcript_segment）；false 时仅本地录音，会后依赖离线 ASR
-    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:true}
+    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:false}
     mock-enabled: ${MOCK_ASR:false}
     xfyun:
       app-id: ${XFYUN_APP_ID:test}

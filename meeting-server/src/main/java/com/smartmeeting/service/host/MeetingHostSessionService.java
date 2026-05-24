@@ -387,7 +387,7 @@ public class MeetingHostSessionService {
 
         if (topicLeftSec == 0 && !rt.topicTimeUpAnnounced) {
             rt.topicTimeUpAnnounced = true;
-            speakAsync(meetingId, "本议题时间到。请点击「下一议题」继续，或继续讨论后再切换。");
+            speakAsync(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
         }
 
         if (hostRollCallEnabled) {
@@ -481,28 +481,31 @@ public class MeetingHostSessionService {
      */
     public void nextTopic(String meetingId) {
         requireHostAgendaEnabled();
-        HostRuntime rt = runtimes.get(meetingId);
-        if (rt == null) {
-            throw new BusinessException(400, "未开启主持会话");
-        }
-        if (rt.currentIndex >= rt.topics.size()) {
-            return;
-        }
-        rt.topics.get(rt.currentIndex).status = "COMPLETED";
-        rt.currentIndex++;
-        rt.topicTimeUpAnnounced = false;
-        rt.lastTopicLeftSec = Integer.MAX_VALUE;
-        if (rt.currentIndex >= rt.topics.size()) {
-            speakAsync(meetingId, "全部议题已结束。您可点击「结束会议」完成录音与纪要生成。");
+        synchronized (lockFor(meetingId)) {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null) {
+                throw new BusinessException(400, "未开启主持会话");
+            }
+            abortRollCallIfActive(meetingId, rt);
+            if (rt.currentIndex >= rt.topics.size()) {
+                return;
+            }
+            rt.topics.get(rt.currentIndex).status = "COMPLETED";
+            rt.currentIndex++;
+            rt.topicTimeUpAnnounced = false;
+            rt.lastTopicLeftSec = Integer.MAX_VALUE;
+            if (rt.currentIndex >= rt.topics.size()) {
+                speakAsync(meetingId, "全部议题已结束。您可点击「结束会议」完成录音与纪要生成。");
+                pushHostState(meetingId);
+                return;
+            }
+            HostTopic next = rt.topics.get(rt.currentIndex);
+            next.status = "RUNNING";
+            int min = Math.max(1, next.minutes);
+            rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
+            speakAsync(meetingId, "现在进入：" + next.title + "，预计 " + min + " 分钟。");
             pushHostState(meetingId);
-            return;
         }
-        HostTopic next = rt.topics.get(rt.currentIndex);
-        next.status = "RUNNING";
-        int min = Math.max(1, next.minutes);
-        rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
-        speakAsync(meetingId, "现在进入：" + next.title + "，预计 " + min + " 分钟。");
-        pushHostState(meetingId);
     }
 
     /**
@@ -513,28 +516,31 @@ public class MeetingHostSessionService {
      */
     public void skipTopic(String meetingId) {
         requireHostAgendaEnabled();
-        HostRuntime rt = runtimes.get(meetingId);
-        if (rt == null) {
-            throw new BusinessException(400, "未开启主持会话");
-        }
-        if (rt.currentIndex >= rt.topics.size()) {
-            return;
-        }
-        rt.topics.get(rt.currentIndex).status = "SKIPPED";
-        rt.currentIndex++;
-        rt.topicTimeUpAnnounced = false;
-        rt.lastTopicLeftSec = Integer.MAX_VALUE;
-        if (rt.currentIndex >= rt.topics.size()) {
-            speakAsync(meetingId, "已跳过剩余项。您可点击「结束会议」。");
+        synchronized (lockFor(meetingId)) {
+            HostRuntime rt = runtimes.get(meetingId);
+            if (rt == null) {
+                throw new BusinessException(400, "未开启主持会话");
+            }
+            abortRollCallIfActive(meetingId, rt);
+            if (rt.currentIndex >= rt.topics.size()) {
+                return;
+            }
+            rt.topics.get(rt.currentIndex).status = "SKIPPED";
+            rt.currentIndex++;
+            rt.topicTimeUpAnnounced = false;
+            rt.lastTopicLeftSec = Integer.MAX_VALUE;
+            if (rt.currentIndex >= rt.topics.size()) {
+                speakAsync(meetingId, "已跳过剩余项。您可点击「结束会议」。");
+                pushHostState(meetingId);
+                return;
+            }
+            HostTopic next = rt.topics.get(rt.currentIndex);
+            next.status = "RUNNING";
+            int min = Math.max(1, next.minutes);
+            rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
+            speakAsync(meetingId, "跳过当前会序。现在进入：" + next.title + "，预计 " + min + " 分钟。");
             pushHostState(meetingId);
-            return;
         }
-        HostTopic next = rt.topics.get(rt.currentIndex);
-        next.status = "RUNNING";
-        int min = Math.max(1, next.minutes);
-        rt.topicEndMs = System.currentTimeMillis() + min * 60_000L;
-        speakAsync(meetingId, "跳过当前会序。现在进入：" + next.title + "，预计 " + min + " 分钟。");
-        pushHostState(meetingId);
     }
 
     /**
@@ -595,6 +601,7 @@ public class MeetingHostSessionService {
             rt.rollCallPeople.addAll(people);
             rt.rollCallIndex = -1;
             rt.rollCallDeadlineMs = 0;
+            bumpRollCallGeneration(rt);
             boolean hasOnlinePending = people.stream().anyMatch(RollCallPerson::isOnlinePending);
             if (hasOnlinePending) {
                 rt.rollCallPhase = "ONLINE_INVENTORY";
@@ -602,10 +609,18 @@ public class MeetingHostSessionService {
                         System.currentTimeMillis() + Math.max(15, rollCallOnlineInventorySeconds) * 1000L;
                 pushHostState(meetingId);
                 final String mid = meetingId;
+                final long gen = rt.rollCallGeneration;
                 speakAsyncFutureWithDurationMs(meetingId, buildHybridRollCallIntroText(people))
-                        .thenAccept(durationMs -> scheduler.schedule(
-                                () -> beginOfflineRollCallIfStillInventory(mid),
-                                Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS,
+                        .thenAccept(durationMs -> scheduler.schedule(() -> {
+                            synchronized (lockFor(mid)) {
+                                HostRuntime r = runtimes.get(mid);
+                                if (r == null || r.rollCallGeneration != gen
+                                        || !"ONLINE_INVENTORY".equals(r.rollCallPhase)) {
+                                    return;
+                                }
+                                beginOfflineRollCallIfStillInventory(mid);
+                            }
+                        }, Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS,
                                 TimeUnit.MILLISECONDS));
             } else {
                 beginOfflineRollCall(meetingId, rt, null);
@@ -663,9 +678,61 @@ public class MeetingHostSessionService {
             if (!"PENDING".equals(cur.status)) {
                 return;
             }
+            bumpRollCallGeneration(rt);
             cur.status = "SKIPPED";
             advanceRollCallAfterCurrentResolved(meetingId, rt, "已跳过" + cur.name + "。");
         }
+    }
+
+    /**
+     * 会序切换时静默终止检点：不播检点总结，并作废已排队的点名/答到窗口调度。
+     */
+    private void abortRollCallIfActive(String meetingId, HostRuntime rt) {
+        if (rt == null || !isRollCallActive(rt.rollCallPhase)) {
+            return;
+        }
+        bumpRollCallGeneration(rt);
+        rt.rollCallPhase = "DONE";
+        rt.rollCallIndex = -1;
+        rt.rollCallDeadlineMs = 0;
+        rt.rollCallOnlineInventoryDeadlineMs = 0;
+        for (RollCallPerson p : rt.rollCallPeople) {
+            if ("PENDING".equals(p.status)) {
+                p.status = "SKIPPED";
+            }
+        }
+        log.info("roll-call aborted for agenda change: meetingId={}, gen={}", meetingId, rt.rollCallGeneration);
+    }
+
+    private static void bumpRollCallGeneration(HostRuntime rt) {
+        rt.rollCallGeneration++;
+    }
+
+    /**
+     * 检点线下阶段仍有效时才排队 TTS，避免切题后仍播「请某某答到」。
+     */
+    private void speakRollCallIfActive(String meetingId, long gen, String text,
+            java.util.function.LongConsumer afterPlayback) {
+        synchronized (lockFor(meetingId)) {
+            HostRuntime r = runtimes.get(meetingId);
+            if (!rollCallOfflineMatchesGeneration(r, gen)) {
+                return;
+            }
+        }
+        final String mid = meetingId;
+        speakAsyncFutureWithDurationMs(meetingId, text).thenAccept(durationMs -> {
+            synchronized (lockFor(mid)) {
+                HostRuntime r = runtimes.get(mid);
+                if (!rollCallOfflineMatchesGeneration(r, gen)) {
+                    return;
+                }
+                afterPlayback.accept(durationMs);
+            }
+        });
+    }
+
+    private static boolean rollCallOfflineMatchesGeneration(HostRuntime r, long gen) {
+        return r != null && r.rollCallGeneration == gen && isRollCallOfflinePhase(r.rollCallPhase);
     }
 
     /**
@@ -812,12 +879,13 @@ public class MeetingHostSessionService {
         pushHostState(meetingId);
         RollCallPerson first = rt.rollCallPeople.get(nextIdx);
         final String mid = meetingId;
+        final long gen = rt.rollCallGeneration;
         String intro = prelude != null && !prelude.isBlank()
                 ? prelude + " " + buildOfflineOnlyIntroText(rt.rollCallPeople)
                 : buildOfflineOnlyIntroText(rt.rollCallPeople);
-        speakAsyncFutureWithDurationMs(meetingId, intro)
-                .thenCompose(introDurationMs -> speakAsyncFutureWithDurationMs(meetingId, rollCallNameCue(first.name))
-                        .thenAccept(cueDurationMs -> armRollCallDeadlineAfterCuePlayback(mid, introDurationMs, cueDurationMs)));
+        speakRollCallIfActive(mid, gen, intro, introDurationMs -> speakRollCallIfActive(mid, gen,
+                rollCallNameCue(first.name),
+                cueDurationMs -> armRollCallDeadlineAfterCuePlayback(mid, gen, introDurationMs, cueDurationMs)));
     }
 
     /**
@@ -828,6 +896,7 @@ public class MeetingHostSessionService {
      * @param prelude   与总结拼接的前缀短句，可为 null
      */
     private void finishRollCallDone(String meetingId, HostRuntime rt, String prelude) {
+        bumpRollCallGeneration(rt);
         boolean autoNextTopic = currentTopicIsRollCallChapter(rt);
         rt.rollCallPhase = "DONE";
         rt.rollCallIndex = -1;
@@ -1009,9 +1078,19 @@ public class MeetingHostSessionService {
      * @param priorPlaybackPadMs  紧挨在本段点名之前的、已在客户端排队的语音预估时长（毫秒），首轮为检点开场白
      * @param cueDurationMs       本段「请某某答到」等点名片断的 PCM 预估时长（毫秒）
      */
-    private void armRollCallDeadlineAfterCuePlayback(String meetingId, long priorPlaybackPadMs, long cueDurationMs) {
+    private void armRollCallDeadlineAfterCuePlayback(String meetingId, long rollCallGen,
+            long priorPlaybackPadMs, long cueDurationMs) {
         long delayMs = Math.max(0L, priorPlaybackPadMs) + Math.max(0L, cueDurationMs) + ROLL_CALL_ARM_EXTRA_MS + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
-        scheduler.schedule(() -> armRollCallDeadlineIfStillActive(meetingId), delayMs, TimeUnit.MILLISECONDS);
+        scheduler.schedule(() -> {
+            synchronized (lockFor(meetingId)) {
+                HostRuntime r = runtimes.get(meetingId);
+                if (r == null || r.rollCallGeneration != rollCallGen
+                        || !isRollCallOfflinePhase(r.rollCallPhase)) {
+                    return;
+                }
+                armRollCallDeadlineIfStillActive(meetingId);
+            }
+        }, delayMs, TimeUnit.MILLISECONDS);
     }
 
     /**
@@ -1098,6 +1177,9 @@ public class MeetingHostSessionService {
      * @param preludeForNextOrSummary   紧接下一段 TTS 前的短句，或收尾时与总结拼接的前缀
      */
     private void advanceRollCallAfterCurrentResolved(String meetingId, HostRuntime rt, String preludeForNextOrSummary) {
+        if (!isRollCallOfflinePhase(rt.rollCallPhase)) {
+            return;
+        }
         int nextIdx = findNextOfflineRollCallIndex(rt.rollCallPeople, rt.rollCallIndex + 1);
         if (nextIdx < 0) {
             finishRollCallDone(meetingId, rt, preludeForNextOrSummary);
@@ -1108,9 +1190,10 @@ public class MeetingHostSessionService {
         pushHostState(meetingId);
         RollCallPerson next = rt.rollCallPeople.get(rt.rollCallIndex);
         final String mid = meetingId;
+        final long gen = rt.rollCallGeneration;
         String cue = rollCallPreludePlusNameCue(preludeForNextOrSummary, next.name);
-        speakAsyncFutureWithDurationMs(meetingId, cue).thenAccept(cueDurationMs ->
-                armRollCallDeadlineAfterCuePlayback(mid, 0L, cueDurationMs));
+        speakRollCallIfActive(mid, gen, cue,
+                cueDurationMs -> armRollCallDeadlineAfterCuePlayback(mid, gen, 0L, cueDurationMs));
     }
 
     /**
@@ -1742,6 +1825,8 @@ public class MeetingHostSessionService {
         long rollCallDeadlineMs;
         /** 线上盘点阶段结束时刻 */
         long rollCallOnlineInventoryDeadlineMs;
+        /** 检点世代：会序切换/跳过检点/新一轮检点时递增，作废已排队的 TTS 与答到窗口调度 */
+        long rollCallGeneration;
     }
 
     /** 检点名单中的一人 */

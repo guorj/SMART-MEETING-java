@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.AgendaDocContentResponse;
 import com.smartmeeting.api.dto.AgendaDocPartDto;
+import com.smartmeeting.api.dto.AgendaWeeklyReportDto;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.MatterProgressDocConfig;
@@ -400,11 +401,21 @@ public class PresetAgendaDocService {
     public AgendaDocContentResponse buildAgendaDocContent(Meeting meeting, int agendaIndex, String agendaTitle,
                                                           List<FeishuDocRefDto> runtimeDocs) {
         List<FeishuResourceRef> refs = resolveAllResources(meeting, agendaIndex, runtimeDocs);
+        AgendaWeeklyReportDto weeklyReport = buildWeeklyReportDto(meeting, agendaIndex).orElse(null);
         if (refs.isEmpty()) {
-            throw new BusinessException(404,
-                    "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
-                            ? "「" + agendaTitle + "」" : "")
-                            + " 未配置飞书资料");
+            if (weeklyReport == null || weeklyReport.getGeneratedReportUrl() == null
+                    || weeklyReport.getGeneratedReportUrl().isBlank()) {
+                throw new BusinessException(404,
+                        "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
+                                ? "「" + agendaTitle + "」" : "")
+                                + " 未配置飞书资料");
+            }
+            return AgendaDocContentResponse.builder()
+                    .agendaIndex(agendaIndex)
+                    .agendaTitle(agendaTitle)
+                    .parts(List.of())
+                    .weeklyReport(weeklyReport)
+                    .build();
         }
         List<AgendaDocPartDto> parts = new ArrayList<>();
         StringBuilder combined = new StringBuilder();
@@ -437,7 +448,8 @@ public class PresetAgendaDocService {
         boolean anyText = parts.stream().anyMatch(p -> p.getPlainText() != null && !p.getPlainText().isBlank());
         if (!anyText && parts.stream().allMatch(p -> p.getFetchError() != null)) {
             boolean anyUrl = parts.stream().anyMatch(p -> p.getFeishuDocUrl() != null && !p.getFeishuDocUrl().isBlank());
-            if (!anyUrl) {
+            if (!anyUrl && (weeklyReport == null || weeklyReport.getPlainText() == null
+                    || weeklyReport.getPlainText().isBlank())) {
                 throw new BusinessException(502,
                         "会序 " + (agendaIndex + 1) + " 全部飞书资料拉取失败，请检查权限或链接");
             }
@@ -453,7 +465,46 @@ public class PresetAgendaDocService {
                 .docKind(first.kind().name())
                 .plainText(combined.toString().trim())
                 .parts(parts)
+                .weeklyReport(weeklyReport)
                 .build();
+    }
+
+    /**
+     * 拉取会序绑定的会前对比通报 Doc 正文（generated_report_url）。
+     */
+    Optional<AgendaWeeklyReportDto> buildWeeklyReportDto(Meeting meeting, int agendaIndex) {
+        if (meeting == null || meeting.getPresetTypeCode() == null) {
+            return Optional.empty();
+        }
+        return findReportBindingForAgenda(meeting.getPresetTypeCode(), agendaIndex)
+                .filter(b -> b.generatedReportUrl() != null && !b.generatedReportUrl().isBlank())
+                .map(b -> {
+                    String url = b.generatedReportUrl().trim();
+                    AgendaWeeklyReportDto.AgendaWeeklyReportDtoBuilder builder = AgendaWeeklyReportDto.builder()
+                            .generatedReportUrl(url);
+                    if (b.generatedReportAt() != null) {
+                        builder.generatedReportAt(b.generatedReportAt().toString());
+                    }
+                    FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
+                    if (ref == null || ref.kind() == FeishuResourceKind.UNKNOWN || !ref.canFetchPlainText()) {
+                        builder.fetchError("无法内嵌拉取通报正文，请点击下方链接在飞书中打开");
+                        return builder.build();
+                    }
+                    try {
+                        String text = feishuService.fetchResourcePlainText(ref);
+                        if (text != null && !text.isBlank()) {
+                            builder.plainText(text.trim());
+                        } else {
+                            builder.fetchError("通报 Doc 已读取但正文为空");
+                        }
+                    } catch (BusinessException e) {
+                        builder.fetchError(e.getMessage());
+                    } catch (Exception e) {
+                        log.warn("fetch weekly report agendaIndex={}: {}", agendaIndex, e.getMessage());
+                        builder.fetchError("拉取通报失败: " + e.getMessage());
+                    }
+                    return builder.build();
+                });
     }
 
     /**
