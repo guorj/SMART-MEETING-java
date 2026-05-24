@@ -30,7 +30,7 @@ import java.util.regex.Pattern;
  * 读取能力参照 meeting-server {@code FeishuService.fetchResourcePlainText}：
  * <ul>
  *   <li>DOCX：分页遍历 blocks API，提取 text_run + equation</li>
- *   <li>WIKI：get_node 解析 obj_type/obj_token 后递归到 docx 或 bitable</li>
+     *   <li>WIKI：get_node 解析 obj_type/obj_token 后递归到 docx、bitable 或 sheet</li>
  *   <li>BASE：bitable records/search 分页导出全部记录，含 WrongTableId 自动纠正</li>
  * </ul>
  * 写入仍为 docx 创建 + block 追加。
@@ -219,7 +219,7 @@ public class RestFeishuDocClient implements FeishuDocClient {
      * 知识库节点：get_node 取得 obj_token 后，docx 类型走 {@link #fetchDocxPlainText}，bitable 走 {@link #fetchBitablePlainText}。
      *
      * @param nodeToken wiki node_token（URL 中 /wiki/ 后的部分）
-     * @param tableId   URL 中 ?table= 参数（wiki 内嵌 bitable 时需要）
+     * @param tableId   URL 中 ?table= 参数（可选；wiki 内嵌 bitable 无 table 时拉取全部数据表）
      * @param viewId    URL 中 ?view= 参数（可选）
      */
     private String fetchWikiPlainText(String nodeToken, String tableId, String viewId) {
@@ -252,10 +252,11 @@ public class RestFeishuDocClient implements FeishuDocClient {
             return fetchDocxPlainText(objToken);
         }
         if ("bitable".equalsIgnoreCase(objType)) {
-            if (tableId == null || tableId.isBlank()) {
-                throw new RuntimeException("知识库内嵌多维表格链接须带 ?table=tbl… 参数");
-            }
             return fetchBitablePlainText(objToken, tableId);
+        }
+        if ("sheet".equalsIgnoreCase(objType)) {
+            return FeishuSpreadsheetPlainTextFetcher.fetch(
+                    restTemplate, baseUrl, getTenantToken(), objToken);
         }
         throw new RuntimeException("暂不支持的 Wiki 节点类型: " + objType);
     }
@@ -274,29 +275,59 @@ public class RestFeishuDocClient implements FeishuDocClient {
         if (appToken == null || appToken.isBlank()) {
             throw new IllegalArgumentException("base app_token 为空");
         }
-        if (tableId == null || tableId.isBlank()) {
-            throw new IllegalArgumentException("多维表格链接缺少 table 参数，请使用 .../base/{app}?table=tblXXX");
-        }
         String app = appToken.trim();
+        if (tableId == null || tableId.isBlank()) {
+            return fetchAllBitableTablesPlainText(app);
+        }
         String table = tableId.trim();
         try {
-            return searchBitableRecords(app, table);
+            return searchBitableRecords(app, table, null);
         } catch (RuntimeException first) {
             if (!isWrongTableIdError(first)) {
                 throw first;
             }
-            List<String> available = listBitableTableIds(app);
+            List<BitableTableInfo> availableTables = listBitableTables(app);
+            List<String> available = availableTables.stream().map(BitableTableInfo::tableId).toList();
             String corrected = resolveTableIdFromListing(table, available);
             if (corrected != null && !corrected.equals(table)) {
                 log.warn("Bitable WrongTableId: retry app={} table {} -> {}", app, table, corrected);
-                return searchBitableRecords(app, corrected);
+                String name = availableTables.stream()
+                        .filter(t -> corrected.equals(t.tableId()))
+                        .map(BitableTableInfo::tableName)
+                        .findFirst()
+                        .orElse(null);
+                return searchBitableRecords(app, corrected, name);
             }
             throw new RuntimeException(formatWrongTableIdHint(app, table, available), first);
         }
     }
 
+    private String fetchAllBitableTablesPlainText(String appToken) {
+        List<BitableTableInfo> tables = listBitableTables(appToken);
+        if (tables.isEmpty()) {
+            return "【多维表格摘要，共 0 条 · 0 个数据表】\n\n（无数据表）";
+        }
+        List<BitablePlainTextExporter.BitableTableSlice> slices = new ArrayList<>();
+        int totalRows = 0;
+        for (BitableTableInfo table : tables) {
+            List<JsonNode> items = searchBitableRecordItems(appToken, table.tableId());
+            totalRows += items.size();
+            slices.add(new BitablePlainTextExporter.BitableTableSlice(
+                    table.tableId(), table.tableName(), items));
+        }
+        String title = "【多维表格摘要，共 " + totalRows + " 条 · " + tables.size() + " 个数据表】";
+        return BitablePlainTextExporter.exportMultiTable(slices, title);
+    }
+
     /** 调用 bitable records/search API 分页拉取全部记录（单页最多 500 条）。 */
-    private String searchBitableRecords(String appToken, String tableId) {
+    private String searchBitableRecords(String appToken, String tableId, String tableName) {
+        List<JsonNode> items = searchBitableRecordItems(appToken, tableId);
+        String label = tableName != null && !tableName.isBlank() ? tableName.trim() : tableId;
+        String title = "【多维表格·" + label + "，共 " + items.size() + " 条】";
+        return BitablePlainTextExporter.export(items, title);
+    }
+
+    private List<JsonNode> searchBitableRecordItems(String appToken, String tableId) {
         String tenantToken = getTenantToken();
         int pageSize = 500;
         String pageToken = null;
@@ -350,35 +381,10 @@ public class RestFeishuDocClient implements FeishuDocClient {
             }
         }
 
-        BitableRecordSorter.sort(allItems);
-
-        StringBuilder out = new StringBuilder();
-        out.append("【多维表格摘要，共 ").append(allItems.size()).append(" 条】\n\n");
-        if (allItems.isEmpty()) {
-            out.append("（无记录）");
-            return out.toString().trim();
-        }
-        int row = 0;
-        for (JsonNode item : allItems) {
-            row++;
-            out.append("--- 记录 ").append(row).append(" ---\n");
-            JsonNode fields = item.path("fields");
-            if (fields.isObject()) {
-                Iterator<Entry<String, JsonNode>> it = fields.fields();
-                while (it.hasNext()) {
-                    Entry<String, JsonNode> e = it.next();
-                    String fieldName = e.getKey();
-                    out.append(fieldName).append(": ")
-                            .append(BitableFieldFormatter.format(e.getValue(), fieldName)).append('\n');
-                }
-            }
-            out.append('\n');
-        }
-        return out.toString().trim();
+        return allItems;
     }
 
-    /** 列出多维表格应用下全部数据表 table_id（用于 WrongTableId 诊断与大小写纠错）。 */
-    List<String> listBitableTableIds(String appToken) {
+    List<BitableTableInfo> listBitableTables(String appToken) {
         String tenantToken = getTenantToken();
         String url = baseUrl + "/open-apis/bitable/v1/apps/" + appToken.trim() + "/tables?page_size=100";
         HttpHeaders headers = new HttpHeaders();
@@ -394,18 +400,24 @@ public class RestFeishuDocClient implements FeishuDocClient {
             if (!items.isArray()) {
                 return List.of();
             }
-            List<String> ids = new ArrayList<>();
+            List<BitableTableInfo> tables = new ArrayList<>();
             for (JsonNode item : items) {
                 String id = item.path("table_id").asText("").trim();
-                if (!id.isEmpty()) {
-                    ids.add(id);
+                if (id.isEmpty()) {
+                    continue;
                 }
+                String name = item.path("name").asText("").trim();
+                tables.add(new BitableTableInfo(id, name.isEmpty() ? id : name));
             }
-            return ids;
+            return tables;
         } catch (Exception e) {
-            log.warn("listBitableTableIds failed app={}: {}", appToken, e.getMessage());
+            log.warn("listBitableTables failed app={}: {}", appToken, e.getMessage());
             return List.of();
         }
+    }
+
+    List<String> listBitableTableIds(String appToken) {
+        return listBitableTables(appToken).stream().map(BitableTableInfo::tableId).toList();
     }
 
     /**

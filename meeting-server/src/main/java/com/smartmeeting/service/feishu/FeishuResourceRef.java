@@ -49,15 +49,14 @@ public record FeishuResourceRef(
     /**
      * 是否可通过 API 拉取纯文本正文。
      *
-     * @return DOCX/WIKI 有 primaryToken，或 BASE 有 tableId 时返回 {@code true}
+     * @return DOCX/WIKI/BASE 有 app_token 时可拉取；BASE 无 table 时拉取全部数据表
      */
     public boolean canFetchPlainText() {
         if (primaryToken == null || primaryToken.isBlank()) {
             return false;
         }
         return switch (kind) {
-            case DOCX, WIKI -> true;
-            case BASE -> tableId != null && !tableId.isBlank();
+            case DOCX, WIKI, BASE -> true;
             case UNKNOWN -> false;
         };
     }

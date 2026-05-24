@@ -258,6 +258,62 @@
     .feishu-bitable-table tbody tr:nth-child(even) td { background: #fafbfc; }
     .feishu-bitable-table tbody tr:hover td { background: #e8f4fd; }
     .feishu-bitable-empty { padding: 28px 16px; text-align: center; color: #90a4ae; font-size: 14px; }
+    .feishu-bitable-table-group {
+      margin-top: 22px; padding-top: 4px;
+      border-top: 2px dashed #b0bec5;
+    }
+    .feishu-bitable-table-group:first-of-type { border-top: none; margin-top: 12px; }
+    .feishu-bitable-table-group-title {
+      font-size: 15px; font-weight: 800; color: #37474f;
+      margin: 0 0 12px; padding: 8px 12px;
+      background: #eceff1; border-radius: 8px; border-left: 4px solid #546e7a;
+    }
+    .feishu-bitable-section { margin-top: 18px; }
+    .feishu-bitable-section:first-of-type { margin-top: 8px; }
+    .feishu-bitable-section-head {
+      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+      padding: 11px 14px; margin-bottom: 0;
+      font-size: 14px; font-weight: 700; border-radius: 10px 10px 0 0;
+      border: 1px solid transparent; border-bottom: none;
+    }
+    .feishu-bitable-section-recent .feishu-bitable-section-head {
+      background: linear-gradient(90deg, #e3f2fd 0%, #e8f5e9 100%);
+      color: #0d47a1; border-color: #90caf9;
+    }
+    .feishu-bitable-section-recent .feishu-bitable-section-badge::before { content: '近 3 个月'; }
+    .feishu-bitable-section-older { margin-top: 24px; }
+    .feishu-bitable-section-older .feishu-bitable-section-head {
+      background: linear-gradient(90deg, #f5f5f5 0%, #eceff1 100%);
+      color: #546e7a; border-color: #cfd8dc;
+    }
+    .feishu-bitable-section-older .feishu-bitable-section-badge::before { content: '更早'; }
+    .feishu-bitable-section-badge {
+      font-size: 11px; font-weight: 800; letter-spacing: .06em;
+      padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.75);
+    }
+    .feishu-bitable-section-count {
+      margin-left: auto; font-size: 12px; font-weight: 600; opacity: .85;
+    }
+    .feishu-bitable-section .feishu-bitable-scroll,
+    .feishu-bitable-section .feishu-record-cards {
+      border: 1px solid; border-top: none; border-radius: 0 0 10px 10px;
+      padding-top: 4px;
+    }
+    .feishu-bitable-section-recent .feishu-bitable-scroll,
+    .feishu-bitable-section-recent .feishu-record-cards { border-color: #90caf9; background: #fafcff; }
+    .feishu-bitable-section-older .feishu-bitable-scroll,
+    .feishu-bitable-section-older .feishu-record-cards {
+      border-color: #cfd8dc; background: #f8f9fa;
+    }
+    .feishu-bitable-section-older .feishu-bitable-table { opacity: .94; }
+    .feishu-bitable-table tbody tr.row-status-done td { background: #f1f8e9; }
+    .feishu-bitable-table tbody tr.row-status-done-stale td { background: #f5f5f5; color: #757575; }
+    .feishu-bitable-table tbody tr.row-status-pending td { background: #fffde7; }
+    .feishu-bitable-table tbody tr.row-status-progress td { background: #e3f2fd; }
+    .feishu-bitable-table tbody tr.row-status-done:hover td { background: #dcedc8; }
+    .feishu-bitable-table tbody tr.row-status-done-stale:hover td { background: #eeeeee; }
+    .feishu-bitable-table tbody tr.row-status-pending:hover td { background: #fff9c4; }
+    .feishu-bitable-table tbody tr.row-status-progress:hover td { background: #bbdefb; }
     .feishu-record-cards { display: grid; gap: 12px; }
     .feishu-record-card {
       background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
@@ -926,13 +982,9 @@
         return s.indexOf('【多维表格') >= 0 || /---\s*记录\s*\d+\s*---/.test(s);
       }
 
-      function parseBitablePlainText(text) {
-        var s = text == null ? '' : String(text).trim();
-        var title = '多维表格摘要';
-        var tm = s.match(/^【(.+?)】/);
-        if (tm) title = tm[1];
+      function parseBitableRecordBlocks(blockText) {
         var records = [];
-        var parts = s.split(/---\s*记录\s*(\d+)\s*---/);
+        var parts = (blockText || '').split(/---\s*记录\s*(\d+)\s*---/);
         for (var i = 1; i < parts.length; i += 2) {
           var recNum = parseInt(parts[i], 10) || records.length + 1;
           var block = (parts[i + 1] || '').trim();
@@ -949,10 +1001,131 @@
           });
           if (fields.length) records.push({ index: recNum, fields: fields });
         }
-        if (!records.length && s.indexOf('（无记录）') >= 0) {
-          return { title: title, records: [] };
+        return records;
+      }
+
+      function parseBitableTimeSections(body) {
+        var sections = [];
+        var block = body == null ? '' : String(body).trim();
+        if (block.indexOf('=== §') >= 0) {
+          var secParts = block.split(/===\s*(§[^\n=]+?)\s*===/);
+          for (var si = 1; si < secParts.length; si += 2) {
+            var sectionLabel = (secParts[si] || '').trim();
+            if (sectionLabel.indexOf('数据表：') === 0) continue;
+            var secBody = (secParts[si + 1] || '').trim();
+            sections.push({
+              id: sectionLabel.indexOf('以前') >= 0 ? 'older' : 'recent',
+              title: sectionLabel.replace(/^§/, ''),
+              records: parseBitableRecordBlocks(secBody)
+            });
+          }
+        } else {
+          sections.push({ id: 'all', title: '', records: parseBitableRecordBlocks(block) });
         }
-        return { title: title, records: records };
+        return sections;
+      }
+
+      function parseBitablePlainText(text) {
+        var s = text == null ? '' : String(text).trim();
+        var title = '多维表格摘要';
+        var tm = s.match(/^【(.+?)】/);
+        if (tm) title = tm[1];
+        var tableGroups = [];
+        if (s.indexOf('=== §数据表：') >= 0) {
+          var tblParts = s.split(/===\s*§数据表：([^=\n]+?)\s*===/);
+          for (var ti = 1; ti < tblParts.length; ti += 2) {
+            tableGroups.push({
+              title: (tblParts[ti] || '').trim(),
+              sections: parseBitableTimeSections(tblParts[ti + 1] || '')
+            });
+          }
+        } else {
+          tableGroups.push({ title: '', sections: parseBitableTimeSections(s) });
+        }
+        var sections = [];
+        var records = [];
+        tableGroups.forEach(function (tbl) {
+          (tbl.sections || []).forEach(function (sec) {
+            sections.push(sec);
+            (sec.records || []).forEach(function (r) { records.push(r); });
+          });
+        });
+        if (!records.length && s.indexOf('（无记录）') >= 0) {
+          return { title: title, records: [], sections: [], tableGroups: [] };
+        }
+        return { title: title, records: records, sections: sections, tableGroups: tableGroups };
+      }
+
+      function appendBitableTimeSectionsView(parent, sections) {
+        (sections || []).forEach(function (sec) {
+          if (!sec.records || !sec.records.length) return;
+          if (sec.id === 'all') {
+            appendBitableRecordsView(parent, sec.records);
+            return;
+          }
+          var secWrap = document.createElement('div');
+          secWrap.className = 'feishu-bitable-section feishu-bitable-section-' + sec.id;
+          var head = document.createElement('div');
+          head.className = 'feishu-bitable-section-head';
+          var badge = document.createElement('span');
+          badge.className = 'feishu-bitable-section-badge';
+          var titleSpan = document.createElement('span');
+          titleSpan.textContent = sec.title || (sec.id === 'recent' ? '近三个月（按创建日期）' : '三个月以前');
+          var countSpan = document.createElement('span');
+          countSpan.className = 'feishu-bitable-section-count';
+          countSpan.textContent = sec.records.length + ' 条';
+          head.appendChild(badge);
+          head.appendChild(titleSpan);
+          head.appendChild(countSpan);
+          secWrap.appendChild(head);
+          appendBitableRecordsView(secWrap, sec.records);
+          parent.appendChild(secWrap);
+        });
+      }
+
+      function parseBitableFieldDateMs(value) {
+        if (value == null || value === '') return 0;
+        var s = String(value).trim();
+        if (/^-?\d+$/.test(s)) {
+          var n = parseInt(s, 10);
+          return n < 1000000000000 ? n * 1000 : n;
+        }
+        var m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (m) return new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10)).getTime();
+        return 0;
+      }
+
+      function bitableCompletedWithinSevenDays(rec) {
+        var startMs = 0;
+        var deadlineMs = 0;
+        (rec.fields || []).forEach(function (f) {
+          if (!f.name) return;
+          if (f.name.indexOf('创建日期') >= 0 || f.name.indexOf('创建时间') >= 0) {
+            startMs = Math.max(startMs, parseBitableFieldDateMs(f.value));
+          }
+          if (f.name.indexOf('截止日期') >= 0 && f.name.indexOf('距离') < 0) {
+            deadlineMs = Math.max(deadlineMs, parseBitableFieldDateMs(f.value));
+          }
+        });
+        var anchor = Math.max(startMs, deadlineMs);
+        if (anchor <= 0) return false;
+        var now = Date.now();
+        return anchor >= now - 7 * 24 * 60 * 60 * 1000 && anchor <= now + 86400000;
+      }
+
+      function bitableRecordStatusClass(rec) {
+        var status = '';
+        (rec.fields || []).forEach(function (f) {
+          if (f.name && (f.name.indexOf('状态') >= 0 || f.name.indexOf('完成情况') >= 0)) {
+            status = String(f.value || '');
+          }
+        });
+        if (!status) return '';
+        if (/进行中/.test(status)) return 'row-status-progress';
+        if (/已完成|已关闭|已办结/.test(status) || (/完成/.test(status) && !/未完成/.test(status))) {
+          return bitableCompletedWithinSevenDays(rec) ? 'row-status-done' : 'row-status-done-stale';
+        }
+        return 'row-status-pending';
       }
 
       function collectBitableColumns(records) {
@@ -1020,24 +1193,11 @@
         }
       }
 
-      function buildBitableTableDom(parsed) {
-        var wrap = document.createElement('div');
-        wrap.className = 'feishu-bitable-wrap';
-        var summary = document.createElement('p');
-        summary.className = 'feishu-bitable-summary';
-        summary.textContent = parsed.title + (parsed.records.length
-            ? '（共 ' + parsed.records.length + ' 条）' : '（暂无记录）');
-        wrap.appendChild(summary);
-        if (!parsed.records.length) {
-          var empty = document.createElement('div');
-          empty.className = 'feishu-bitable-empty';
-          empty.textContent = '暂无表格记录';
-          wrap.appendChild(empty);
-          return wrap;
-        }
-        var cols = collectBitableColumns(parsed.records);
-        var profiles = computeBitableColumnProfiles(parsed.records, cols);
-        var useTable = parsed.records.length >= 2 && cols.length >= 2 && cols.length <= 14
+      function appendBitableRecordsView(parent, records) {
+        if (!records.length) return;
+        var cols = collectBitableColumns(records);
+        var profiles = computeBitableColumnProfiles(records, cols);
+        var useTable = records.length >= 2 && cols.length >= 2 && cols.length <= 14
             && !shouldUseBitableCards(cols, profiles);
         if (useTable) {
           var scroll = document.createElement('div');
@@ -1059,8 +1219,10 @@
           thead.appendChild(hr);
           table.appendChild(thead);
           var tbody = document.createElement('tbody');
-          parsed.records.forEach(function (rec) {
+          records.forEach(function (rec) {
             var tr = document.createElement('tr');
+            var rowCls = bitableRecordStatusClass(rec);
+            if (rowCls) tr.className = rowCls;
             var td0 = document.createElement('td');
             td0.className = 'col-narrow';
             td0.textContent = String(rec.index);
@@ -1077,15 +1239,53 @@
           });
           table.appendChild(tbody);
           scroll.appendChild(table);
-          wrap.appendChild(scroll);
+          parent.appendChild(scroll);
         } else {
           var cards = document.createElement('div');
           cards.className = 'feishu-record-cards';
-          parsed.records.forEach(function (rec) {
+          records.forEach(function (rec) {
             cards.appendChild(buildRecordCardDom(rec));
           });
-          wrap.appendChild(cards);
+          parent.appendChild(cards);
         }
+      }
+
+      function buildBitableTableDom(parsed) {
+        var wrap = document.createElement('div');
+        wrap.className = 'feishu-bitable-wrap';
+        var summary = document.createElement('p');
+        summary.className = 'feishu-bitable-summary';
+        summary.textContent = parsed.title + (parsed.records.length
+            ? '（共 ' + parsed.records.length + ' 条）' : '（暂无记录）');
+        wrap.appendChild(summary);
+        if (!parsed.records.length) {
+          var empty = document.createElement('div');
+          empty.className = 'feishu-bitable-empty';
+          empty.textContent = '暂无表格记录';
+          wrap.appendChild(empty);
+          return wrap;
+        }
+        var tableGroups = (parsed.tableGroups && parsed.tableGroups.length)
+            ? parsed.tableGroups
+            : [{ title: '', sections: parsed.sections && parsed.sections.length
+                ? parsed.sections : [{ id: 'all', title: '', records: parsed.records }] }];
+        tableGroups.forEach(function (tbl) {
+          var hasRows = false;
+          (tbl.sections || []).forEach(function (sec) {
+            if (sec.records && sec.records.length) hasRows = true;
+          });
+          if (!hasRows) return;
+          var groupWrap = document.createElement('div');
+          groupWrap.className = 'feishu-bitable-table-group';
+          if (tbl.title) {
+            var tblTitle = document.createElement('h3');
+            tblTitle.className = 'feishu-bitable-table-group-title';
+            tblTitle.textContent = '数据表：' + tbl.title;
+            groupWrap.appendChild(tblTitle);
+          }
+          appendBitableTimeSectionsView(groupWrap, tbl.sections);
+          wrap.appendChild(groupWrap);
+        });
         return wrap;
       }
 

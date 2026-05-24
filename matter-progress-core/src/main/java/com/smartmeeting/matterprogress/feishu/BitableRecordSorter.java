@@ -14,12 +14,23 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * 会中多维表格展示排序：近三个月创建在前 → 未完成在前 → 未完成按距离截止日降序。
+ * 会中多维表格展示排序：
+ * 近三个月在前（按创建日期）→ 近 7 日已完成（按创建日期/截止日期）→ 未完成 → 进行中 → 更早已完成。
  */
 public final class BitableRecordSorter {
 
+    /** 同时间组内：近 7 日内已完成（创建日期或截止日期落在 7 天内） */
+    public static final int TIER_COMPLETED = 0;
+    /** 同时间组内：未完成等待办 */
+    public static final int TIER_INCOMPLETE = 1;
+    /** 同时间组内：进行中 */
+    public static final int TIER_IN_PROGRESS = 2;
+    /** 同时间组内：已完成但开始/截止日期均不在近 7 日 */
+    public static final int TIER_STALE_COMPLETED = 3;
+
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final long THREE_MONTHS_MS = 92L * 24 * 60 * 60 * 1000;
+    private static final long SEVEN_DAYS_MS = 7L * 24 * 60 * 60 * 1000;
     private static final Pattern DAYS_IN_TEXT = Pattern.compile("(-?\\d+)\\s*天");
 
     private BitableRecordSorter() {
@@ -40,12 +51,18 @@ public final class BitableRecordSorter {
         if (c != 0) {
             return c;
         }
-        c = Boolean.compare(isCompleted(a), isCompleted(b));
+        c = Integer.compare(statusTier(a), statusTier(b));
         if (c != 0) {
             return c;
         }
-        if (!isCompleted(a)) {
+        if (statusTier(a) == TIER_INCOMPLETE || statusTier(a) == TIER_STALE_COMPLETED) {
             c = Long.compare(deadlineSortKeyDesc(b), deadlineSortKeyDesc(a));
+            if (c != 0) {
+                return c;
+            }
+        }
+        if (statusTier(a) == TIER_COMPLETED) {
+            c = Long.compare(recentCompletedAnchorMs(b), recentCompletedAnchorMs(a));
             if (c != 0) {
                 return c;
             }
@@ -55,34 +72,87 @@ public final class BitableRecordSorter {
         return Long.compare(createdB, createdA);
     };
 
-    /** @return 0=未完成在前，1=已完成在后 */
+    /**
+     * @return 状态分层，含近 7 日已完成与更早已完成。
+     */
+    static int statusTier(JsonNode record) {
+        if (!statusTextIndicatesComplete(resolveStatusText(record))
+                && !Boolean.TRUE.equals(resolveCompletionFlag(record))) {
+            String statusText = resolveStatusText(record);
+            if (statusText != null && statusTextIndicatesInProgress(statusText)) {
+                return TIER_IN_PROGRESS;
+            }
+            return TIER_INCOMPLETE;
+        }
+        return isCompletedWithinSevenDays(record) ? TIER_COMPLETED : TIER_STALE_COMPLETED;
+    }
+
     static boolean isCompleted(JsonNode record) {
+        return statusTier(record) == TIER_COMPLETED || statusTier(record) == TIER_STALE_COMPLETED;
+    }
+
+    /** 近 7 日已完成：创建日期或截止日期任一落在最近 7 天内。 */
+    static boolean isCompletedWithinSevenDays(JsonNode record) {
+        long anchor = recentCompletedAnchorMs(record);
+        if (anchor <= 0) {
+            return false;
+        }
+        long now = System.currentTimeMillis();
+        return anchor >= now - SEVEN_DAYS_MS && anchor <= now + 86_400_000L;
+    }
+
+    /** 取创建日期/截止日期中较新者，用于 7 日窗口与排序。 */
+    static long recentCompletedAnchorMs(JsonNode record) {
+        Long creation = extractCreationDateMs(record);
+        Long deadline = extractDeadlineDateMs(record);
+        if (creation != null && deadline != null) {
+            return Math.max(creation, deadline);
+        }
+        if (creation != null) {
+            return creation;
+        }
+        return deadline != null ? deadline : 0L;
+    }
+
+    private static String resolveStatusText(JsonNode record) {
         JsonNode fields = record.path("fields");
         if (!fields.isObject()) {
-            return false;
+            return null;
         }
         Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
         while (it.hasNext()) {
             Map.Entry<String, JsonNode> e = it.next();
-            String name = e.getKey();
-            JsonNode val = e.getValue();
-            if (isStatusFieldName(name)) {
-                return statusTextIndicatesComplete(BitableFieldFormatter.format(val, name));
-            }
-            if (isCompletionFlagFieldName(name)) {
-                if (val.isBoolean()) {
-                    return val.asBoolean();
-                }
-                String text = BitableFieldFormatter.format(val, name);
-                if ("是".equals(text) || "true".equalsIgnoreCase(text)) {
-                    return true;
-                }
-                if ("否".equals(text) || "false".equalsIgnoreCase(text)) {
-                    return false;
-                }
+            if (isStatusFieldName(e.getKey())) {
+                return BitableFieldFormatter.format(e.getValue(), e.getKey());
             }
         }
-        return false;
+        return null;
+    }
+
+    private static Boolean resolveCompletionFlag(JsonNode record) {
+        JsonNode fields = record.path("fields");
+        if (!fields.isObject()) {
+            return null;
+        }
+        Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            if (!isCompletionFlagFieldName(e.getKey())) {
+                continue;
+            }
+            JsonNode val = e.getValue();
+            if (val.isBoolean()) {
+                return val.asBoolean();
+            }
+            String text = BitableFieldFormatter.format(val, e.getKey());
+            if ("是".equals(text) || "true".equalsIgnoreCase(text)) {
+                return true;
+            }
+            if ("否".equals(text) || "false".equalsIgnoreCase(text)) {
+                return false;
+            }
+        }
+        return null;
     }
 
     /** 距离截止日/截止日期等，降序；无值排最后。 */
@@ -106,33 +176,16 @@ public final class BitableRecordSorter {
     }
 
     static long createdTimeMs(JsonNode record) {
+        Long fromField = extractCreationDateMs(record);
+        if (fromField != null && fromField > 0) {
+            return fromField;
+        }
         long top = parseEpochMillis(record.path("created_time"));
         if (top > 0) {
             return top;
         }
         top = parseEpochMillis(record.path("created_at"));
-        if (top > 0) {
-            return top;
-        }
-        JsonNode fields = record.path("fields");
-        if (fields.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
-            while (it.hasNext()) {
-                Map.Entry<String, JsonNode> e = it.next();
-                if (isCreatedTimeFieldName(e.getKey())) {
-                    long ms = parseEpochMillis(e.getValue());
-                    if (ms > 0) {
-                        return ms;
-                    }
-                    String formatted = BitableFieldFormatter.format(e.getValue(), e.getKey());
-                    ms = parseEpochMillisFromText(formatted);
-                    if (ms > 0) {
-                        return ms;
-                    }
-                }
-            }
-        }
-        return 0L;
+        return Math.max(top, 0L);
     }
 
     private static Long extractDaysToDeadline(JsonNode record) {
@@ -160,6 +213,18 @@ public final class BitableRecordSorter {
     }
 
     private static Long extractDeadlineDateMs(JsonNode record) {
+        return extractDateMsByField(record, BitableRecordSorter::isDeadlineDateFieldName);
+    }
+
+    private static Long extractCreationDateMs(JsonNode record) {
+        return extractDateMsByField(record, BitableRecordSorter::isCreationDateFieldName);
+    }
+
+    private interface FieldNamePredicate {
+        boolean test(String name);
+    }
+
+    private static Long extractDateMsByField(JsonNode record, FieldNamePredicate matcher) {
         JsonNode fields = record.path("fields");
         if (!fields.isObject()) {
             return null;
@@ -167,10 +232,15 @@ public final class BitableRecordSorter {
         Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
         while (it.hasNext()) {
             Map.Entry<String, JsonNode> e = it.next();
-            if (!isDeadlineDateFieldName(e.getKey())) {
+            if (!matcher.test(e.getKey())) {
                 continue;
             }
             long ms = parseEpochMillis(e.getValue());
+            if (ms > 0) {
+                return ms;
+            }
+            String formatted = BitableFieldFormatter.format(e.getValue(), e.getKey());
+            ms = parseEpochMillisFromText(formatted);
             if (ms > 0) {
                 return ms;
             }
@@ -277,8 +347,20 @@ public final class BitableRecordSorter {
                 && !name.contains("距离");
     }
 
-    private static boolean isCreatedTimeFieldName(String name) {
-        return name != null && (name.contains("创建时间") || name.equalsIgnoreCase("created_time"));
+    private static boolean isCreationDateFieldName(String name) {
+        if (name == null) {
+            return false;
+        }
+        return name.contains("创建日期") || name.contains("创建时间")
+                || name.equalsIgnoreCase("created_time") || name.equalsIgnoreCase("created_at");
+    }
+
+    static boolean statusTextIndicatesInProgress(String status) {
+        if (status == null || status.isBlank()) {
+            return false;
+        }
+        String s = status.trim().toLowerCase(Locale.ROOT);
+        return s.contains("进行中") || s.contains("in progress") || s.contains("in_progress");
     }
 
     static boolean statusTextIndicatesComplete(String status) {
@@ -286,13 +368,16 @@ public final class BitableRecordSorter {
             return false;
         }
         String s = status.trim().toLowerCase(Locale.ROOT);
-        if (s.contains("未完成") || s.contains("进行中") || s.contains("待办")
-                || s.contains("待开始") || s.contains("未开始") || s.contains("pending")
-                || s.contains("in progress") || s.contains("in_progress")) {
+        if (statusTextIndicatesInProgress(status)) {
             return false;
         }
-        return s.contains("已完成") || s.contains("完成") || s.contains("已关闭")
-                || s.contains("已办结") || s.contains("closed") || s.contains("done")
+        if (s.contains("未完成") || s.contains("待办") || s.contains("待开始")
+                || s.contains("未开始") || s.contains("pending")) {
+            return false;
+        }
+        return s.contains("已完成") || s.contains("已关闭") || s.contains("已办结")
+                || s.contains("closed") || s.contains("done")
+                || (s.contains("完成") && !s.contains("未完成"))
                 || s.equals("是") || "true".equals(s);
     }
 }
