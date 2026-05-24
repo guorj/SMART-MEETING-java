@@ -188,6 +188,9 @@ public class MinuteGenerationService {
             meeting.setDocUrl(docUrl);
             meeting.setStatus(MeetingStatus.COMPLETED.name());
             meetingMapper.updateById(meeting);
+            if (!minuteText.isEmpty()) {
+                meetingMinuteService.updateContentUrl(meetingId, docUrl);
+            }
 
             log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);
@@ -205,9 +208,11 @@ public class MinuteGenerationService {
                 meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.FAILED);
             }
             if (meeting.getStatus() == null || !meeting.getStatus().equals(MeetingStatus.COMPLETED.name())) {
-                meeting.setDocUrl(String.format("http://localhost:8765/meetings/%s/minute", meetingId));
+                String fallbackUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
+                meeting.setDocUrl(fallbackUrl);
                 meeting.setStatus(MeetingStatus.COMPLETED.name());
                 meetingMapper.updateById(meeting);
+                meetingMinuteService.updateContentUrl(meetingId, fallbackUrl);
                 log.info("Meeting marked as COMPLETED with fallback content");
             }
         }

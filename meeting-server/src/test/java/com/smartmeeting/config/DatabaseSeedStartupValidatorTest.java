@@ -46,8 +46,8 @@ class DatabaseSeedStartupValidatorTest {
         validator = new DatabaseSeedStartupValidator(env, databaseProperties, docConfigMapper,
                 meetingMinuteMapper, presetAgendaDocService);
         when(meetingMinuteMapper.selectCount(any())).thenReturn(0L);
-        when(presetAgendaDocService.openclawBriefingIneligibleReason(nullable(Integer.class), anyInt()))
-                .thenReturn("openclaw_briefing 未为 1");
+        when(presetAgendaDocService.findReportBindingForAgenda(anyInt(), anyInt()))
+                .thenReturn(java.util.Optional.empty());
     }
 
     /** 启动校验应仅从数据库读取配置，不执行写入。 */

@@ -73,10 +73,10 @@ class MeetingServiceTest extends BaseTest {
         assertNotNull(started.getActualStartTime());
     }
 
-    /** 有上次会议时启动应进入 REVIEWING 状态并关联 previousMeetingId。 */
+    /** 有上次会议时启动也应进入 STARTED（会前进度由 bot 定时生成，建会不再推卡片）。 */
     @Test
     @Order(3)
-    @DisplayName("F-MID-02: 启动会议（有上次会议 → REVIEWING）")
+    @DisplayName("F-MID-02: 启动会议（有上次会议 → STARTED，不再 REVIEWING）")
     void testStartMeetingWithPrevious() {
         MeetingResponse previous = createTestMeeting("上次会议", null);
         meetingService.startMeeting(previous.getId());
@@ -90,7 +90,7 @@ class MeetingServiceTest extends BaseTest {
         MeetingResponse current = meetingService.createMeeting(request);
         MeetingResponse started = meetingService.startMeeting(current.getId());
 
-        assertEquals(MeetingStatus.REVIEWING.name(), started.getStatus());
+        assertEquals(MeetingStatus.STARTED.name(), started.getStatus());
         assertEquals(previous.getId(), started.getPreviousMeetingId());
     }
 

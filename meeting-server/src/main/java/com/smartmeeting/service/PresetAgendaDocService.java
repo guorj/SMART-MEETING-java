@@ -28,6 +28,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 预设会序飞书资料绑定服务。
@@ -172,7 +173,61 @@ public class PresetAgendaDocService {
                 .orderByAsc(MatterProgressDocConfig::getAgendaIndex)
                 .orderByAsc(MatterProgressDocConfig::getResourceSlot)
                 .orderByAsc(MatterProgressDocConfig::getId);
-        return presetCache.getMatterProgressDocs(presetTypeCode, () -> configMapper.selectList(q));
+        return presetCache.getMatterProgressDocs(presetTypeCode, () -> configMapper.selectList(q)).stream()
+                .filter(PresetAgendaDocService::isSourceRoleForMerge)
+                .toList();
+    }
+
+    /**
+     * 上会只读：OUTPUT/BOTH 行的 generated_report_url（及 OUTPUT 可选 feishu_doc_url）。
+     */
+    public Optional<AgendaReportBinding> findReportBindingForAgenda(int presetTypeCode, int agendaIndex) {
+        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
+            return Optional.empty();
+        }
+        LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
+        q.eq(MatterProgressDocConfig::getEnabled, 1)
+                .eq(MatterProgressDocConfig::getPresetTypeCode, presetTypeCode)
+                .eq(MatterProgressDocConfig::getAgendaIndex, agendaIndex)
+                .in(MatterProgressDocConfig::getConfigRole, "OUTPUT", "BOTH")
+                .orderByDesc(MatterProgressDocConfig::getId)
+                .last("LIMIT 1");
+        MatterProgressDocConfig row = configMapper.selectOne(q);
+        if (row == null) {
+            return Optional.empty();
+        }
+        String outputFeishu = null;
+        if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getConfigRole()))
+                && row.getFeishuDocUrl() != null && !row.getFeishuDocUrl().isBlank()) {
+            outputFeishu = row.getFeishuDocUrl().trim();
+        }
+        return Optional.of(new AgendaReportBinding(
+                row.getGeneratedReportUrl(),
+                row.getGeneratedReportAt(),
+                outputFeishu));
+    }
+
+    /** 会序通报只读绑定（主持页 WS） */
+    public record AgendaReportBinding(
+            String generatedReportUrl,
+            java.time.LocalDateTime generatedReportAt,
+            String outputFeishuDocUrl) {
+    }
+
+    static boolean isSourceRoleForMerge(MatterProgressDocConfig cfg) {
+        if (cfg == null) {
+            return false;
+        }
+        String role = cfg.getConfigRole();
+        if (role == null || role.isBlank()) {
+            return true;
+        }
+        role = role.trim().toUpperCase(java.util.Locale.ROOT);
+        return "SOURCE".equals(role) || "BOTH".equals(role);
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
     }
 
     /**
@@ -190,7 +245,7 @@ public class PresetAgendaDocService {
     }
 
     /**
-     * 直查库（不经 Redis），用于 OpenClaw 通报开关，避免缓存缺 {@code openclaw_briefing} 字段导致误判。
+     * 直查库（不经 Redis），用于会序资料配置解析。
      */
     public List<MatterProgressDocConfig> listConfigsForAgendaFromDb(int presetTypeCode, int agendaIndex) {
         if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
@@ -243,7 +298,6 @@ public class PresetAgendaDocService {
                     }
                 }
             }
-            item.setOpenclawBriefing(matterProgressOpenclawBriefingForAgenda(presetTypeCode, i));
         }
     }
 
@@ -307,6 +361,9 @@ public class PresetAgendaDocService {
                 return FeishuDocRefs.mergeDistinct(refs);
             }
             for (MatterProgressDocConfig cfg : listConfigsForAgenda(preset, agendaIndex)) {
+                if (!isSourceRoleForMerge(cfg)) {
+                    continue;
+                }
                 FeishuDocRefs.addFromConfig(refs, cfg);
             }
         }
@@ -318,74 +375,6 @@ public class PresetAgendaDocService {
      */
     public boolean presetTemplateDefinesFeishuForIndex(int presetTypeCode, int agendaIndex) {
         return hostAgendaItemHasFeishu(hostAgendaItemAtPresetTemplate(presetTypeCode, agendaIndex));
-    }
-
-    /**
-     * 该会序是否应调用 OpenClaw：配置表存在 enabled 行且 {@code openclaw_briefing=1} 且 {@code feishu_doc_url} 可解析。
-     */
-    public boolean matterProgressOpenclawBriefingForAgenda(int presetTypeCode, int agendaIndex) {
-        return openclawBriefingConfigRefForAgenda(presetTypeCode, agendaIndex) != null;
-    }
-
-    /**
-     * 返回该会序用于 OpenClaw 通报的配置行飞书引用；无符合条件的行时返回 {@code null}。
-     */
-    public FeishuResourceRef openclawBriefingConfigRefForAgenda(int presetTypeCode, int agendaIndex) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
-            return null;
-        }
-        for (MatterProgressDocConfig cfg : listConfigsForAgendaFromDb(presetTypeCode, agendaIndex)) {
-            if (!configOpenclawBriefingEnabled(cfg)) {
-                continue;
-            }
-            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
-            if (ref != null) {
-                return ref;
-            }
-        }
-        return null;
-    }
-
-    /**
-     * 未触发 OpenClaw 时的可读原因（运维日志）；满足条件时返回 {@code null}。
-     */
-    public String openclawBriefingIneligibleReason(Integer presetTypeCode, int agendaIndex) {
-        if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5) {
-            return "会议 presetTypeCode 无效（须 1–5）";
-        }
-        if (agendaIndex < 0) {
-            return "会序下标无效";
-        }
-        List<MatterProgressDocConfig> rows = listConfigsForAgendaFromDb(presetTypeCode, agendaIndex);
-        if (rows.isEmpty()) {
-            return "int_matter_progress_doc_config 无 enabled 行：preset="
-                    + presetTypeCode + " agenda_index=" + agendaIndex;
-        }
-        boolean briefingOn = false;
-        boolean urlOk = false;
-        for (MatterProgressDocConfig cfg : rows) {
-            if (configOpenclawBriefingEnabled(cfg)) {
-                briefingOn = true;
-            }
-            if (FeishuResourceResolver.resolve(cfg) != null) {
-                urlOk = true;
-            }
-            if (configOpenclawBriefingEnabled(cfg) && FeishuResourceResolver.resolve(cfg) != null) {
-                return null;
-            }
-        }
-        if (!briefingOn) {
-            return "openclaw_briefing 未为 1（或列未迁移/缓存过期，请 UPDATE 后 refreshPresetBundle）";
-        }
-        if (!urlOk) {
-            return "feishu_doc_url 为空或无法解析为 docx/wiki/base";
-        }
-        return "配置行 openclaw_briefing 与 feishu_doc_url 不在同一有效行";
-    }
-
-    /** 配置行是否开启会序 OpenClaw 通报（openclaw_briefing=1）。 */
-    public static boolean configOpenclawBriefingEnabled(MatterProgressDocConfig cfg) {
-        return cfg != null && cfg.getOpenclawBriefing() != null && cfg.getOpenclawBriefing() == 1;
     }
 
     /**

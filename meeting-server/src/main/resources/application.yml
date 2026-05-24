@@ -163,12 +163,6 @@ meeting:
     reminder:
       topic-minutes-left: 1
       meeting-minutes-left: "10,3"
-    # 会序 RUNNING 且配置表同行 openclaw_briefing=1、feishu_doc_url 有效时调 OpenClaw（无 LLM 兜底）
-    agenda-briefing:
-      enabled: ${MEETING_HOST_AGENDA_BRIEFING_ENABLED:true}
-      timeout-seconds: ${MEETING_HOST_AGENDA_BRIEFING_TIMEOUT_SEC:120}
-      # 预取失败后在此秒数内不再后台重试；用户切到该会序（非预取）仍会立即重试
-      failed-retry-cooldown-seconds: ${MEETING_HOST_AGENDA_BRIEFING_FAILED_COOLDOWN_SEC:60}
     roll-call:
       # 线上参会人个人链接盘点等待秒数，结束后进入线下答到点名
       online-inventory-seconds: ${MEETING_HOST_ROLL_CALL_ONLINE_INVENTORY_SEC:60}
@@ -240,11 +234,7 @@ openclaw:
   #   true  — prompt 精简为 /skill:xxx + 业务数据，由 SKILL.md 定义工具调用和输出格式
   #   false — 使用完整 prompt（兼容无 Skill 部署）
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  # 会开始「上次待办进度」多维表指令（会序通报改用 buildDirectiveForHostAgenda + 会序 feishuUrl）
-  comprehensive-bitable-progress-enabled: ${OPENCLAW_COMP_BITABLE_PROGRESS:true}
-  comprehensive-bitable-preset-codes: ${OPENCLAW_COMP_BITABLE_PRESETS:1}
-  comprehensive-bitable-display-name: ${OPENCLAW_COMP_BITABLE_NAME:📋综合管理事项代办清单}
-  comprehensive-bitable-url: ${OPENCLAW_COMP_BITABLE_URL:}
+  # comprehensive-bitable 配置已下线（v0.9）：会前进度改由 feishu-scheduled-bot + matter-progress-core 处理
 
 logging:
   level:

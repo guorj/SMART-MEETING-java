@@ -10,7 +10,7 @@ import java.time.LocalDateTime;
 /**
  * 会序飞书资料配置实体，对应数据库表 {@code int_matter_progress_doc_config}。
  * <p>
- * 将会务类型预设、议程下标与飞书文档 URL 绑定，合并进运行时主持议程（外链与 OpenClaw 通报数据源）。
+ * 将会务类型预设、议程下标与飞书文档 URL 绑定，合并进运行时主持议程（外链与 bot 对比报告 generated_report_url）。
  */
 @Data
 @TableName("int_matter_progress_doc_config")
@@ -29,10 +29,14 @@ public class MatterProgressDocConfig {
     private Integer resourceSlot;
     /** 飞书完整链接：/docx/、/wiki/、/base/?table= 等格式 */
     private String feishuDocUrl;
-    /** 是否在该会序进入 RUNNING 时触发 OpenClaw 通报：1 是，0 否（默认） */
-    private Integer openclawBriefing;
     /** 是否启用：1 启用，0 禁用 */
     private Integer enabled;
+    /** SOURCE | OUTPUT | BOTH */
+    private String configRole;
+    /** bot 写回的对比报告 URL */
+    private String generatedReportUrl;
+    /** 最近一次 bot 生成时间 */
+    private LocalDateTime generatedReportAt;
     /** 记录创建时间 */
     private LocalDateTime createdAt;
     /** 记录最后更新时间 */

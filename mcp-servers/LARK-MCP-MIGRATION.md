@@ -35,8 +35,17 @@ openclaw --profile clone-boss gateway restart
 
 ## 生产环境
 
-- `meeting-mysql.env` 使用生产库与只读账号。
+- `mcp.servers.meeting-mysql.env` 使用生产库（**勿**只改 Bot 的 `application-prod.yml`）。
+- 推荐 **字面量** `MYSQL_HOST: "60.205.1.17"`，见 `openclaw-mcp-config.yml`。
+- 改配置后必须 `openclaw gateway restart`；否则旧 MCP 会话仍连 localhost（缓存最长约 10 分钟）。
 - 飞书凭证与 `channels.feishu.accounts.boss_clone` 一致。
+
+### 仍显示 localhost:3306 时排查
+
+1. `openclaw --profile <你的profile> mcp show meeting-mysql` — 看 **env 里 MYSQL_HOST 实际值**。
+2. 确认改的是 **Gateway 正在用的** `~/.openclaw-<profile>/openclaw.json`，不是仓库里的 yml 模板。
+3. `${DB_HOST}` 未导出 → OpenClaw 加载配置失败，或你看到的是 Agent 臆测文案而非 MCP 真连库。
+4. Bot（8764）与 OpenClaw Gateway（18789）是 **两个进程**，各用各的数据源配置。
 
 ## 白名单扩展
 

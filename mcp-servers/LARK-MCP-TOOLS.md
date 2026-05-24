@@ -22,14 +22,24 @@ openclaw --profile clone-boss mcp show meeting-mysql
 
 ---
 
-## lark-mcp（白名单 2 个，只读多维表）
+## lark-mcp（白名单：读表 + 读/写 Doc + 读 wiki）
 
-配置见 `openclaw-mcp-config.yml` → `mcp.servers.lark-mcp`；`-t` 仅启用下列 API。
+配置见 `openclaw-mcp-config.yml` → `mcp.servers.lark-mcp`；`-t` 启用下列 API。
 
 | # | OpenAPI（`-t`） | lark-mcp 注册名（snake） | OpenClaw 全名 | 用途 | 使用 Skill |
 |---|------------------|-------------------------|---------------|------|------------|
-| 1 | `bitable.v1.appTableField.list` | `bitable_v1_appTableField_list` | `lark-mcp__bitable_v1_appTableField_list` | 获取数据表字段列表（列名、类型） | `progress-analysis`、`matter-progress` |
-| 2 | `bitable.v1.appTableRecord.search` | `bitable_v1_appTableRecord_search` | `lark-mcp__bitable_v1_appTableRecord_search` | 检索/分页读取多维表记录 | `progress-analysis`、`matter-progress` |
+| 1 | `bitable.v1.appTableField.list` | `bitable_v1_appTableField_list` | `lark-mcp__bitable_v1_appTableField_list` | 获取数据表字段列表 | `progress-analysis`、`matter-progress` |
+| 2 | `bitable.v1.appTableRecord.search` | `bitable_v1_appTableRecord_search` | `lark-mcp__bitable_v1_appTableRecord_search` | 分页读取多维表记录 | `progress-analysis`、`matter-progress` |
+| 3 | `docx.v1.document.create` | `docx_v1_document_create` | `lark-mcp__docx_v1_document_create` | 创建 docx 云文档 | `matter-progress`（weekly-comparison-mcp） |
+| 4 | `docx.v1.documentBlockChildren.create` | `docx_v1_documentBlockChildren_create` | `lark-mcp__docx_v1_documentBlockChildren_create` | 向根 block 批量追加正文 | `matter-progress`（weekly-comparison-mcp） |
+| 5 | `docx.v1.document.rawContent` | `docx_v1_document_rawContent` | `lark-mcp__docx_v1_document_rawContent` | 读 docx 纯文本 | `matter-progress`（weekly-comparison-mcp） |
+| 6 | `wiki.v2.space.getNode` | `wiki_v2_space_getNode` | `lark-mcp__wiki_v2_space_getNode` | 解析 wiki 节点 | `matter-progress`（weekly-comparison-mcp） |
+
+### 写 Doc 要点（weekly-comparison）
+
+- 创建后 **`block_id` = `document_id`**（根 block）
+- `documentBlockChildren.create` **每批 ≤50** 个 text block（`block_type=2`）
+- 不存在 `document_block_children_batch_create`；正确工具名为 **`documentBlockChildren_create`**
 
 ### 调用要点（Agent）
 
@@ -94,7 +104,7 @@ GROUP BY status
 | Skill | allowed-tools |
 |-------|----------------|
 | `progress-analysis` | `lark-mcp__bitable_v1_appTableField_list`、`lark-mcp__bitable_v1_appTableRecord_search`、`meeting-mysql__query` |
-| `matter-progress` | `lark-mcp__bitable_v1_appTableField_list`、`lark-mcp__bitable_v1_appTableRecord_search` |
+| `matter-progress` | bitable 读 + mysql query；weekly-comparison-mcp 另需 `docx_v1_document_create`、`docx_v1_documentBlockChildren_create`、`docx_v1_document_rawContent`、`wiki_v2_space_getNode` |
 | `minute-enhancement` | `meeting-mysql__query` |
 
 ---

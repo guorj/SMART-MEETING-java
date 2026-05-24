@@ -6,7 +6,6 @@ import com.smartmeeting.api.dto.MinuteResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
-import com.smartmeeting.api.dto.PreviousProgressResponse;
 import com.smartmeeting.api.dto.TodoBoardResponse;
 import com.smartmeeting.service.FeishuMeetingStartCoordinator;
 import com.smartmeeting.entity.Meeting;
@@ -227,17 +226,6 @@ public class MeetingController {
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
         return ApiResponse.ok(meetingService.listMeetings(status, creatorId, page, size));
-    }
-
-    /**
-     * 查询上次会议待办进度（F-MID-02），用于会议开始时展示上次待办完成情况。
-     *
-     * @param id 当前会议 ID（通过 {@code previousMeetingId} 链路上次会议）
-     * @return 上次会议的待办统计与延期明细
-     */
-    @GetMapping("/{id}/previous-progress")
-    public ApiResponse<PreviousProgressResponse> getPreviousProgress(@PathVariable String id) {
-        return ApiResponse.ok(meetingService.getPreviousProgress(id));
     }
 
     /**

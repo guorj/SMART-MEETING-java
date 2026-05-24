@@ -1,25 +1,23 @@
 package com.smartmeeting.service;
 
-import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.service.agent.AgentProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 /**
  * AI Agent 调用门面。
  *
- * <p>按配置 {@code openclaw.agent.provider} 将三大 AI 增强场景委托给
+ * <p>按配置 {@code openclaw.agent.provider} 将 AI 增强场景委托给
  * {@link AgentProvider} 的具体实现（直调 LLM、OpenClaw Gateway MCP+Skill 等）。
  *
  * <p>介入场景：
  * <ul>
- *   <li>会议开始 — 上次待办进度 JSON 分析（{@link #analyzePreviousProgress}）</li>
- *   <li>主持会序 — OpenClaw 会序通报 Markdown（{@link #runAgendaBriefingViaOpenclaw}）</li>
  *   <li>纪要生成 — 初版纪要质量优化（{@link #enhanceMeetingMinutes}）</li>
  * </ul>
+ *
+ * <p>会前进度（上次待办进度卡片）已在 v0.9 下线，由 feishu-scheduled-bot 的「会前事项对比通报」取代。
  */
 @Slf4j
 @Service
@@ -30,34 +28,6 @@ public class AiAgentService {
     public AiAgentService(AgentProvider provider) {
         this.provider = provider;
         log.info("AiAgentService initialized with provider: {}", provider.getClass().getSimpleName());
-    }
-
-    /**
-     * 分析上次会议待办进度，生成结构化 JSON 洞察。
-     *
-     * @return Agent 回复文本；不可用或失败时返回 {@code null}
-     */
-    public String analyzePreviousProgress(
-            String meetingId,
-            String previousMeetingId,
-            String previousTitle,
-            Map<String, Integer> todoStats,
-            String delayedItems,
-            String feishuMultitableDirective) {
-
-        return provider.analyzePreviousProgress(
-                meetingId, previousMeetingId, previousTitle,
-                todoStats, delayedItems, feishuMultitableDirective);
-    }
-
-    /**
-     * 主持会序通报（附带会序飞书 URL 与标题，供 matter-progress Skill 读取指定表/文档）。
-     */
-    public String runAgendaBriefingViaOpenclaw(Meeting meeting,
-                                               String bitableDirective,
-                                               String feishuUrl,
-                                               String agendaTitle) {
-        return provider.runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle);
     }
 
     /**

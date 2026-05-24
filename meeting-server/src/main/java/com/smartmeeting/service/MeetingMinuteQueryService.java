@@ -37,7 +37,11 @@ public class MeetingMinuteQueryService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
         Optional<MeetingMinute> stored = meetingMinuteService.getLatest(meetingId);
-        String docUrl = meeting.getDocUrl();
+        String minuteUrl = stored.map(MeetingMinute::getContentUrl)
+                .filter(s -> s != null && !s.isBlank())
+                .orElse(null);
+        // 主表 doc_url 为权威；content_url 仅 300 字且可能截断，仅在主表为空时回退
+        String docUrl = preferDocUrl(minuteUrl, meeting.getDocUrl());
         String docToken = meeting.getDocToken();
         boolean hasDoc = docUrl != null && !docUrl.isBlank();
         boolean hasDb = stored.isPresent()
@@ -72,5 +76,18 @@ public class MeetingMinuteQueryService {
         });
 
         return builder.build();
+    }
+
+    /**
+     * 优先主表 {@code doc_url}；仅当主表为空时使用纪要表 {@code content_url}（避免 300 字截断覆盖完整链接）。
+     */
+    static String preferDocUrl(String minuteContentUrl, String meetingDocUrl) {
+        if (meetingDocUrl != null && !meetingDocUrl.isBlank()) {
+            return meetingDocUrl.trim();
+        }
+        if (minuteContentUrl != null && !minuteContentUrl.isBlank()) {
+            return minuteContentUrl.trim();
+        }
+        return null;
     }
 }

@@ -33,6 +33,7 @@ class MeetingMinuteServiceTest extends BaseTest {
         m.setTitle("纪要持久化测试");
         m.setCompany("测试公司");
         m.setGroupName("测试组");
+        m.setPresetTypeCode(1);
         m.setStatus(MeetingStatus.COMPLETED.name());
         m.setCreatorId("test-user");
         m.setCreatedAt(LocalDateTime.now());
@@ -45,6 +46,7 @@ class MeetingMinuteServiceTest extends BaseTest {
         var loaded = meetingMinuteService.getLatest(m.getId());
         assertTrue(loaded.isPresent());
         assertEquals(body, loaded.get().getContentMarkdown());
+        assertEquals(1, loaded.get().getPresetTypeCode());
         assertEquals(MinuteGenerationStatus.READY.name(), loaded.get().getGenerationStatus());
 
         String updated = body + "\n\n追加段落";
@@ -52,5 +54,14 @@ class MeetingMinuteServiceTest extends BaseTest {
         assertEquals(updated, meetingMinuteService.getContentMarkdownOrEmpty(m.getId()));
         assertEquals(MinuteGenerationStatus.PARTIAL.name(),
                 meetingMinuteService.getLatest(m.getId()).get().getGenerationStatus());
+
+        String feishuUrl = "https://example.feishu.cn/docx/abc123";
+        meetingMinuteService.updateContentUrl(m.getId(), feishuUrl);
+        assertEquals(feishuUrl, meetingMinuteService.getLatest(m.getId()).get().getContentUrl());
+
+        meetingMinuteService.saveLatest(m.getId(), updated, MinuteGenerationStatus.READY,
+                "https://example.feishu.cn/docx/new");
+        assertEquals("https://example.feishu.cn/docx/new",
+                meetingMinuteService.getLatest(m.getId()).get().getContentUrl());
     }
 }

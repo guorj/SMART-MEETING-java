@@ -2,16 +2,12 @@ package com.smartmeeting.service.agent;
 
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.repository.MeetingMapper;
-import com.smartmeeting.service.AiAgentService;
-import com.smartmeeting.service.BitableDirectiveBuilder;
 import com.smartmeeting.service.FeishuService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartmeeting.service.feishu.FeishuResourceRef;
-import com.smartmeeting.service.host.AgendaBriefingResult;
-import com.smartmeeting.service.host.AgendaBriefingService;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
@@ -58,8 +54,6 @@ class OpenClawMcpProviderTest {
     @Mock
     private MeetingMapper meetingMapper;
     @Mock
-    private BitableDirectiveBuilder bitableDirectiveBuilder;
-    @Mock
     private FeishuService feishuService;
     @Mock
     private RestTemplate restTemplate;
@@ -80,7 +74,6 @@ class OpenClawMcpProviderTest {
         ReflectionTestUtils.setField(target, "gatewayUrl", devConfig.gatewayUrl());
         ReflectionTestUtils.setField(target, "sessionKey", devConfig.sessionKey());
         ReflectionTestUtils.setField(target, "timeoutSeconds", devConfig.timeoutSeconds());
-        ReflectionTestUtils.setField(target, "agendaBriefingTimeoutSeconds", devConfig.timeoutSeconds());
         ReflectionTestUtils.setField(target, "skillMode", devConfig.skillMode());
         ReflectionTestUtils.setField(target, "authToken", "");
         ReflectionTestUtils.setField(target, "deviceToken", "");
@@ -115,16 +108,13 @@ class OpenClawMcpProviderTest {
         String directive = "【飞书资料-主持会序通报】table=tbl1";
 
         when(gatewayWsClient.sendChatMessage(
-                eq(devConfig.gatewayUrl()), eq(DEV_AUTH_TOKEN), eq(""), eq(devConfig.sessionKey()),
-                argThat(prompt -> prompt.startsWith("/skill:matter-progress")
-                        && prompt.contains("meetingId=m-dev-2")
-                        && prompt.contains("feishuUrl=" + FEISHU_URL)
-                        && prompt.contains("agendaTitle=会序2")),
-                eq(devConfig.timeoutSeconds())))
+                eq(devConfig.gatewayUrl()), eq(DEV_AUTH_TOKEN), eq(""),
+                any(), any(), eq(devConfig.timeoutSeconds()), any()))
                 .thenReturn("{\"reply\":\"# 会序通报\\n\\n进度正常\"}");
 
         String markdown = provider.runMatterProgressReport(
-                meeting, directive, FEISHU_URL, "会序2");
+                meeting, directive, FEISHU_URL, "会序2", 1, "m-dev-2-1-1",
+                OpenClawTaskIds.briefing("m-dev-2", 1, 1));
 
         assertThat(provider.isAvailable()).isTrue();
         assertThat(markdown).contains("会序通报");
@@ -139,14 +129,41 @@ class OpenClawMcpProviderTest {
                 {"status":"ok","result":{"payloads":[{"text":"# 通报\\n\\n分项进度良好"}]}}
                 """;
         when(gatewayWsClient.sendChatMessage(
-                eq(devConfig.gatewayUrl()), eq(DEV_AUTH_TOKEN), eq(""), eq(devConfig.sessionKey()),
-                any(), eq(devConfig.timeoutSeconds())))
+                eq(devConfig.gatewayUrl()), eq(DEV_AUTH_TOKEN), eq(""),
+                any(), any(), eq(devConfig.timeoutSeconds()), any()))
                 .thenReturn(payloadsJson);
 
         String markdown = provider.runMatterProgressReport(
                 meeting, "directive", FEISHU_URL, "议题A");
 
         assertThat(markdown).contains("分项进度良好");
+    }
+
+    @Test
+    @DisplayName("会序通报 sessionKey 按 taskId 隔离")
+    void resolveSessionKeyForTask_isolatesPerTaskId() {
+        String task1 = OpenClawTaskIds.briefing("m1", 1, 1);
+        String task2 = OpenClawTaskIds.briefing("m1", 1, 2);
+        String k1 = OpenClawMcpProvider.resolveSessionKeyForTask(task1, "agent:base");
+        String k2 = OpenClawMcpProvider.resolveSessionKeyForTask(task2, "agent:base");
+        assertThat(k1).contains(":task:briefing:m1:1:1");
+        assertThat(k2).contains(":task:briefing:m1:1:2");
+        assertThat(k1).isNotEqualTo(k2);
+    }
+
+    @Test
+    @DisplayName("会序通报拒绝纪要增强 JSON 响应")
+    void matterProgress_rejectsMinuteEnhancementJson() {
+        applyDevWithAuthToken(provider);
+        Meeting meeting = meeting("m-mix", "会", "C", "G");
+        when(gatewayWsClient.sendChatMessage(any(), any(), any(), any(), any(), anyInt(), any()))
+                .thenReturn("{\"optimized_minute\":\"x\",\"quality_check\":{\"score\":0}}");
+
+        String markdown = provider.runMatterProgressReport(
+                meeting, "d", FEISHU_URL, "会序1", 1, "m-mix-1-1",
+                OpenClawTaskIds.briefing("m-mix", 1, 1));
+
+        assertThat(markdown).isNull();
     }
 
     @Test
@@ -158,54 +175,6 @@ class OpenClawMcpProviderTest {
 
         assertThat(provider.isAvailable()).isFalse();
         assertThat(provider.runMatterProgressReport(meeting, "d", FEISHU_URL, "会序1")).isNull();
-        verify(gatewayWsClient, never()).sendChatMessage(any(), any(), any(), any(), any(), anyInt());
-    }
-
-    @Test
-    @DisplayName("dev + OPENCLAW_AUTH_TOKEN：AgendaBriefingService 返回 openclaw_gateway")
-    void devWithAuthToken_agendaBriefing_returnsOpenclawGateway() {
-        applyDevWithAuthToken(provider);
-        Meeting meeting = meeting("m-brief-dev", "综合管理会", "XX集团", "综合管理会");
-        when(meetingMapper.selectById("m-brief-dev")).thenReturn(meeting);
-        when(bitableDirectiveBuilder.buildDirectiveForHostAgenda("会序2", FEISHU_URL, "BASE"))
-                .thenReturn("【主持会序】directive");
-        when(gatewayWsClient.sendChatMessage(
-                eq(devConfig.gatewayUrl()), eq(DEV_AUTH_TOKEN), eq(""), eq(devConfig.sessionKey()),
-                argThat(p -> p.contains("/skill:matter-progress") && p.contains("agendaTitle=会序2")),
-                eq(devConfig.timeoutSeconds())))
-                .thenReturn("{\"reply\":\"# MCP 会序通报\\n\\n- 概览：正常\"}");
-
-        AiAgentService aiAgentService = new AiAgentService(provider);
-        AgendaBriefingService briefingService = new AgendaBriefingService(
-                meetingMapper, aiAgentService, bitableDirectiveBuilder);
-        ReflectionTestUtils.setField(briefingService, "enabled", true);
-
-        AgendaBriefingResult result = briefingService.generateBriefing(
-                "m-brief-dev", "会序2", FEISHU_URL, "BASE");
-
-        assertThat(result.isSuccess()).isTrue();
-        assertThat(result.getSource()).isEqualTo("openclaw_gateway");
-        assertThat(result.getMarkdown()).contains("MCP 会序通报");
-    }
-
-    @Test
-    @DisplayName("dev 默认无 Token：AgendaBriefing 失败，不兜底 LLM")
-    void devDefaultsWithoutToken_agendaBriefing_failsWithoutGateway() {
-        Meeting meeting = meeting("m-brief-fallback", "综合管理会", "XX集团", "综合管理会");
-        when(meetingMapper.selectById("m-brief-fallback")).thenReturn(meeting);
-        when(bitableDirectiveBuilder.buildDirectiveForHostAgenda("会序2", FEISHU_URL, "BASE"))
-                .thenReturn("【主持会序】directive");
-
-        AiAgentService aiAgentService = new AiAgentService(provider);
-        AgendaBriefingService briefingService = new AgendaBriefingService(
-                meetingMapper, aiAgentService, bitableDirectiveBuilder);
-        ReflectionTestUtils.setField(briefingService, "enabled", true);
-
-        AgendaBriefingResult result = briefingService.generateBriefing(
-                "m-brief-fallback", "会序2", FEISHU_URL, "BASE");
-
-        assertThat(result.isSuccess()).isFalse();
-        assertThat(result.getErrorMessage()).contains("OpenClaw");
         verify(gatewayWsClient, never()).sendChatMessage(any(), any(), any(), any(), any(), anyInt());
     }
 

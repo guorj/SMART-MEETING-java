@@ -62,6 +62,7 @@ INSERT INTO int_meeting_type_preset (code, display_name, company, department, gr
 CREATE TABLE int_meeting_participant (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY,
     meeting_id      VARCHAR(36)  NOT NULL,
+    preset_type_code TINYINT     NULL,
     user_id         VARCHAR(64)  NOT NULL,
     name            VARCHAR(100) NOT NULL,
     status          VARCHAR(20)  NOT NULL DEFAULT 'PENDING',
@@ -78,6 +79,7 @@ CREATE TABLE int_meeting_participant (
 CREATE TABLE int_transcript_segment (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY,
     meeting_id      VARCHAR(36)  NOT NULL,
+    preset_type_code TINYINT     NULL,
     speaker_id      VARCHAR(100) NULL,
     speaker_name    VARCHAR(100) NULL,
     start_time_ms   INT          NOT NULL,
@@ -90,7 +92,9 @@ CREATE TABLE int_transcript_segment (
 
 CREATE TABLE int_meeting_minute (
     meeting_id          VARCHAR(36)   NOT NULL PRIMARY KEY,
+    preset_type_code    TINYINT       NULL,
     content_markdown    CLOB          NOT NULL,
+    content_url         VARCHAR(300)  NULL,
     content_length      INT           NOT NULL DEFAULT 0,
     generation_status   VARCHAR(20)   NOT NULL DEFAULT 'READY',
     generated_at        TIMESTAMP     NOT NULL,
@@ -100,6 +104,7 @@ CREATE TABLE int_meeting_minute (
 CREATE TABLE int_meeting_todo (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY,
     meeting_id      VARCHAR(36)  NOT NULL,
+    preset_type_code TINYINT     NULL,
     content         VARCHAR(8000) NOT NULL,
     assignee_id     VARCHAR(64)  NOT NULL,
     assignee_name   VARCHAR(100) NULL,
@@ -142,12 +147,34 @@ CREATE TABLE int_matter_progress_doc_config (
     agenda_index         INT          NULL,
     resource_slot        INT          NOT NULL DEFAULT 0,
     feishu_doc_url       VARCHAR(2000) NULL,
-    openclaw_briefing    INT          NOT NULL DEFAULT 0,
+    config_role          VARCHAR(16)  NOT NULL DEFAULT 'SOURCE',
+    generated_report_url VARCHAR(2000) NULL,
+    generated_report_at  TIMESTAMP    NULL,
     enabled              INT          NOT NULL DEFAULT 1,
     created_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (config_name),
     UNIQUE (preset_type_code, agenda_index, resource_slot)
+);
+
+CREATE TABLE int_weekly_matter_comparison_job (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    job_name              VARCHAR(64)  NOT NULL,
+    enabled               INT          NOT NULL DEFAULT 1,
+    cron_expression       VARCHAR(64)  NOT NULL DEFAULT '0 10 * * MON',
+    schedule_timezone     VARCHAR(64)  NOT NULL DEFAULT 'Asia/Shanghai',
+    source_config_names   VARCHAR(4000) NOT NULL,
+    minute_query_type     VARCHAR(32)  NOT NULL,
+    minute_query_params   VARCHAR(4000) NOT NULL,
+    output_config_name    VARCHAR(64)  NOT NULL,
+    output_doc_title_tpl  VARCHAR(200) NOT NULL DEFAULT '事项对比通报-{date}',
+    feishu_folder_token   VARCHAR(128) NULL,
+    last_run_at           TIMESTAMP    NULL,
+    last_run_status       VARCHAR(20)  NULL,
+    last_run_error        VARCHAR(4000) NULL,
+    created_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE (job_name)
 );
 
 INSERT INTO int_matter_progress_doc_config (config_name, preset_type_code, agenda_index, resource_slot, feishu_doc_url, enabled)

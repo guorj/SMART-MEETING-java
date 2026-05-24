@@ -241,23 +241,25 @@ allowed-tools:
 
 **源码位置：** `skills/progress-analysis/SKILL.md`
 
-#### matter-progress（主持会序 OpenClaw 通报）
+#### matter-progress（会前事项对比通报 · LLM）
+
+> **v0.9**：执行在 **feishu-scheduled-bot**，非会中 OpenClaw。会中主持页只读展示 `generated_report_url`。
 
 ```yaml
 ---
 name: matter-progress
-description: "主持会序 OpenClaw 通报：读取当前会序飞书资料，输出 Markdown 进度通报正文"
-allowed-tools:
-  - lark-mcp__bitable_v1_appTableField_list
-  - lark-mcp__bitable_v1_appTableRecord_search
+description: "会前事项对比：读取 SOURCE 飞书资料 + 近 N 天纪要，LLM 生成对比 Markdown，写回 OUTPUT 行"
 ---
 ```
 
-核心流程：
-1. 调用 `lark-mcp__bitable_v1_appTableRecord_search` 读取多维表格
-2. 生成 Markdown 通报正文（概览 + 分项进度 + 风险 + 建议）
+核心流程（由 `WeeklyMatterComparisonService` 编排，非会中实时调用）：
+1. 读取 `int_matter_progress_doc_config` 中 SOURCE/BOTH 的 `feishu_doc_url`
+2. 查询 `int_meeting_minute`（`PRESET_LAST_7_DAYS` 或 `MEETING_IDS`）
+3. LLM 生成对比 Markdown → 创建飞书 Doc
+4. **仅** UPDATE OUTPUT 行 `generated_report_url`、`generated_report_at`（**不覆盖** `feishu_doc_url`，**不发群**）
 
-**源码位置：** `skills/matter-progress/SKILL.md`
+**源码位置：** `skills/matter-progress/SKILL.md`  
+**架构详述：** [weekly-matter-comparison.md](./weekly-matter-comparison.md)
 
 #### minute-enhancement（纪要优化）
 
@@ -597,4 +599,5 @@ MCP 模式下 `BitableDirectiveBuilder` 的 `appliesTo()` 结果仍可传入 `an
 - `AgentProvider.java` — 接口不变
 - `DirectLlmAgentProvider.java` — 不变
 - `MeetingProgressAIEnhancer.java` — 不变
-- 录音页 `matter-progress-report` API 与 `MatterProgressReportService` — **已移除**；会序通报由 `AgendaBriefingService` + `matter-progress` Skill 在 **会议主页 · 会序模块** 承担
+- 录音页 `matter-progress-report` API 与 `MatterProgressReportService` — **已移除**
+- 会中 `AgendaBriefingService` + 会序 `openclawBriefing` — **v0.9 已移除**；改由 **feishu-scheduled-bot** 写回 `generated_report_url`，主持页只读展示（见 [weekly-matter-comparison.md](./weekly-matter-comparison.md)）

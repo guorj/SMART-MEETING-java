@@ -400,8 +400,15 @@ smart-meeting-java/
 │   ├── styles/main.css                    # 样式
 │   └── worklet/pcm-processor.js           # AudioWorklet
 │
-├── sql/                                   # 手工/增量迁移（全量建表 DDL 仅维护 meeting-server/src/main/resources/schema.sql）
-│   └── migration_*.sql
+├── sql/                                   # 共库全量 schema-final-ddl.sql；索引 sql/README.md
+│   └── archive/                           # 历史 migration_*.sql（只读）
+│
+│   meeting-server/src/main/resources/
+│   ├── schema.sql                         # meeting 11 表（新环境维护入口）
+│   ├── schema-data.sql                    # 种子 DML
+│   ├── schema-upgrade/                    # 已有库增量 v0.4–v0.10
+│   ├── schema-seed/                       # 运维幂等种子
+│   └── schema-examples/                   # 参考 INSERT
 │
 ├── deploy/nginx/nginx.conf                # 生产 HTTPS 反代示例（compose 未内置 Nginx 服务）
 │

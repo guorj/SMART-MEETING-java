@@ -17,6 +17,8 @@ public class Participant {
     private String id;
     /** 所属会议 ID，外键关联 {@code int_meeting.id} */
     private String meetingId;
+    /** 会务预设类型：1-5 模板会，6 自定义，冗余自主表 */
+    private Integer presetTypeCode;
     /** 参会人用户 ID（OA 或飞书映射后的标识） */
     private String userId;
     /** 参会人姓名（展示用） */

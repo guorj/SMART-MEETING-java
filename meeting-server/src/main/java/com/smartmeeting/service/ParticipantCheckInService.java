@@ -29,6 +29,7 @@ import java.util.Map;
 public class ParticipantCheckInService {
 
     private final ParticipantMapper participantMapper;
+    private final MeetingPresetTypeResolver presetTypeResolver;
     private final JwtUtil jwtUtil;
     private final MeetingHostSessionService meetingHostSessionService;
 
@@ -58,6 +59,7 @@ public class ParticipantCheckInService {
             p = new Participant();
             p.setId(java.util.UUID.randomUUID().toString());
             p.setMeetingId(meetingId);
+            p.setPresetTypeCode(presetTypeResolver.resolve(meetingId));
             p.setUserId(userId);
             p.setName(token.displayName() != null && !token.displayName().isBlank()
                     ? token.displayName() : userId);

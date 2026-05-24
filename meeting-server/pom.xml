@@ -16,6 +16,12 @@
     <description>智能会议服务 - Spring Boot 3.x</description>
 
     <dependencies>
+        <!-- Matter Progress Core (OpenClaw client, comparison logic) -->
+        <dependency>
+            <groupId>com.smartmeeting</groupId>
+            <artifactId>matter-progress-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

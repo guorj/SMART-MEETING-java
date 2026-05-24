@@ -115,6 +115,7 @@ public class TodoExtractionService {
             MeetingTodo todo = new MeetingTodo();
             todo.setId(UUID.randomUUID().toString());
             todo.setMeetingId(meetingId);
+            todo.setPresetTypeCode(meeting.getPresetTypeCode());
             todo.setContent(item.content);
             todo.setAssigneeName(item.assigneeName);
 

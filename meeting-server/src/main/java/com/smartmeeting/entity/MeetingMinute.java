@@ -17,8 +17,12 @@ public class MeetingMinute {
     /** 所属会议 ID（主键），外键关联 {@code int_meeting.id} */
     @TableId
     private String meetingId;
+    /** 会务预设类型：1-5 模板会，6 自定义，冗余自主表 */
+    private Integer presetTypeCode;
     /** 纪要正文（Markdown 格式） */
     private String contentMarkdown;
+    /** 正文对应文档链接（如飞书纪要 URL），最长 300 字符 */
+    private String contentUrl;
     /** 纪要正文字符数，便于分页与统计 */
     private Integer contentLength;
     /** 生成状态，对应 {@link com.smartmeeting.enums.MinuteGenerationStatus} 枚举名 */

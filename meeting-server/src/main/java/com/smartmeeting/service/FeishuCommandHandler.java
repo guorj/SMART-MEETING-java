@@ -508,6 +508,7 @@ public class FeishuCommandHandler {
             Participant participant = new Participant();
             participant.setId(UUID.randomUUID().toString());
             participant.setMeetingId(meeting.getId());
+            participant.setPresetTypeCode(meeting.getPresetTypeCode());
             participant.setUserId(openId);
             // TODO: 从飞书API获取用户姓名
             participant.setName("用户" + openId.substring(openId.length() - 6));

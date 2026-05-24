@@ -6,8 +6,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
-import com.smartmeeting.api.dto.PreviousProgressResponse;
-import com.smartmeeting.api.dto.PreviousProgressResponse.DelayedItem;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
@@ -20,19 +18,12 @@ import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import com.smartmeeting.model.MinuteGenerateMessage;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
-import com.smartmeeting.repository.TodoMapper;
-import com.smartmeeting.entity.MeetingTodo;
-import com.smartmeeting.enums.TodoStatus;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.concurrent.CompletableFuture;
-
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -44,8 +35,11 @@ import java.util.stream.Collectors;
  * 主要协作组件：{@link MeetingMapper}、{@link ParticipantMapper}、{@link TodoMapper} 持久化；
  * {@link FeishuService}、{@link MeetingFeishuNotifier} 推送飞书通知；
  * {@link MeetingTypePresetService}、{@link PresetAgendaDocService} 处理预设会序与资料；
- * {@link MeetingProgressAIEnhancer} 分析上次待办进度；{@link MeetingMinuteService} 判断纪要是否存在；
+ * {@link MeetingMinuteService} 判断纪要是否存在；
  * {@link LocalEventBus} / {@link KafkaProducer} 触发纪要生成链路。
+ *
+ * <p>会前进度已迁至 feishu-scheduled-bot + matter-progress-core（会前事项对比通报），
+ * 建会时不再推送「上次待办进度」飞书卡片。
  */
 @Slf4j
 @Service
@@ -53,14 +47,13 @@ public class MeetingService {
 
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
-    private final TodoMapper todoMapper;
     private final FeishuService feishuService;
     private final LocalEventBus localEventBus;
     private final MeetingTypePresetService meetingTypePresetService;
     private final AiAgentService aiAgentService;
-    private final MeetingProgressAIEnhancer progressAIEnhancer;
     private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingMinuteService meetingMinuteService;
+    private final MeetingPresetTypeResolver presetTypeResolver;
     private final MeetingFeishuNotifier meetingFeishuNotifier;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -73,35 +66,33 @@ public class MeetingService {
      *
      * @param meetingMapper            会议表 Mapper
      * @param participantMapper        参会人 Mapper
-     * @param todoMapper               待办 Mapper
      * @param feishuService            飞书 API 封装
      * @param localEventBus            本地事件总线（Kafka 关闭时使用）
      * @param meetingTypePresetService 会务类型预设服务
      * @param aiAgentService           AI Agent 调用
-     * @param progressAIEnhancer       待办进度卡片 AI 增强
      * @param presetAgendaDocService   预设会序飞书资料
      * @param meetingMinuteService     库内纪要读写
+     * @param presetTypeResolver       会务预设编码解析（转写等子表写入缓存）
      * @param meetingFeishuNotifier    飞书通知门面
      */
     public MeetingService(MeetingMapper meetingMapper, ParticipantMapper participantMapper,
-                          TodoMapper todoMapper, FeishuService feishuService,
+                          FeishuService feishuService,
                           LocalEventBus localEventBus,
                           MeetingTypePresetService meetingTypePresetService,
                           AiAgentService aiAgentService,
-                          MeetingProgressAIEnhancer progressAIEnhancer,
                           PresetAgendaDocService presetAgendaDocService,
                           MeetingMinuteService meetingMinuteService,
+                          MeetingPresetTypeResolver presetTypeResolver,
                           MeetingFeishuNotifier meetingFeishuNotifier) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
-        this.todoMapper = todoMapper;
         this.feishuService = feishuService;
         this.localEventBus = localEventBus;
         this.meetingTypePresetService = meetingTypePresetService;
         this.aiAgentService = aiAgentService;
-        this.progressAIEnhancer = progressAIEnhancer;
         this.presetAgendaDocService = presetAgendaDocService;
         this.meetingMinuteService = meetingMinuteService;
+        this.presetTypeResolver = presetTypeResolver;
         this.meetingFeishuNotifier = meetingFeishuNotifier;
     }
 
@@ -141,12 +132,14 @@ public class MeetingService {
         meeting.setScheduledTime(request.getScheduledTime());
 
         meetingMapper.insert(meeting);
+        presetTypeResolver.remember(meeting.getId(), meeting.getPresetTypeCode());
 
         if (request.getParticipants() != null) {
             for (MeetingCreateRequest.ParticipantEntry p : request.getParticipants()) {
                 Participant participant = new Participant();
                 participant.setId(UUID.randomUUID().toString());
                 participant.setMeetingId(meeting.getId());
+                participant.setPresetTypeCode(meeting.getPresetTypeCode());
                 participant.setUserId(p.getUserId());
                 participant.setName(p.getName());
                 participant.setStatus("PENDING");
@@ -166,7 +159,11 @@ public class MeetingService {
     }
 
     /**
-     * 启动会议：若有上次会议则进入 REVIEWING 并推送待办进度卡片，否则直接进入 STARTED。
+     * 启动会议：直接进入 STARTED 状态。
+     *
+     * <p>会前进度由 feishu-scheduled-bot 定时生成「事项对比通报」
+     * （写入 {@code generated_report_url}，主持页只读展示），
+     * 建会时不再推送「上次待办进度」飞书卡片。
      *
      * @param meetingId 会议 ID
      * @return 更新后的会议响应 DTO
@@ -179,56 +176,7 @@ public class MeetingService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
 
-        if (meeting.getPreviousMeetingId() != null) {
-            Meeting previous = meetingMapper.selectById(meeting.getPreviousMeetingId());
-            if (previous != null) {
-                meeting.setStatus(MeetingStatus.REVIEWING.name());
-                log.info("Previous meeting found: {}, will send progress card", previous.getId());
-                
-                // 查询上次会议待办统计
-                LambdaQueryWrapper<MeetingTodo> todoWrapper = new LambdaQueryWrapper<>();
-                todoWrapper.eq(MeetingTodo::getMeetingId, previous.getId());
-                List<MeetingTodo> todos = todoMapper.selectList(todoWrapper);
-                
-                int completed = (int) todos.stream().filter(t -> t.getStatus().equals(TodoStatus.COMPLETED.name())).count();
-                int inProgress = (int) todos.stream().filter(t -> t.getStatus().equals(TodoStatus.IN_PROGRESS.name())).count();
-                int delayed = (int) todos.stream().filter(t -> t.getStatus().equals(TodoStatus.DELAYED.name())).count();
-                
-                // 🤖 【环节1介入】调用AI Agent分析待办进度
-                List<Map<String, String>> elements;
-                try {
-                    String aiAnalysis = progressAIEnhancer.analyzeAndEnhance(
-                        meeting.getId(), previous.getId(), previous.getTitle(), todos);
-                    
-                    if (aiAnalysis != null && !aiAnalysis.isEmpty()) {
-                        elements = progressAIEnhancer.buildSmartCardElements(aiAnalysis, previous.getTitle());
-                        log.info("Smart progress card built with AI analysis: meetingId={}", meeting.getId());
-                    } else {
-                        elements = progressAIEnhancer.buildFallbackCardElements(previous.getTitle(), completed, inProgress, delayed, todos);
-                        log.info("Fallback to simple progress card: meetingId={}", meeting.getId());
-                    }
-                } catch (Exception e) {
-                    log.warn("AI enhancement failed, fallback: {}", e.getMessage());
-                    elements = progressAIEnhancer.buildFallbackCardElements(previous.getTitle(), completed, inProgress, delayed, todos);
-                }
-                
-                // 推送卡片到会议群聊（优先使用 chatId，否则降级使用 creatorId）
-                String targetId = meeting.getChatId() != null ? meeting.getChatId() : meeting.getCreatorId();
-                if (meeting.getChatId() == null) {
-                    log.warn("No chatId configured for meeting {}, using creatorId as fallback", meeting.getId());
-                }
-                meetingFeishuNotifier.sendCardMessage(
-                        targetId, "📊 待办进度通报", elements,
-                        "TODO_PROGRESS", meeting.getId(),
-                        "todo-progress:" + meeting.getId() + ":" + previous.getId());
-                log.info("Progress card sent for previous meeting: {}", previous.getId());
-            } else {
-                meeting.setStatus(MeetingStatus.STARTED.name());
-            }
-        } else {
-            meeting.setStatus(MeetingStatus.STARTED.name());
-        }
-
+        meeting.setStatus(MeetingStatus.STARTED.name());
         meeting.setActualStartTime(LocalDateTime.now());
         meetingMapper.updateById(meeting);
 
@@ -343,78 +291,6 @@ public class MeetingService {
         meeting.setStatus(status.name());
         meetingMapper.updateById(meeting);
         log.info("Meeting status updated: id={}, status={}", meetingId, status);
-    }
-
-    /**
-     * 查询上次会议待办进度（F-MID-02），用于会议开始时展示上次待办完成情况。
-     *
-     * @param meetingId 当前会议 ID
-     * @return 上次会议进度统计；无上次会议或上次会议不存在时返回 {@code null}
-     * @throws BusinessException 当前会议不存在时抛出 404
-     */
-    public PreviousProgressResponse getPreviousProgress(String meetingId) {
-        Meeting meeting = meetingMapper.selectById(meetingId);
-        if (meeting == null) {
-            throw new BusinessException(404, "会议不存在: " + meetingId);
-        }
-
-        String previousMeetingId = meeting.getPreviousMeetingId();
-        if (previousMeetingId == null) {
-            // 首次会议，无上次进度
-            return null;
-        }
-
-        Meeting previousMeeting = meetingMapper.selectById(previousMeetingId);
-        if (previousMeeting == null) {
-            log.warn("Previous meeting not found: {}", previousMeetingId);
-            return null;
-        }
-
-        // 查询上次待办
-        LambdaQueryWrapper<MeetingTodo> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(MeetingTodo::getMeetingId, previousMeetingId);
-        List<MeetingTodo> todos = todoMapper.selectList(wrapper);
-
-        int total = todos.size();
-        int completed = 0;
-        int inProgress = 0;
-        int delayed = 0;
-        List<DelayedItem> delayedItems = List.of();
-
-        for (MeetingTodo todo : todos) {
-            String status = todo.getStatus();
-            if (TodoStatus.COMPLETED.name().equals(status)) {
-                completed++;
-            } else if (TodoStatus.IN_PROGRESS.name().equals(status)) {
-                inProgress++;
-            } else if (TodoStatus.DELAYED.name().equals(status)) {
-                delayed++;
-            }
-        }
-
-        // 收集延期项详情
-        if (delayed > 0) {
-            delayedItems = todos.stream()
-                    .filter(t -> TodoStatus.DELAYED.name().equals(t.getStatus()))
-                    .map(t -> DelayedItem.builder()
-                            .content(t.getContent())
-                            .assigneeName(t.getAssigneeName())
-                            .blockReason(t.getBlockReason())
-                            .deadline(t.getDeadline())
-                            .build())
-                    .collect(Collectors.toList());
-        }
-
-        return PreviousProgressResponse.builder()
-                .lastMeetingId(previousMeetingId)
-                .lastMeetingTitle(previousMeeting.getTitle())
-                .lastMeetingTime(previousMeeting.getActualEndTime())
-                .totalCount(total)
-                .completedCount(completed)
-                .inProgressCount(inProgress)
-                .delayedCount(delayed)
-                .delayedItems(delayedItems)
-                .build();
     }
 
     /** 将实体转为响应 DTO，并加载参会人、预设会序与飞书资料 enrichment。 */

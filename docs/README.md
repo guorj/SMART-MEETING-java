@@ -4,7 +4,8 @@
 
 | 文档 | 说明 |
 |------|------|
-| [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（飞书指令、会议主页三模块、混合检点、会后纪要、声纹、运维要点） |
+| [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（§1.2–1.4 双服务 + **matter-progress-core**；§3.8 配置分层） |
+| [**weekly-matter-comparison.md**](weekly-matter-comparison.md) | **会前事项对比通报**（v0.9：bot 定时对比、config_role、Job 参数、故障排查） |
 | [product/混合参会检点-用户手册.md](product/混合参会检点-用户手册.md) | 混合检点专题（与 USER-MANUAL 第 9 章同步） |
 
 ## 权威 / 日常维护
@@ -31,7 +32,10 @@
 
 | 文档 | 说明 |
 |------|------|
-| [会中模块进度评估.md](会中模块进度评估.md) | **会中 10 项**矩阵对照代码完成度 + 分工 Todo（2026-05-19） |
+| [会中模块进度评估.md](会中模块进度评估.md) | **会中 10 项**矩阵 + v0.9 会前对比迁移状态（2026-05-23） |
+| [MCP+Skill改造方案.md](MCP+Skill改造方案.md) | MCP/Skill 改造；matter-progress 已改为 bot/LLM 路径 |
+| [matter-progress-core/README.md](../matter-progress-core/README.md) | 会前对比核心库类说明 |
+| [feishu-scheduled-bot 文档](../../feishu-scheduled-bot/docs/README.md) | bot 侧 USER-MANUAL、PRD、M9 计划 |
 | [会中核心类-JavaDoc参考.md](会中核心类-JavaDoc参考.md) | 会中核心 Java 类/方法 JavaDoc 全文（待写入源码） |
 | [智能会议系统-评估报告.md](assessments/智能会议系统-评估报告.md) | 功能完成度与里程碑 |
 | [智能会议系统-技术可行性评估.md](assessments/智能会议系统-技术可行性评估.md) | 技术风险与缺陷清单 |

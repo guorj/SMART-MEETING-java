@@ -22,7 +22,14 @@ docker compose up -d   # MySQL / Redis / Kafka + meeting-server
 ```
 smart-meeting-java/
 ├── meeting-server/          # 唯一应用模块（Java + static 前端）
-├── sql/                     # 增量迁移脚本（全量 DDL 见 meeting-server/.../schema.sql）
+├── matter-progress-core/    # 会前对比核心库（供 feishu-scheduled-bot 依赖）
+├── sql/                     # 共库全量 DDL + 索引，见 sql/README.md
+├── meeting-server/src/main/resources/
+│   ├── schema.sql           # meeting 11 表（新环境维护入口）
+│   ├── schema-data.sql      # 种子 DML
+│   ├── schema-upgrade/      # 已有库增量 v0.4–v0.10
+│   ├── schema-seed/         # 运维幂等种子
+│   └── schema-examples/     # 参考 INSERT，不自动执行
 ├── deploy/nginx/            # 生产 HTTPS 反代示例（非 compose 内置）
 ├── docs/                    # 文档索引见 docs/README.md
 ├── docker-compose.yml
@@ -35,6 +42,7 @@ smart-meeting-java/
 | 类型 | 路径 |
 |------|------|
 | **用户手册** | [docs/USER-MANUAL.md](docs/USER-MANUAL.md) |
+| **会前事项对比通报** | [docs/weekly-matter-comparison.md](docs/weekly-matter-comparison.md) |
 | 二期 PRD | [docs/PRD-Java-二期.md](docs/PRD-Java-二期.md) |
 | 编码规范 | [docs/coding-standards.md](docs/coding-standards.md) |
 | 库表分析 | [docs/数据库表结构冗余与字段合理性分析.md](docs/数据库表结构冗余与字段合理性分析.md) |

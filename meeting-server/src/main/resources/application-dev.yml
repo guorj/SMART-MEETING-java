@@ -89,6 +89,13 @@ meeting:
         backoff-ms: 1000
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
+        
+    minute:
+    # 库内持久化纪要正文（与飞书 doc_url 双写）
+    persist-enabled: true
+    expose-content-in-api: true
+    # LLM 初稿后是否走 AI 纪要增强（OpenClaw minute-enhancement / 直调 LLM）；false 仅用初稿
+    ai-enhancement-enabled: false
 
   # ---- 讯飞 ISV 声纹 ----
   isv:

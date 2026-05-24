@@ -13,7 +13,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -157,76 +156,6 @@ class PresetAgendaDocServiceTest {
         };
         svc.enrichHostAgendaItems(1, items);
         assertEquals("https://x.feishu.cn/docx/doxFromPreset", items.get(0).getFeishuDocUrl());
-    }
-
-    /** 配置表 openclaw_briefing=0 时 enrich 仅补 URL，不设通报开关。 */
-    @Test
-    void enrichHostAgendaItems_doesNotSetOpenclawBriefingWhenConfigColumnZero() {
-        HostAgendaItemDto item = new HostAgendaItemDto();
-        item.setTitle("会序2");
-        List<HostAgendaItemDto> items = List.of(item);
-
-        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
-        cfg.setAgendaIndex(0);
-        cfg.setOpenclawBriefing(0);
-        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
-
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
-            @Override
-            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
-                return List.of(cfg);
-            }
-        };
-        svc.enrichHostAgendaItems(1, items);
-        assertEquals("https://x.feishu.cn/docx/doxFromTable", items.get(0).getFeishuDocUrl());
-        assertFalse(Boolean.TRUE.equals(items.get(0).getOpenclawBriefing()));
-    }
-
-    /** 配置表 openclaw_briefing=1 时 enrich 应设置 openclawBriefing。 */
-    @Test
-    void enrichHostAgendaItems_setsOpenclawBriefingWhenConfigColumnOne() {
-        HostAgendaItemDto item = new HostAgendaItemDto();
-        item.setTitle("会序2");
-        List<HostAgendaItemDto> items = List.of(item);
-
-        MatterProgressDocConfig cfg = new MatterProgressDocConfig();
-        cfg.setAgendaIndex(0);
-        cfg.setOpenclawBriefing(1);
-        cfg.setFeishuDocUrl("https://x.feishu.cn/docx/doxFromTable");
-
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
-            @Override
-            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
-                return List.of(cfg);
-            }
-        };
-        svc.enrichHostAgendaItems(1, items);
-        assertTrue(Boolean.TRUE.equals(items.get(0).getOpenclawBriefing()));
-    }
-
-    /** matterProgressOpenclawBriefingForAgenda 须 openclaw_briefing=1 且 feishu_doc_url 有效。 */
-    @Test
-    void matterProgressOpenclawBriefingForAgenda_respectsColumn() {
-        MatterProgressDocConfig off = new MatterProgressDocConfig();
-        off.setAgendaIndex(1);
-        off.setOpenclawBriefing(0);
-        MatterProgressDocConfig onNoUrl = new MatterProgressDocConfig();
-        onNoUrl.setAgendaIndex(2);
-        onNoUrl.setOpenclawBriefing(1);
-        MatterProgressDocConfig on = new MatterProgressDocConfig();
-        on.setAgendaIndex(3);
-        on.setOpenclawBriefing(1);
-        on.setFeishuDocUrl("https://x.feishu.cn/docx/doxBriefing");
-
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, null, PRESET_CACHE, null, JSON) {
-            @Override
-            public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
-                return List.of(off, onNoUrl, on);
-            }
-        };
-        assertFalse(svc.matterProgressOpenclawBriefingForAgenda(1, 1));
-        assertFalse(svc.matterProgressOpenclawBriefingForAgenda(1, 2));
-        assertTrue(svc.matterProgressOpenclawBriefingForAgenda(1, 3));
     }
 
     /** resolveDocumentId 应优先使用运行时 URL。 */

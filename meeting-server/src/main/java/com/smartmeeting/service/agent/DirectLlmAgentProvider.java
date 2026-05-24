@@ -17,11 +17,13 @@ import java.util.Map;
 /**
  * 直调 LLM Chat Completions 的 AgentProvider 实现。
  *
- * <p>复用 {@code meeting.llm.*} 配置，将 AgentProvider 的三大场景
+ * <p>复用 {@code meeting.llm.*} 配置，将 AgentProvider 场景
  * 转化为 Chat Completions 请求，不依赖 OpenClaw Gateway。
  *
  * <p>由配置 {@code openclaw.agent.provider=llm} 激活；
  * 当 {@code openclaw.agent.provider} 未配置时也默认激活（{@code matchIfMissing}）。
+ *
+ * <p>会前进度（上次待办进度卡片）已在 v0.9 下线。
  */
 @Slf4j
 @Component
@@ -42,42 +44,6 @@ public class DirectLlmAgentProvider implements AgentProvider {
 
     public DirectLlmAgentProvider(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
-    }
-
-    @Override
-    public String analyzePreviousProgress(String meetingId,
-                                          String previousMeetingId,
-                                          String previousTitle,
-                                          Map<String, Integer> todoStats,
-                                          String delayedItems,
-                                          String feishuMultitableDirective) {
-        String systemPrompt = "你是企业会务与项目管理助手。请根据用户提供的待办统计数据，"
-                + "分析上次会议待办进度，输出结构化 JSON 洞察。严格按指定 JSON 格式输出，不要多余文本。";
-
-        StringBuilder userPrompt = new StringBuilder();
-        if (feishuMultitableDirective != null && !feishuMultitableDirective.isBlank()) {
-            userPrompt.append("【参考】以下是多维表相关指令描述（LLM 无法直接读取多维表，仅供参考上下文）：\n");
-            userPrompt.append(feishuMultitableDirective.trim()).append("\n\n");
-        }
-        userPrompt.append("上次会议：").append(previousTitle).append("\n");
-        userPrompt.append("会议ID：").append(previousMeetingId).append("\n\n");
-        userPrompt.append("待办统计：\n");
-        userPrompt.append("- ⚠️ 已延期: ").append(todoStats.getOrDefault("delayed", 0)).append("项\n");
-        userPrompt.append("- 🔄 进行中: ").append(todoStats.getOrDefault("inProgress", 0)).append("项\n");
-        userPrompt.append("- ✅ 已完成: ").append(todoStats.getOrDefault("completed", 0)).append("项\n\n");
-        if (delayedItems != null && !delayedItems.isEmpty()) {
-            userPrompt.append("延期项详情：\n").append(delayedItems).append("\n\n");
-        }
-        userPrompt.append("请输出以下 JSON（不要代码块包裹）：\n");
-        userPrompt.append("{\n");
-        userPrompt.append("  \"progress_summary\": \"进度概述（2-3句话）\",\n");
-        userPrompt.append("  \"delay_reasons\": [{\"category\": \"...\", \"count\": N, \"detail\": \"...\"}],\n");
-        userPrompt.append("  \"high_priority_alerts\": [{\"content\": \"...\", \"assignee\": \"...\"}],\n");
-        userPrompt.append("  \"recommendations\": [\"建议1\", \"建议2\"],\n");
-        userPrompt.append("  \"focus_items\": [\"关注项1\", \"关注项2\"]\n");
-        userPrompt.append("}");
-
-        return callLlm(systemPrompt, userPrompt.toString(), "progress_analysis");
     }
 
     @Override

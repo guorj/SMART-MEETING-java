@@ -10,9 +10,13 @@ mcp:
   servers:
     # -------------------------------------------------------------------------
     # lark-mcp — 飞书开放平台（@larksuiteoapi/lark-mcp）
-    # 白名单 -t 仅 2 个只读多维表 API，对应 OpenClaw 工具：
-    #   lark-mcp__bitable_v1_appTableField_list   — 字段列表
-    #   lark-mcp__bitable_v1_appTableRecord_search — 记录检索/分页
+    # 白名单 -t：读多维表 + weekly-comparison 读/写 Doc + 读 wiki
+    #   lark-mcp__bitable_v1_appTableField_list
+    #   lark-mcp__bitable_v1_appTableRecord_search
+    #   lark-mcp__docx_v1_document_create
+    #   lark-mcp__docx_v1_documentBlockChildren_create
+    #   lark-mcp__docx_v1_document_rawContent
+    #   lark-mcp__wiki_v2_space_getNode
     # -------------------------------------------------------------------------
     lark-mcp:
       command: npx
@@ -21,14 +25,14 @@ mcp:
         - "@larksuiteoapi/lark-mcp"
         - mcp
         - -a
-        - ${FEISHU_APP_ID}          # 与 meeting.feishu / channels.feishu 同一应用
+        - ${FEISHU_APP_ID}          # weekly-comparison 应用；与 feishu.weekly-comparison.app-id 一致
         - -s
         - ${FEISHU_APP_SECRET}
         - -t
-        # OpenAPI 白名单（逗号分隔，勿用 preset.default，以免带入写接口）
-        - bitable.v1.appTableField.list,bitable.v1.appTableRecord.search
+        # OpenAPI 白名单（逗号分隔，勿用 preset.default，以免带入多余写接口）
+        - bitable.v1.appTableField.list,bitable.v1.appTableRecord.search,docx.v1.document.create,docx.v1.documentBlockChildren.create,docx.v1.document.rawContent,wiki.v2.space.getNode
         - --token-mode
-        - tenant_access_token       # bot 身份读表；读用户私有数据需 user_access_token + OAuth
+        - tenant_access_token       # bot 身份读表/写 Doc
         - -l
         - zh                        # 工具描述中文
         - -c
@@ -49,8 +53,13 @@ mcp:
         - -y
         - "@modelcontextprotocol/server-mysql"
       env:
-        MYSQL_HOST: ${DB_HOST}
-        MYSQL_PORT: ${DB_PORT}
-        MYSQL_USER: ${DB_USERNAME}
-        MYSQL_PASSWORD: ${DB_PASSWORD}
-        MYSQL_DATABASE: intelligence
+        # 注意：仅改 feishu-scheduled-bot 的 application.yml 不会影响本 MCP！
+        # ${DB_HOST} 由 OpenClaw 在加载 openclaw.json 时替换；未设置则启动报错或子进程落到 localhost。
+        # 生产建议直接写死 IP（与 Bot/meeting-server 共库 intelligence 一致）：
+        MYSQL_HOST: "60.205.1.17"
+        MYSQL_PORT: "3306"
+        MYSQL_USER: "intelligence"
+        MYSQL_PASSWORD: "intelligence@2026"
+        MYSQL_DATABASE: "intelligence"
+        # 若坚持用环境变量，须在 openclaw.json 顶层 env.vars 或 Gateway 进程环境中设 DB_HOST 等，且：
+        # MYSQL_HOST: ${DB_HOST}

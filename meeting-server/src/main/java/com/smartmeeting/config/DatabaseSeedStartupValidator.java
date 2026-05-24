@@ -56,7 +56,7 @@ public class DatabaseSeedStartupValidator {
             return;
         }
         validatePresetAgendaDocConfigs();
-        validateOpenclawBriefingConfigs();
+        validateWeeklyReportBindings();
         refreshPresetCachesAfterValidation();
         validateMeetingMinuteTable();
     }
@@ -64,19 +64,22 @@ public class DatabaseSeedStartupValidator {
     private void refreshPresetCachesAfterValidation() {
         try {
             presetAgendaDocService.refreshPresetBundle(PRESET_COMPREHENSIVE);
-            log.info("已刷新 preset={} Redis/本地缓存（含 openclaw_briefing）", PRESET_COMPREHENSIVE);
+            log.info("已刷新 preset={} Redis/本地缓存", PRESET_COMPREHENSIVE);
         } catch (Exception e) {
             log.warn("刷新 preset 缓存失败: {}", e.getMessage());
         }
     }
 
-    private void validateOpenclawBriefingConfigs() {
+    private void validateWeeklyReportBindings() {
         for (int idx : EXPECTED_AGENDA_INDICES) {
-            String reason = presetAgendaDocService.openclawBriefingIneligibleReason(PRESET_COMPREHENSIVE, idx);
-            if (reason == null) {
-                log.info("OpenClaw 会序通报已配置: preset=1 agenda_index={}", idx);
+            var binding = presetAgendaDocService.findReportBindingForAgenda(PRESET_COMPREHENSIVE, idx);
+            if (binding.isPresent() && binding.get().generatedReportUrl() != null
+                    && !binding.get().generatedReportUrl().isBlank()) {
+                log.info("会前对比通报已绑定: preset=1 agenda_index={} url={}",
+                        idx, binding.get().generatedReportUrl());
             } else {
-                log.warn("OpenClaw 会序通报未就绪 preset=1 agenda_index={}: {}", idx, reason);
+                log.warn("会前对比通报未就绪 preset=1 agenda_index={}（需 feishu-scheduled-bot 定时任务写回 generated_report_url）",
+                        idx);
             }
         }
     }
@@ -86,7 +89,7 @@ public class DatabaseSeedStartupValidator {
             meetingMinuteMapper.selectCount(null);
             log.debug("int_meeting_minute 表校验通过");
         } catch (Exception e) {
-            log.warn("int_meeting_minute 表不可用，请执行 schema-upgrade-v0.5-minute.sql: {}",
+            log.warn("int_meeting_minute 表不可用，请执行 schema-upgrade/v0.5-minute.sql: {}",
                     e.getMessage());
         }
     }

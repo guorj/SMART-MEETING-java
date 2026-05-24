@@ -24,8 +24,4 @@ public class HostAgendaItemDto {
     private String feishuDocUrl;
     /** 可选：同一会序多条资料（base/docx/wiki），优先级高于单条 feishuDocUrl */
     private List<FeishuDocRefDto> feishuDocs;
-    /**
-     * 只读展示：是否对该会序触发 OpenClaw。配置表同行 {@code openclaw_briefing=1} 且 {@code feishu_doc_url} 有效时为 true。
-     */
-    private Boolean openclawBriefing;
 }

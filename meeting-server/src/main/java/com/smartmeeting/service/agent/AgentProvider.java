@@ -7,30 +7,15 @@ import java.util.Map;
 /**
  * AI Agent 能力提供者接口。
  *
- * <p>定义三大 AI 增强场景的统一抽象，由具体实现决定底层调用方式
+ * <p>定义 AI 增强场景的统一抽象，由具体实现决定底层调用方式
  * （直调 LLM、OpenClaw Gateway MCP+Skill 等）。
  *
  * <p>返回 {@code null} 表示不可用或调用失败，由调用方决定降级策略。
+ *
+ * <p>会前进度（上次待办进度卡片 + progress-analysis Skill）已在 v0.9 下线，
+ * 由 feishu-scheduled-bot + matter-progress-core 的「会前事项对比通报」取代。
  */
 public interface AgentProvider {
-
-    /**
-     * 分析上次会议待办进度，生成结构化 JSON 洞察。
-     *
-     * @param meetingId                 当前会议 ID
-     * @param previousMeetingId         上次会议 ID
-     * @param previousTitle             上次会议标题
-     * @param todoStats                 待办统计（completed / inProgress / delayed）
-     * @param delayedItems              延期项详情文本
-     * @param feishuMultitableDirective 飞书多维表读取指令（可空）
-     * @return Agent 回复文本（通常为 JSON）；不可用或失败时返回 {@code null}
-     */
-    String analyzePreviousProgress(String meetingId,
-                                   String previousMeetingId,
-                                   String previousTitle,
-                                   Map<String, Integer> todoStats,
-                                   String delayedItems,
-                                   String feishuMultitableDirective);
 
     /**
      * 生成事项进度通报 Markdown。
@@ -50,6 +35,31 @@ public interface AgentProvider {
                                            String feishuUrl,
                                            String agendaTitle) {
         return runMatterProgressReport(meeting, bitableDirective);
+    }
+
+    /**
+     * 主持会序通报（附带会序索引与 requestId，供 Gateway 会话隔离与 cache-bust）。
+     */
+    default String runMatterProgressReport(Meeting meeting,
+                                           String bitableDirective,
+                                           String feishuUrl,
+                                           String agendaTitle,
+                                           int agendaIndex,
+                                           String requestId) {
+        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, agendaIndex, requestId, null);
+    }
+
+    /**
+     * 主持会序通报（附带 taskId，用于 Gateway idempotencyKey 与响应隔离校验）。
+     */
+    default String runMatterProgressReport(Meeting meeting,
+                                           String bitableDirective,
+                                           String feishuUrl,
+                                           String agendaTitle,
+                                           int agendaIndex,
+                                           String requestId,
+                                           String taskId) {
+        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, agendaIndex, requestId);
     }
 
     /**

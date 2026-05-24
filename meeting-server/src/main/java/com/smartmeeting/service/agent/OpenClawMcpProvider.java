@@ -8,8 +8,11 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
+import com.smartmeeting.service.host.AgendaBriefingMarkdownValidator;
+
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 
 /**
  * OpenClaw MCP+Skill 方式的 AgentProvider 实现。
@@ -22,19 +25,21 @@ import java.util.Map;
  * <p>Skill 模式下：
  * <ul>
  *   <li>prompt 仅包含 {@code /skill:xxx} 指令和业务数据，由 SKILL.md 定义工具调用步骤和输出格式</li>
- *   <li>飞书多维表数据由 MCP Server 直接读取，不调用 {@code BitableDirectiveBuilder}</li>
+ *   <li>飞书多维表数据由 MCP Server 直接读取</li>
  * </ul>
  *
- * <p>传统模式下（{@code skillMode=false}）：
- * <ul>
- *   <li>拼装完整 prompt，兼容旧方案</li>
- *   <li>仍可调用 {@code BitableDirectiveBuilder} 构建多维表指令</li>
- * </ul>
+ * <p>会前进度（上次待办进度卡片 + progress-analysis Skill）已在 v0.9 下线，
+ * 由 feishu-scheduled-bot + matter-progress-core 的「会前事项对比通报」取代。
  */
 @Slf4j
 @Component
 @ConditionalOnProperty(name = "openclaw.agent.provider", havingValue = "mcp")
 public class OpenClawMcpProvider implements AgentProvider {
+
+    /**
+     * 全局串行：避免会序通报与纪要增强并发占用同一 Gateway 会话导致返回串台。
+     */
+    private static final Semaphore GATEWAY_INVOKE_SEMAPHORE = new Semaphore(1, true);
 
     private final OpenClawGatewayWsClient gatewayWsClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -58,50 +63,11 @@ public class OpenClawMcpProvider implements AgentProvider {
     @Value("${openclaw.timeout-seconds:60}")
     private int timeoutSeconds;
 
-    /** 会序通报专用上限；与 {@link #timeoutSeconds} 取较小值，避免仅改一处配置不生效 */
-    @Value("${meeting.host.agenda-briefing.timeout-seconds:120}")
-    private int agendaBriefingTimeoutSeconds;
-
     @Value("${openclaw.skill-mode:true}")
     private boolean skillMode;
 
     public OpenClawMcpProvider(OpenClawGatewayWsClient gatewayWsClient) {
         this.gatewayWsClient = gatewayWsClient;
-    }
-
-    // ========== analyzePreviousProgress ==========
-
-    @Override
-    public String analyzePreviousProgress(String meetingId,
-                                          String previousMeetingId,
-                                          String previousTitle,
-                                          Map<String, Integer> todoStats,
-                                          String delayedItems,
-                                          String feishuMultitableDirective) {
-        if (!isAvailable()) {
-            log.info("OpenClaw MCP Provider disabled or misconfigured, skip progress analysis");
-            return null;
-        }
-
-        String prompt;
-        if (skillMode) {
-            prompt = buildSkillPrompt("progress-analysis", map -> {
-                map.put("meetingId", meetingId);
-                map.put("previousMeetingId", previousMeetingId);
-                map.put("previousTitle", previousTitle);
-                map.put("delayed", String.valueOf(todoStats.getOrDefault("delayed", 0)));
-                map.put("inProgress", String.valueOf(todoStats.getOrDefault("inProgress", 0)));
-                map.put("completed", String.valueOf(todoStats.getOrDefault("completed", 0)));
-                if (delayedItems != null && !delayedItems.isEmpty()) {
-                    map.put("delayedItems", delayedItems);
-                }
-            });
-        } else {
-            prompt = buildFullProgressPrompt(previousMeetingId, previousTitle,
-                    todoStats, delayedItems, feishuMultitableDirective);
-        }
-
-        return callGateway(prompt, "progress_analysis");
     }
 
     // ========== runMatterProgressReport ==========
@@ -116,14 +82,44 @@ public class OpenClawMcpProvider implements AgentProvider {
                                           String bitableDirective,
                                           String feishuUrl,
                                           String agendaTitle) {
+        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, -1, null);
+    }
+
+    @Override
+    public String runMatterProgressReport(Meeting meeting,
+                                          String bitableDirective,
+                                          String feishuUrl,
+                                          String agendaTitle,
+                                          int agendaIndex,
+                                          String requestId) {
+        String taskId = requestId != null && !requestId.isBlank()
+                ? OpenClawTaskIds.briefing(meeting.getId(), agendaIndex >= 0 ? agendaIndex : 0,
+                parseGenerationFromRequestId(requestId))
+                : OpenClawTaskIds.briefing(meeting.getId(), agendaIndex >= 0 ? agendaIndex : 0, 0);
+        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, agendaIndex, requestId, taskId);
+    }
+
+    @Override
+    public String runMatterProgressReport(Meeting meeting,
+                                          String bitableDirective,
+                                          String feishuUrl,
+                                          String agendaTitle,
+                                          int agendaIndex,
+                                          String requestId,
+                                          String taskId) {
         if (!isAvailable()) {
             log.info("OpenClaw MCP Provider disabled or misconfigured, skip matter progress");
             return null;
         }
 
+        String effectiveTaskId = taskId != null && !taskId.isBlank()
+                ? taskId.trim()
+                : OpenClawTaskIds.briefing(meeting.getId(), Math.max(0, agendaIndex), 0);
+        String briefingSessionKey = resolveSessionKeyForTask(effectiveTaskId, sessionKey);
         String prompt;
         if (skillMode) {
             prompt = buildSkillPrompt("matter-progress", map -> {
+                map.put("taskId", effectiveTaskId);
                 map.put("meetingId", meeting.getId());
                 map.put("title", meeting.getTitle() != null ? meeting.getTitle() : "");
                 map.put("company", meeting.getCompany() != null ? meeting.getCompany() : "");
@@ -137,6 +133,12 @@ public class OpenClawMcpProvider implements AgentProvider {
                 if (agendaTitle != null && !agendaTitle.isBlank()) {
                     map.put("agendaTitle", agendaTitle.trim());
                 }
+                if (agendaIndex >= 0) {
+                    map.put("agendaIndex", String.valueOf(agendaIndex));
+                }
+                if (requestId != null && !requestId.isBlank()) {
+                    map.put("requestId", requestId.trim());
+                }
             });
         } else {
             if (bitableDirective == null || bitableDirective.isBlank()) {
@@ -145,7 +147,36 @@ public class OpenClawMcpProvider implements AgentProvider {
             prompt = buildFullMatterProgressPrompt(meeting, bitableDirective);
         }
 
-        return callGateway(prompt, "matter_progress");
+        return callGateway(prompt, OpenClawTaskIds.TASK_MATTER_PROGRESS, briefingSessionKey, effectiveTaskId);
+    }
+
+    /**
+     * 每个 taskId 独立 sessionKey，避免 Gateway 把纪要增强结果复用到会序通报会话。
+     */
+    static String resolveSessionKeyForTask(String taskId, String baseSessionKey) {
+        String base = baseSessionKey != null && !baseSessionKey.isBlank()
+                ? baseSessionKey.trim()
+                : "agent:openclaw";
+        String tid = taskId != null ? taskId.trim() : "unknown";
+        if (tid.length() > 120) {
+            tid = tid.substring(0, 120);
+        }
+        return base + ":task:" + tid;
+    }
+
+    private static int parseGenerationFromRequestId(String requestId) {
+        if (requestId == null || requestId.isBlank()) {
+            return 0;
+        }
+        int last = requestId.lastIndexOf('-');
+        if (last < 0 || last >= requestId.length() - 1) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(requestId.substring(last + 1).trim());
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     // ========== enhanceMeetingMinutes ==========
@@ -182,7 +213,9 @@ public class OpenClawMcpProvider implements AgentProvider {
                     rawMinute, transcriptText);
         }
 
-        String result = callGateway(prompt, "minute_enhancement");
+        String taskId = OpenClawTaskIds.minuteEnhancement(meetingId, System.nanoTime());
+        String minuteSessionKey = resolveSessionKeyForTask(taskId, sessionKey);
+        String result = callGateway(prompt, OpenClawTaskIds.TASK_MINUTE_ENHANCEMENT, minuteSessionKey, taskId);
         return result != null ? result : rawMinute;
     }
 
@@ -204,38 +237,71 @@ public class OpenClawMcpProvider implements AgentProvider {
      * @param taskType 任务类型（日志用）
      * @return Agent 回复文本；失败时返回 {@code null}
      */
-    private String callGateway(String prompt, String taskType) {
-        int effectiveTimeout = effectiveTimeoutSeconds(taskType);
-        log.info("OpenClaw MCP call: taskType={}, skillMode={}, gateway={}, promptLength={}, timeoutSec={}",
-                taskType, skillMode, gatewayUrl, prompt.length(), effectiveTimeout);
+    private String callGateway(String prompt, String taskType, String effectiveSessionKey) {
+        return callGateway(prompt, taskType, effectiveSessionKey, null);
+    }
 
-        long t0 = System.currentTimeMillis();
-        String body = gatewayWsClient.sendChatMessage(
-                gatewayUrl, authToken, deviceToken, sessionKey, prompt, effectiveTimeout);
-        long gatewayMs = System.currentTimeMillis() - t0;
+    private String callGateway(String prompt, String taskType, String effectiveSessionKey, String taskId) {
+        int effectiveTimeout = effectiveTimeoutSeconds(taskType);
+        String keyForLog = effectiveSessionKey != null && effectiveSessionKey.length() > 48
+                ? effectiveSessionKey.substring(0, 48) + "…"
+                : effectiveSessionKey;
+        log.info("OpenClaw MCP call: taskType={}, taskId={}, skillMode={}, gateway={}, sessionKey={}, promptLength={}, timeoutSec={}",
+                taskType, taskId, skillMode, gatewayUrl, keyForLog, prompt.length(), effectiveTimeout);
+
+        String body;
+        long gatewayMs;
+        try {
+            GATEWAY_INVOKE_SEMAPHORE.acquire();
+            try {
+                long t0 = System.currentTimeMillis();
+                body = gatewayWsClient.sendChatMessage(
+                        gatewayUrl, authToken, deviceToken, effectiveSessionKey, prompt, effectiveTimeout, taskId);
+                gatewayMs = System.currentTimeMillis() - t0;
+            } finally {
+                GATEWAY_INVOKE_SEMAPHORE.release();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("OpenClaw MCP interrupted: taskType={}, taskId={}", taskType, taskId);
+            return null;
+        }
+
         if (body == null || body.isBlank()) {
-            log.warn("OpenClaw MCP empty/failed response: taskType={}, gatewayMs={}", taskType, gatewayMs);
+            log.warn("OpenClaw MCP empty/failed response: taskType={}, taskId={}, gatewayMs={}",
+                    taskType, taskId, gatewayMs);
+            return null;
+        }
+        if (OpenClawTaskIds.TASK_MATTER_PROGRESS.equals(taskType)
+                && AgendaBriefingMarkdownValidator.rejectReason(body.trim()) != null) {
+            log.warn("OpenClaw MCP raw body rejected (task mismatch): taskType={}, taskId={}, reason={}",
+                    taskType, taskId, AgendaBriefingMarkdownValidator.rejectReason(body.trim()));
             return null;
         }
         String markdown = OpenClawReplyExtractor.extractFromBody(body);
         if (markdown == null || markdown.isBlank()) {
-            log.warn("OpenClaw MCP could not extract text: taskType={}, gatewayMs={}, bodyPrefix={}",
-                    taskType, gatewayMs, body.length() > 120 ? body.substring(0, 120) + "…" : body);
+            log.warn("OpenClaw MCP could not extract text: taskType={}, taskId={}, gatewayMs={}, bodyPrefix={}",
+                    taskType, taskId, gatewayMs, body.length() > 120 ? body.substring(0, 120) + "…" : body);
             return null;
         }
-        log.info("OpenClaw MCP success: taskType={}, gatewayMs={}, replyLength={}",
-                taskType, gatewayMs, markdown.length());
+
+        if (OpenClawTaskIds.TASK_MATTER_PROGRESS.equals(taskType)
+                && AgendaBriefingMarkdownValidator.rejectReason(markdown) != null) {
+            String reason = AgendaBriefingMarkdownValidator.rejectReason(markdown);
+            log.warn("OpenClaw MCP response rejected (task mismatch): expected={}, taskId={}, reason={}, replyPrefix={}",
+                    taskType, taskId, reason,
+                    markdown.length() > 200 ? markdown.substring(0, 200) + "…" : markdown);
+            return null;
+        }
+
+        log.info("OpenClaw MCP success: taskType={}, taskId={}, gatewayMs={}, replyLength={}",
+                taskType, taskId, gatewayMs, markdown.length());
         return markdown;
     }
 
-    /** matter_progress 使用会序通报与全局 OpenClaw 超时中的较小值。 */
+    /** matter_progress 使用全局 OpenClaw 超时。 */
     private int effectiveTimeoutSeconds(String taskType) {
-        int openclawSec = timeoutSeconds > 0 ? timeoutSeconds : 60;
-        if ("matter_progress".equals(taskType)) {
-            int agendaSec = agendaBriefingTimeoutSeconds > 0 ? agendaBriefingTimeoutSeconds : 120;
-            return Math.min(openclawSec, agendaSec);
-        }
-        return openclawSec;
+        return timeoutSeconds > 0 ? timeoutSeconds : 60;
     }
 
     // ========== Skill prompt 构建 ==========
@@ -258,45 +324,6 @@ public class OpenClawMcpProvider implements AgentProvider {
     }
 
     // ========== 完整 prompt 构建（skillMode=false 兼容模式） ==========
-
-    private String buildFullProgressPrompt(String previousMeetingId, String previousTitle,
-                                           Map<String, Integer> todoStats,
-                                           String delayedItems,
-                                           String feishuMultitableDirective) {
-        StringBuilder task = new StringBuilder();
-        task.append("【任务】分析上次会议待办进度，给出智能洞察和建议\n\n");
-        if (feishuMultitableDirective != null && !feishuMultitableDirective.isBlank()) {
-            task.append(feishuMultitableDirective.trim()).append("\n\n");
-        }
-        task.append("上次会议：").append(previousTitle).append("\n");
-        task.append("会议ID：").append(previousMeetingId).append("\n\n");
-
-        task.append("待办统计：\n");
-        task.append("- ⚠️ 已延期: ").append(todoStats.getOrDefault("delayed", 0)).append("项\n\n");
-        task.append("- 🔄 进行中: ").append(todoStats.getOrDefault("inProgress", 0)).append("项\n");
-        task.append("- ✅ 已完成: ").append(todoStats.getOrDefault("completed", 0)).append("项\n");
-
-        if (delayedItems != null && !delayedItems.isEmpty()) {
-            task.append("延期项详情：\n").append(delayedItems).append("\n\n");
-        }
-
-        task.append("请分析并输出以下内容（JSON格式）：\n");
-        task.append("1. progress_summary: 进度概述（2-3句话）\n");
-        task.append("2. delay_reasons: 延期原因归类分析\n");
-        task.append("3. high_priority_alerts: 高优先级待办提醒\n");
-        task.append("4. recommendations: 本次会议推进建议\n");
-        task.append("5. focus_items: 本次会议重点关注事项\n\n");
-        task.append("输出格式要求：\n");
-        task.append("{\n");
-        task.append("  \"progress_summary\": \"...\",\n");
-        task.append("  \"delay_reasons\": [{\"category\": \"...\", \"count\": N, \"detail\": \"...\"}],\n");
-        task.append("  \"high_priority_alerts\": [{\"content\": \"...\", \"assignee\": \"...\"}],\n");
-        task.append("  \"recommendations\": [\"建议1\", \"建议2\"],\n");
-        task.append("  \"focus_items\": [\"关注项1\", \"关注项2\"]\n");
-        task.append("}");
-
-        return task.toString();
-    }
 
     private String buildFullMatterProgressPrompt(Meeting meeting, String bitableDirective) {
         StringBuilder task = new StringBuilder();

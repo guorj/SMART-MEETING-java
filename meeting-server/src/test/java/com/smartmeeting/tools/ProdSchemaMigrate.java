@@ -35,9 +35,9 @@ public final class ProdSchemaMigrate {
         if (sqlArg != null) {
             sql = Paths.get(sqlArg);
         } else {
-            sql = Paths.get("src/main/resources/schema-upgrade-v0.4-prod.sql");
+            sql = Paths.get("src/main/resources/schema-upgrade/v0.4-prod.sql");
             if (!Files.isRegularFile(sql)) {
-                sql = Paths.get("meeting-server/src/main/resources/schema-upgrade-v0.4-prod.sql");
+                sql = Paths.get("meeting-server/src/main/resources/schema-upgrade/v0.4-prod.sql");
             }
         }
         String script = Files.readString(sql, StandardCharsets.UTF_8);

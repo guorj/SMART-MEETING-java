@@ -47,6 +47,7 @@ public class AsrBridgeService {
     private final AudioCacheService audioCacheService;
     private final MeetingHostSessionService meetingHostSessionService;
     private final MeetingAsrProperties asrProperties;
+    private final MeetingPresetTypeResolver presetTypeResolver;
 
     private final Map<String, Integer> speakerCounters = new ConcurrentHashMap<>();
 
@@ -67,13 +68,15 @@ public class AsrBridgeService {
                             AudioCacheService audioCacheService,
                             TranscriptMapper transcriptMapper,
                             @Lazy MeetingHostSessionService meetingHostSessionService,
-                            MeetingAsrProperties asrProperties) {
+                            MeetingAsrProperties asrProperties,
+                            MeetingPresetTypeResolver presetTypeResolver) {
         this.xfyunClient = xfyunClient;
         this.audioWebSocketHandler = audioWebSocketHandler;
         this.audioCacheService = audioCacheService;
         this.transcriptMapper = transcriptMapper;
         this.meetingHostSessionService = meetingHostSessionService;
         this.asrProperties = asrProperties;
+        this.presetTypeResolver = presetTypeResolver;
 
         xfyunClient.setTranscriptCallback(this::onAsrResult);
     }
@@ -100,6 +103,7 @@ public class AsrBridgeService {
         }
 
         speakerCounters.put(meetingId, 0);
+        presetTypeResolver.resolve(meetingId);
 
         log.info("【ASR启动】meetingId={}", meetingId);
 
@@ -146,6 +150,7 @@ public class AsrBridgeService {
 
         xfyunClient.end();
         speakerCounters.remove(meetingId);
+        presetTypeResolver.evict(meetingId);
     }
 
     /**
@@ -169,6 +174,7 @@ public class AsrBridgeService {
             TranscriptSegment segment = new TranscriptSegment();
             segment.setId(UUID.randomUUID().toString());
             segment.setMeetingId(meetingId);
+            segment.setPresetTypeCode(presetTypeResolver.resolve(meetingId));
             segment.setSpeakerId(speaker);
             segment.setText(result.getText());
             segment.setStartTimeMs(result.getStartTimeMs() != null ? result.getStartTimeMs() : 0);

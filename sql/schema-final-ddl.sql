@@ -1,10 +1,13 @@
 -- ============================================================
--- intelligence 库 — 业务表最终 DDL（权威版）
--- 生成: 2026-05-21
--- 依据: 库表探针 + smart-meeting-java 实体/schema.sql
---       + feishu-scheduled-bot Flyway V1–V4
--- 说明: CREATE IF NOT EXISTS；新环境可整文件执行。
---       已有库请用 schema-diff-migration-20260521.sql 增量补齐。
+-- intelligence 库 — 业务表完整 DDL（权威版）
+-- 生成: 2026-05-23
+-- 维护: 改 meeting 结构 → 先改 meeting-server/.../schema.sql，再同步本节
+--       改 bot 结构 → 先改 feishu-scheduled-bot/db/migration/V*.sql，再同步第二节
+-- 依据:
+--   meeting-server/src/main/resources/schema.sql (v0.10)
+--   meeting-server/src/main/resources/schema-upgrade/v*.sql（历史增量，已折叠进 schema.sql）
+--   feishu-scheduled-bot Flyway V1–V6
+-- 说明: CREATE IF NOT EXISTS；新环境可整文件执行。已有库见 sql/README.md
 -- ============================================================
 
 -- CREATE DATABASE IF NOT EXISTS intelligence
@@ -13,14 +16,14 @@
 -- USE intelligence;
 
 -- =============================================================================
--- 一、智能会议（smart-meeting-java）
+-- 一、智能会议（smart-meeting-java）— 11 张表
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS int_meeting (
     id                   VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '会议UUID',
     title                VARCHAR(200) NOT NULL COMMENT '会议主题',
     agenda               JSON         NULL     COMMENT '会务议程：JSON 字符串数组',
-    host_agenda          JSON         NULL     COMMENT 'AI主持：{"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?,"openclawBriefing"?}]}',
+    host_agenda          JSON         NULL     COMMENT 'AI主持：{"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?}]}',
     company              VARCHAR(200) NOT NULL COMMENT '所属集团',
     department           VARCHAR(200) NULL     COMMENT '集团部门',
     group_name           VARCHAR(200) NOT NULL COMMENT '会议组',
@@ -59,12 +62,13 @@ CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
     organizer_name       VARCHAR(100) NULL     COMMENT '组织人',
     leader_name          VARCHAR(100) NULL     COMMENT '会议主导',
     participants_names   TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔',
-    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes","openclawBriefing"?},...]}'
+    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?},...]}'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设';
 
 CREATE TABLE IF NOT EXISTS int_meeting_participant (
     id               VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '记录UUID',
     meeting_id       VARCHAR(36)  NOT NULL COMMENT '会议ID',
+    preset_type_code TINYINT      NULL     COMMENT '1-5 模板会 6 自定义，冗余自主表',
     user_id          VARCHAR(64)  NOT NULL COMMENT '飞书user_id',
     name             VARCHAR(100) NOT NULL COMMENT '姓名',
     status           VARCHAR(20)  NOT NULL DEFAULT 'PENDING' COMMENT '确认状态',
@@ -79,12 +83,14 @@ CREATE TABLE IF NOT EXISTS int_meeting_participant (
     FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE,
     UNIQUE KEY uk_meeting_user (meeting_id, user_id),
     INDEX idx_participant_meeting (meeting_id),
+    INDEX idx_participant_preset (preset_type_code),
     INDEX idx_participant_userid (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='参会人表';
 
 CREATE TABLE IF NOT EXISTS int_transcript_segment (
     id            VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '分段UUID',
     meeting_id    VARCHAR(36)  NOT NULL COMMENT '会议ID',
+    preset_type_code TINYINT   NULL     COMMENT '1-5 模板会 6 自定义，冗余自主表',
     speaker_id    VARCHAR(100) NULL     COMMENT '说话人标识',
     speaker_name  VARCHAR(100) NULL     COMMENT '说话人姓名',
     start_time_ms INT          NOT NULL COMMENT '开始时间偏移(ms)',
@@ -95,12 +101,14 @@ CREATE TABLE IF NOT EXISTS int_transcript_segment (
     corrected     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '是否已校正',
 
     FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE,
-    INDEX idx_segment_meeting_time (meeting_id, start_time_ms)
+    INDEX idx_segment_meeting_time (meeting_id, start_time_ms),
+    INDEX idx_segment_preset (preset_type_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='转录分段表';
 
 CREATE TABLE IF NOT EXISTS int_meeting_todo (
     id               VARCHAR(36)  NOT NULL PRIMARY KEY COMMENT '待办UUID',
     meeting_id       VARCHAR(36)  NOT NULL COMMENT '来源会议ID',
+    preset_type_code TINYINT      NULL     COMMENT '1-5 模板会 6 自定义，冗余自主表',
     content          TEXT         NOT NULL COMMENT '待办内容',
     assignee_id      VARCHAR(64)  NOT NULL COMMENT '责任人飞书user_id',
     assignee_name    VARCHAR(100) NULL     COMMENT '责任人姓名',
@@ -118,19 +126,23 @@ CREATE TABLE IF NOT EXISTS int_meeting_todo (
 
     FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE,
     INDEX idx_todo_meeting (meeting_id),
+    INDEX idx_todo_preset (preset_type_code),
     INDEX idx_todo_assignee (assignee_id),
     INDEX idx_todo_status_deadline (status, deadline)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='待办表';
 
 CREATE TABLE IF NOT EXISTS int_meeting_minute (
     meeting_id          VARCHAR(36)   NOT NULL PRIMARY KEY COMMENT '会议UUID',
+    preset_type_code    TINYINT       NULL     COMMENT '1-5 模板会 6 自定义，冗余自主表',
     content_markdown    LONGTEXT      NOT NULL COMMENT '纪要正文 Markdown',
+    content_url         VARCHAR(300)  NULL     COMMENT '正文对应文档链接（如飞书纪要 URL）',
     content_length      INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '正文字符数',
     generation_status   VARCHAR(20)   NOT NULL DEFAULT 'READY' COMMENT 'READY|FAILED|PARTIAL',
     generated_at        DATETIME      NOT NULL COMMENT '纪要生成时间',
     updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-    FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE
+    FOREIGN KEY (meeting_id) REFERENCES int_meeting(id) ON DELETE CASCADE,
+    INDEX idx_minute_preset (preset_type_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会议纪要正文（最新一版）';
 
 CREATE TABLE IF NOT EXISTS int_voiceprint (
@@ -158,45 +170,81 @@ CREATE TABLE IF NOT EXISTS int_user_mapping (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书ID映射表';
 
 CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
-    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    config_name      VARCHAR(64)   NOT NULL COMMENT '逻辑配置名，全局唯一',
-    preset_type_code INT UNSIGNED  NULL     COMMENT '会务预设 1-5；NULL 为全局 legacy',
-    agenda_index     INT UNSIGNED  NULL     COMMENT 'host_agenda.items 下标（0-based）',
-    resource_slot    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '同会序多份资料槽位 0,1,2…',
-    feishu_doc_url   VARCHAR(2000) NULL     COMMENT '飞书链接：/docx/、/wiki/、/base/?table=',
-    openclaw_briefing TINYINT UNSIGNED NOT NULL DEFAULT 0 COMMENT '1=该会序进入 RUNNING 时触发 OpenClaw 通报',
-    enabled          TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
-    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    config_name          VARCHAR(64)   NOT NULL COMMENT '逻辑配置名，全局唯一',
+    preset_type_code     INT UNSIGNED  NULL     COMMENT '会务预设 1-5；NULL 为全局 legacy',
+    agenda_index         INT UNSIGNED  NULL     COMMENT 'host_agenda.items 下标（0-based）',
+    resource_slot        INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '同会序多份资料槽位 0,1,2…',
+    feishu_doc_url       VARCHAR(2000) NULL     COMMENT '飞书链接：/docx/、/wiki/、/base/?table=',
+    enabled              TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
+    config_role          VARCHAR(16)   NOT NULL DEFAULT 'SOURCE' COMMENT 'SOURCE|OUTPUT|BOTH',
+    generated_report_url VARCHAR(2000) NULL     COMMENT 'bot 写回：会前对比通报只读链接',
+    generated_report_at  DATETIME      NULL     COMMENT 'bot 写回时间',
+    created_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uk_matter_progress_config_name (config_name),
     UNIQUE KEY uk_preset_agenda_doc (preset_type_code, agenda_index, resource_slot),
     KEY idx_matter_progress_enabled_id (enabled, id),
     KEY idx_matter_progress_preset (preset_type_code, enabled, agenda_index)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会序飞书资料配置（主持页外链与 OpenClaw 通报数据源）';
+  COMMENT='会序飞书资料配置（SOURCE 合并议程；OUTPUT 写回 generated_report_url）';
+
+CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
+    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    job_name              VARCHAR(64)     NOT NULL COMMENT '任务名，全局唯一',
+    enabled               TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
+    cron_expression       VARCHAR(64)     NOT NULL DEFAULT '0 10 * * MON' COMMENT 'Quartz cron',
+    schedule_timezone     VARCHAR(64)     NOT NULL DEFAULT 'Asia/Shanghai' COMMENT 'Cron 解析时区',
+    source_config_names   JSON            NOT NULL COMMENT 'SOURCE/BOTH config_name 列表',
+    minute_query_type     VARCHAR(32)     NOT NULL COMMENT 'PRESET_LAST_7_DAYS|MEETING_IDS',
+    minute_query_params   JSON            NOT NULL COMMENT '纪要查询参数 JSON',
+    output_config_name    VARCHAR(64)     NOT NULL COMMENT '写回 config_name（OUTPUT/BOTH）',
+    output_doc_title_tpl  VARCHAR(200)    NOT NULL DEFAULT '事项对比通报-{date}' COMMENT '飞书 Doc 标题模板',
+    feishu_folder_token   VARCHAR(128)    NULL     COMMENT '可选：Doc 创建目录 token',
+    last_run_at           DATETIME        NULL     COMMENT '最近一次执行时间',
+    last_run_status       VARCHAR(20)     NULL     COMMENT 'SUCCESS|FAILED',
+    last_run_error        TEXT            NULL     COMMENT '失败时错误摘要',
+    created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_weekly_comparison_job_name (job_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='每周事项对比定时任务（feishu-scheduled-bot + matter-progress-core）';
 
 -- =============================================================================
--- 二、飞书定时推送（feishu-scheduled-bot Flyway V1–V4）
+-- 二、飞书定时推送（feishu-scheduled-bot Flyway V1–V6）— 5 张表
 -- =============================================================================
 
 CREATE TABLE IF NOT EXISTS int_scheduled_push_task (
     id               VARCHAR(36)   NOT NULL PRIMARY KEY,
-    task_name        VARCHAR(100)  NOT NULL,
-    cron_expr        VARCHAR(50)   NULL,
-    target_type      VARCHAR(10)   NOT NULL COMMENT 'USER|GROUP',
-    target_id        VARCHAR(100)  NOT NULL,
-    message_text     TEXT          NOT NULL,
+    task_name        VARCHAR(100)  NOT NULL COMMENT '展示用任务名称',
+    cron_expr        VARCHAR(50)   NULL     COMMENT 'Quartz Cron；EXTERNAL 模式可 NULL',
+    target_type      VARCHAR(10)   NOT NULL COMMENT 'USER|GROUP（legacy 单 target，V6 起优先 targets 子表）',
+    target_id        VARCHAR(100)  NOT NULL COMMENT '与 target_type 对应的 receive_id',
+    message_text     TEXT          NOT NULL COMMENT '纯文本消息正文',
     enabled          TINYINT(1)    NOT NULL DEFAULT 1,
     schedule_mode    VARCHAR(10)   NOT NULL DEFAULT 'INTERNAL' COMMENT 'INTERNAL|EXTERNAL',
-    schedule_tz      VARCHAR(30)   NULL,
-    skip_holidays    TINYINT(1)    NOT NULL DEFAULT 0,
-    misfire_policy   VARCHAR(20)   NULL DEFAULT 'SMART',
-    schedule_version BIGINT        NOT NULL DEFAULT 0,
+    schedule_tz      VARCHAR(30)   NULL     COMMENT '任务级 IANA 时区',
+    skip_holidays    TINYINT(1)    NOT NULL DEFAULT 0 COMMENT '法定假日跳过',
+    misfire_policy   VARCHAR(20)   NULL DEFAULT 'SMART' COMMENT 'SMART|DROP_ALL|SINGLE|ALL',
+    schedule_version BIGINT        NOT NULL DEFAULT 0 COMMENT '元数据变更版本号',
     description      VARCHAR(500)  NULL,
     created_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='飞书定时推送任务';
+
+CREATE TABLE IF NOT EXISTS int_scheduled_push_task_target (
+    id           VARCHAR(36)  NOT NULL PRIMARY KEY,
+    task_id      VARCHAR(36)  NOT NULL,
+    target_type  VARCHAR(10)  NOT NULL COMMENT 'USER|GROUP',
+    target_id    VARCHAR(100) NOT NULL,
+    sort_order   INT          NOT NULL DEFAULT 0 COMMENT '同任务内推送顺序',
+    CONSTRAINT fk_int_sch_task_target_task
+        FOREIGN KEY (task_id) REFERENCES int_scheduled_push_task(id) ON DELETE CASCADE,
+    CONSTRAINT uq_int_sch_task_target UNIQUE (task_id, target_type, target_id),
+    INDEX idx_int_sch_task_target_task (task_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='任务多接收方（V6 批量推送）';
 
 CREATE TABLE IF NOT EXISTS int_scheduled_task_extra_date (
     id          VARCHAR(36) NOT NULL PRIMARY KEY,
@@ -220,21 +268,22 @@ CREATE TABLE IF NOT EXISTS int_scheduled_push_log (
     id                  VARCHAR(36)   NOT NULL PRIMARY KEY,
     task_id             VARCHAR(36)   NOT NULL,
     task_name           VARCHAR(100)  NOT NULL,
-    meeting_id          VARCHAR(36)   NULL COMMENT '关联会议 UUID（EVENT 推送）',
-    source_event_type   VARCHAR(40)   NULL COMMENT 'MINUTE_READY|TODO_SYNC|TODO_PROGRESS 等',
-    idempotency_key     VARCHAR(128)  NULL COMMENT '业务幂等键',
+    meeting_id          VARCHAR(36)   NULL     COMMENT '关联会议 UUID（EVENT 推送，V4）',
+    source_event_type   VARCHAR(40)   NULL     COMMENT 'MINUTE_READY|TODO_SYNC|TODO_PROGRESS 等',
+    idempotency_key     VARCHAR(128)  NULL     COMMENT '业务幂等键（per-target）',
+    batch_id            VARCHAR(36)   NULL     COMMENT '批量推送批次 ID（V6 /api/push/batch）',
     target_type         VARCHAR(10)   NOT NULL,
     target_id           VARCHAR(100)  NOT NULL,
     message_text        TEXT          NOT NULL,
     status              VARCHAR(10)   NOT NULL COMMENT 'SUCCESS|FAILED|SKIPPED',
     skip_reason         VARCHAR(20)   NULL,
     error_message       VARCHAR(1000) NULL,
-    trigger_type        VARCHAR(15)   NOT NULL DEFAULT 'SCHEDULED' COMMENT 'SCHEDULED|MISFIRE|MANUAL|EXTRA_DATE',
+    trigger_type        VARCHAR(15)   NOT NULL DEFAULT 'SCHEDULED' COMMENT 'SCHEDULED|MISFIRE|MANUAL|EXTRA_DATE|EVENT',
     response_code       VARCHAR(20)   NULL,
     feishu_cost_ms      BIGINT        NULL,
     total_cost_ms       BIGINT        NULL,
     send_time           TIMESTAMP     NOT NULL,
-    feishu_message_id   VARCHAR(64)   NULL,
+    feishu_message_id   VARCHAR(64)   NULL     COMMENT '飞书 message_id（V2 已读轮询）',
     read_poll_status    VARCHAR(20)   NULL,
     read_count          INT           NOT NULL DEFAULT 0,
     last_read_poll_at   TIMESTAMP     NULL,
@@ -245,6 +294,7 @@ CREATE TABLE IF NOT EXISTS int_scheduled_push_log (
     INDEX idx_int_sch_log_status (status),
     INDEX idx_int_sch_log_meeting_id (meeting_id),
     INDEX idx_int_sch_log_idempotency (idempotency_key),
+    INDEX idx_int_sch_log_batch_id (batch_id),
     INDEX idx_int_sch_log_msg_id (feishu_message_id),
     INDEX idx_int_sch_log_read_poll (read_poll_status, send_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='飞书推送流水';
@@ -256,7 +306,7 @@ CREATE TABLE IF NOT EXISTS int_scheduled_push_log_read_user (
     user_id      VARCHAR(100) NOT NULL,
     read_at      TIMESTAMP    NOT NULL,
     tenant_key   VARCHAR(64)  NULL,
-    user_name    VARCHAR(100) NULL,
+    user_name    VARCHAR(100) NULL     COMMENT 'V3 已读用户姓名',
     FOREIGN KEY (push_log_id) REFERENCES int_scheduled_push_log(id) ON DELETE CASCADE,
     UNIQUE KEY uk_push_log_user (push_log_id, user_id),
     INDEX idx_int_sch_log_read_user_log (push_log_id),
