@@ -24,6 +24,28 @@ class FeishuSpreadsheetPlainTextFetcherTest {
     }
 
     @Test
+    void isReadableSheetResource_onlyGridSheet() throws Exception {
+        assertThat(FeishuSpreadsheetPlainTextFetcher.isReadableSheetResource(
+                JSON.readTree("{\"resource_type\":\"sheet\",\"sheet_id\":\"a\"}"))).isTrue();
+        assertThat(FeishuSpreadsheetPlainTextFetcher.isReadableSheetResource(
+                JSON.readTree("{\"resource_type\":\"bitable\",\"sheet_id\":\"a\"}"))).isFalse();
+        assertThat(FeishuSpreadsheetPlainTextFetcher.isReadableSheetResource(
+                JSON.readTree("{\"sheet_id\":\"a\"}"))).isTrue();
+    }
+
+    @Test
+    void encodeRangeForUrlPath_keepsExclamation() {
+        assertThat(FeishuSpreadsheetPlainTextFetcher.encodeRangeForUrlPath("Q7PlXT!A1:Z200"))
+                .isEqualTo("Q7PlXT!A1:Z200");
+    }
+
+    @Test
+    void isSheetIdNotFound_detects90215() {
+        assertThat(FeishuSpreadsheetPlainTextFetcher.isSheetIdNotFound(
+                new RuntimeException("飞书 sheets values code=90215 msg=not found sheetId"))).isTrue();
+    }
+
+    @Test
     void formatValuesAsMarkdownTable() throws Exception {
         var values = JSON.readTree("""
                 [

@@ -178,6 +178,7 @@ CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
     feishu_doc_url       VARCHAR(2000) NULL     COMMENT '飞书链接：/docx/、/wiki/、/base/?table=',
     enabled              TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
     config_role          VARCHAR(16)   NOT NULL DEFAULT 'SOURCE' COMMENT 'SOURCE|OUTPUT|BOTH',
+    bitable_display_mode VARCHAR(16)   NOT NULL DEFAULT 'GROUPED' COMMENT 'RAW=会中平铺；GROUPED=近三月+完成/延期/进行中',
     generated_report_url VARCHAR(2000) NULL     COMMENT 'bot 写回：会前对比通报只读链接',
     generated_report_at  DATETIME      NULL     COMMENT 'bot 写回时间',
     created_at           DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,

@@ -28,6 +28,13 @@ public final class BitableRecordSorter {
     /** 同时间组内：已完成但开始/截止日期均不在近 7 日 */
     public static final int TIER_STALE_COMPLETED = 3;
 
+    /** 会中展示：已完成 */
+    public static final int CATEGORY_COMPLETED = 0;
+    /** 会中展示：已延期（未办结且已过截止） */
+    public static final int CATEGORY_DELAYED = 1;
+    /** 会中展示：进行中（含未延期待办） */
+    public static final int CATEGORY_IN_PROGRESS = 2;
+
     private static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final long THREE_MONTHS_MS = 92L * 24 * 60 * 60 * 1000;
     private static final long SEVEN_DAYS_MS = 7L * 24 * 60 * 60 * 1000;
@@ -50,6 +57,12 @@ public final class BitableRecordSorter {
         int c = Integer.compare(recentBucket(a), recentBucket(b));
         if (c != 0) {
             return c;
+        }
+        if (recentBucket(a) == 0 && recentBucket(b) == 0) {
+            c = Integer.compare(displayCategory(a), displayCategory(b));
+            if (c != 0) {
+                return c;
+            }
         }
         c = Integer.compare(statusTier(a), statusTier(b));
         if (c != 0) {
@@ -88,7 +101,62 @@ public final class BitableRecordSorter {
     }
 
     static boolean isCompleted(JsonNode record) {
-        return statusTier(record) == TIER_COMPLETED || statusTier(record) == TIER_STALE_COMPLETED;
+        return statusTextIndicatesComplete(resolveStatusText(record))
+                || Boolean.TRUE.equals(resolveCompletionFlag(record));
+    }
+
+    static boolean isDelayed(JsonNode record) {
+        if (isCompleted(record)) {
+            return false;
+        }
+        String status = resolveStatusText(record);
+        if (status != null) {
+            String s = status.trim();
+            if (s.contains("延期") || s.contains("逾期") || s.contains("超期") || s.contains("过期")) {
+                return true;
+            }
+        }
+        Long days = extractDaysToDeadline(record);
+        if (days != null && days < 0) {
+            return true;
+        }
+        String daysFieldText = resolveDaysToDeadlineText(record);
+        if (daysFieldText != null) {
+            String t = daysFieldText.trim();
+            if (t.contains("已延期") || t.contains("逾期") || t.contains("超期") || t.contains("过期")) {
+                return true;
+            }
+        }
+        Long deadlineMs = extractDeadlineDateMs(record);
+        return deadlineMs != null && deadlineMs < System.currentTimeMillis() - 86_400_000L;
+    }
+
+    /**
+     * 近三个月区块内的展示分类：已完成 → 延期 → 进行中。
+     */
+    static int displayCategory(JsonNode record) {
+        if (isCompleted(record)) {
+            return CATEGORY_COMPLETED;
+        }
+        if (isDelayed(record)) {
+            return CATEGORY_DELAYED;
+        }
+        return CATEGORY_IN_PROGRESS;
+    }
+
+    private static String resolveDaysToDeadlineText(JsonNode record) {
+        JsonNode fields = record.path("fields");
+        if (!fields.isObject()) {
+            return null;
+        }
+        Iterator<Map.Entry<String, JsonNode>> it = fields.fields();
+        while (it.hasNext()) {
+            Map.Entry<String, JsonNode> e = it.next();
+            if (isDaysToDeadlineFieldName(e.getKey())) {
+                return BitableFieldFormatter.format(e.getValue(), e.getKey());
+            }
+        }
+        return null;
     }
 
     /** 近 7 日已完成：创建日期或截止日期任一落在最近 7 天内。 */
@@ -165,13 +233,16 @@ public final class BitableRecordSorter {
         return deadlineMs != null ? deadlineMs : Long.MIN_VALUE;
     }
 
-    /** @return 0=近三个月内，1=更早 */
+    /**
+     * @return 0=近三个月内，1=更早或无业务「创建日期/创建时间」
+     * <p>仅按字段创建日期判断，不使用飞书 API {@code created_time}，避免与表内「开始日期」等混淆。</p>
+     */
     static int recentBucket(JsonNode record) {
-        long created = createdTimeMs(record);
-        if (created <= 0) {
-            return 0;
+        Long fromField = extractCreationDateMs(record);
+        if (fromField == null || fromField <= 0) {
+            return 1;
         }
-        long age = System.currentTimeMillis() - created;
+        long age = System.currentTimeMillis() - fromField;
         return age > THREE_MONTHS_MS ? 1 : 0;
     }
 
@@ -271,6 +342,17 @@ public final class BitableRecordSorter {
             } catch (NumberFormatException ignored) {
                 return null;
             }
+        }
+        if (text.contains("已延期")) {
+            Matcher overdue = DAYS_IN_TEXT.matcher(text);
+            if (overdue.find()) {
+                try {
+                    return -Math.abs(Long.parseLong(overdue.group(1)));
+                } catch (NumberFormatException ignored) {
+                    return -1L;
+                }
+            }
+            return -1L;
         }
         Matcher m = DAYS_IN_TEXT.matcher(text);
         if (!m.find()) {

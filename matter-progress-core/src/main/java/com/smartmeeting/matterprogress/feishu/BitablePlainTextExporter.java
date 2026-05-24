@@ -2,18 +2,24 @@ package com.smartmeeting.matterprogress.feishu;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 /**
- * 将已排序的多维表格记录导出为 plainText（含数据表 / 近三个月 / 更早分区标题）。
+ * 将多维表格记录导出为 plainText（含数据表 / 近三个月 / 更早分区标题）。
  */
 public final class BitablePlainTextExporter {
 
     public static final String SECTION_RECENT = "=== §近三个月（按创建日期）===";
     public static final String SECTION_OLDER = "=== §三个月以前 ===";
     public static final String TABLE_SECTION_PREFIX = "=== §数据表：";
+
+    public static final String SECTION_STATUS_COMPLETED = "=== §已完成 ===";
+    public static final String SECTION_STATUS_DELAYED = "=== §延期 ===";
+    public static final String SECTION_STATUS_IN_PROGRESS = "=== §进行中 ===";
+    public static final String EMPTY_STATUS_CATEGORY = "（本分类暂无记录）";
 
     private BitablePlainTextExporter() {
     }
@@ -24,27 +30,42 @@ public final class BitablePlainTextExporter {
     }
 
     public static String export(List<JsonNode> items, String titleSummary) {
-        BitableRecordSorter.sort(items);
+        return export(items, titleSummary, BitableDisplayMode.GROUPED);
+    }
+
+    public static String export(List<JsonNode> items, String titleSummary, BitableDisplayMode mode) {
+        BitableDisplayMode effective = mode != null ? mode : BitableDisplayMode.GROUPED;
         StringBuilder out = new StringBuilder();
         out.append(titleSummary).append("\n\n");
-        if (items.isEmpty()) {
+        if (items == null || items.isEmpty()) {
             out.append("（无记录）");
             return out.toString().trim();
         }
-        appendSortedRecords(out, items);
+        if (effective == BitableDisplayMode.RAW) {
+            appendFlatRecords(out, items, 0);
+        } else {
+            appendGroupedRecords(out, items);
+        }
         return out.toString().trim();
     }
 
     /**
-     * 多数据表（多 sheet）合并导出：每个表独立分区，表内仍按近 3 个月 / 状态规则排序。
+     * 多数据表（多 sheet）合并导出：每个表独立分区，表内按 mode 导出。
      */
     public static String exportMultiTable(List<BitableTableSlice> tables, String titleSummary) {
+        return exportMultiTable(tables, titleSummary, BitableDisplayMode.GROUPED);
+    }
+
+    public static String exportMultiTable(List<BitableTableSlice> tables, String titleSummary,
+            BitableDisplayMode mode) {
         if (tables == null || tables.isEmpty()) {
             return "（无数据表）";
         }
+        BitableDisplayMode effective = mode != null ? mode : BitableDisplayMode.GROUPED;
         StringBuilder out = new StringBuilder();
         out.append(titleSummary).append("\n\n");
         boolean firstTable = true;
+        int row = 0;
         for (BitableTableSlice slice : tables) {
             if (!firstTable) {
                 out.append('\n');
@@ -56,24 +77,84 @@ public final class BitablePlainTextExporter {
                 out.append("（本表无记录）\n");
                 continue;
             }
-            appendSortedRecords(out, items);
+            if (effective == BitableDisplayMode.RAW) {
+                row = appendFlatRecords(out, items, row);
+            } else {
+                row = appendGroupedRecords(out, items, row);
+            }
         }
         return out.toString().trim();
     }
 
-    private static void appendSortedRecords(StringBuilder out, List<JsonNode> items) {
+    private static void appendGroupedRecords(StringBuilder out, List<JsonNode> items) {
+        appendGroupedRecords(out, items, 0);
+    }
+
+    private static int appendGroupedRecords(StringBuilder out, List<JsonNode> items, int rowStart) {
         BitableRecordSorter.sort(items);
-        int lastBucket = -1;
-        int row = 0;
+        List<JsonNode> recent = new ArrayList<>();
+        List<JsonNode> older = new ArrayList<>();
         for (JsonNode item : items) {
-            int bucket = BitableRecordSorter.recentBucket(item);
-            if (bucket != lastBucket) {
-                if (lastBucket >= 0) {
-                    out.append('\n');
-                }
-                out.append(bucket == 0 ? SECTION_RECENT : SECTION_OLDER).append("\n\n");
-                lastBucket = bucket;
+            if (BitableRecordSorter.recentBucket(item) == 0) {
+                recent.add(item);
+            } else {
+                older.add(item);
             }
+        }
+        int row = rowStart;
+        if (!recent.isEmpty()) {
+            out.append(SECTION_RECENT).append("\n\n");
+            row = appendRecentWithStatusGroups(out, recent, row);
+        }
+        if (!older.isEmpty()) {
+            if (!recent.isEmpty()) {
+                out.append('\n');
+            }
+            out.append(SECTION_OLDER).append("\n\n");
+            row = appendRecordList(out, older, row);
+        }
+        return row;
+    }
+
+    private static int appendFlatRecords(StringBuilder out, List<JsonNode> items, int rowStart) {
+        return appendRecordList(out, items, rowStart);
+    }
+
+    private static int appendRecentWithStatusGroups(StringBuilder out, List<JsonNode> recent, int rowStart) {
+        int row = rowStart;
+        int[] categories = {
+                BitableRecordSorter.CATEGORY_COMPLETED,
+                BitableRecordSorter.CATEGORY_DELAYED,
+                BitableRecordSorter.CATEGORY_IN_PROGRESS
+        };
+        String[] headers = {
+                SECTION_STATUS_COMPLETED,
+                SECTION_STATUS_DELAYED,
+                SECTION_STATUS_IN_PROGRESS
+        };
+        for (int i = 0; i < categories.length; i++) {
+            if (i > 0) {
+                out.append('\n');
+            }
+            out.append(headers[i]).append("\n\n");
+            List<JsonNode> inCategory = new ArrayList<>();
+            for (JsonNode item : recent) {
+                if (BitableRecordSorter.displayCategory(item) == categories[i]) {
+                    inCategory.add(item);
+                }
+            }
+            if (inCategory.isEmpty()) {
+                out.append(EMPTY_STATUS_CATEGORY).append("\n\n");
+            } else {
+                row = appendRecordList(out, inCategory, row);
+            }
+        }
+        return row;
+    }
+
+    private static int appendRecordList(StringBuilder out, List<JsonNode> items, int rowStart) {
+        int row = rowStart;
+        for (JsonNode item : items) {
             row++;
             out.append("--- 记录 ").append(row).append(" ---\n");
             JsonNode fields = item.path("fields");
@@ -82,11 +163,28 @@ public final class BitablePlainTextExporter {
                 while (it.hasNext()) {
                     Map.Entry<String, JsonNode> e = it.next();
                     String fieldName = e.getKey();
-                    out.append(fieldName).append(": ")
-                            .append(BitableFieldFormatter.format(e.getValue(), fieldName)).append('\n');
+                    appendFieldLine(out, fieldName, BitableFieldFormatter.format(e.getValue(), fieldName));
                 }
             }
             out.append('\n');
+        }
+        return row;
+    }
+
+    /**
+     * 导出单字段行；值内换行用两空格缩进续行，供前端 parseBitableRecordBlocks 合并。
+     */
+    static void appendFieldLine(StringBuilder out, String fieldName, String value) {
+        String name = fieldName == null ? "" : fieldName;
+        String v = value == null ? "" : value.replace("\r\n", "\n");
+        if (!v.contains("\n")) {
+            out.append(name).append(": ").append(v).append('\n');
+            return;
+        }
+        String[] lines = v.split("\n", -1);
+        out.append(name).append(": ").append(lines[0]).append('\n');
+        for (int i = 1; i < lines.length; i++) {
+            out.append("  ").append(lines[i]).append('\n');
         }
     }
 

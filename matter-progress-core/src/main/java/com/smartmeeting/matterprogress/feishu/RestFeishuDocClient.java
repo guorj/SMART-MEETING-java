@@ -180,35 +180,9 @@ public class RestFeishuDocClient implements FeishuDocClient {
         return out.toString().trim();
     }
 
-    /** 从单条 block JSON 中提取可见文字（遍历含 elements 的子对象，提取 text_run 与 equation）。 */
+    /** 从单条 block JSON 导出为 Markdown 结构纯文本（标题/列表保留层级）。 */
     private static void appendDocxBlockPlainText(JsonNode block, StringBuilder out) {
-        Iterator<Entry<String, JsonNode>> it = block.fields();
-        while (it.hasNext()) {
-            Entry<String, JsonNode> e = it.next();
-            String key = e.getKey();
-            if ("block_id".equals(key) || "block_type".equals(key) || "parent_id".equals(key) || "children".equals(key)) {
-                continue;
-            }
-            JsonNode val = e.getValue();
-            if (val != null && val.isObject() && val.has("elements") && val.get("elements").isArray()) {
-                appendDocxTextElements(val.get("elements"), out);
-            }
-        }
-        out.append('\n');
-    }
-
-    /** 从 Docx block 的 elements 数组提取 text_run 与 equation 文字。 */
-    private static void appendDocxTextElements(JsonNode elements, StringBuilder out) {
-        for (JsonNode el : elements) {
-            if (el == null || !el.isObject()) {
-                continue;
-            }
-            if (el.has("text_run")) {
-                out.append(el.path("text_run").path("content").asText(""));
-            } else if (el.has("equation")) {
-                out.append(el.path("equation").path("content").asText(""));
-            }
-        }
+        DocxBlockMarkdownExporter.appendBlock(block, out);
     }
 
     // ---------------------------------------------------------------

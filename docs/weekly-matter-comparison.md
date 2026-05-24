@@ -86,6 +86,20 @@ Bot 侧 Flyway：`feishu-scheduled-bot/.../db/migration/V5__weekly_matter_compar
 | `config_role` | `VARCHAR(16)` 默认 `SOURCE` | `SOURCE`：合并议程飞书链接；`OUTPUT`/`BOTH`：写回通报链接 |
 | `generated_report_url` | `VARCHAR(2000)` NULL | **仅 bot 写**；主持页只读展示 |
 | `generated_report_at` | `DATETIME` NULL | 最近一次 bot 成功写回时间 |
+| `bitable_display_mode` | `VARCHAR(16)` 默认 `GROUPED` | **仅会中** `agenda-doc-content` 拉取 bitable 时生效；见下表 |
+
+**`bitable_display_mode`（v0.11，仅 meeting-server 会中展示）**
+
+| 值 | 会中主持页多维表格 |
+|----|-------------------|
+| `GROUPED` | 近三个月（按**创建日期**）+ 已完成/延期/进行中分区；空类也占位 |
+| `RAW` | 平铺列表，无时间/状态归纳（按飞书 API 顺序） |
+
+- 配置在 **SOURCE / BOTH** 行；`OUTPUT` 行可忽略。
+- **会前 bot**（`RestFeishuDocClient`）不读此列，仍用 exporter 默认 `GROUPED`。
+- 预设 `host_agenda` 已配飞书时会跳过本表，该列对该会序无效。
+
+升级：`schema-upgrade/v0.11-bitable-display-mode.sql`
 
 **写回规则**
 

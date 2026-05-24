@@ -33,6 +33,8 @@ public class MatterProgressDocConfig {
     private Integer enabled;
     /** SOURCE | OUTPUT | BOTH */
     private String configRole;
+    /** RAW=会中平铺；GROUPED=近三月+完成/延期/进行中（仅 bitable 会中展示） */
+    private String bitableDisplayMode;
     /** bot 写回的对比报告 URL */
     private String generatedReportUrl;
     /** 最近一次 bot 生成时间 */

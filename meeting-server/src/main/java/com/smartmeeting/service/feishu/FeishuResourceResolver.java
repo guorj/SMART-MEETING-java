@@ -32,7 +32,16 @@ public final class FeishuResourceResolver {
         if (cfg == null) {
             return null;
         }
-        return resolve(cfg.getFeishuDocUrl());
+        FeishuResourceRef ref = resolve(cfg.getFeishuDocUrl());
+        if (ref == null) {
+            return null;
+        }
+        String mode = cfg.getBitableDisplayMode();
+        if (mode == null || mode.isBlank()) {
+            return ref;
+        }
+        return new FeishuResourceRef(
+                ref.kind(), ref.primaryToken(), ref.tableId(), ref.viewId(), ref.sourceUrl(), mode.trim());
     }
 
     /**
@@ -98,20 +107,20 @@ public final class FeishuResourceResolver {
     private static FeishuResourceRef resolveFromUrl(String url) {
         Matcher docx = DOCX_PATH.matcher(url);
         if (docx.find()) {
-            return new FeishuResourceRef(FeishuResourceKind.DOCX, docx.group(1), null, null, url);
+            return new FeishuResourceRef(FeishuResourceKind.DOCX, docx.group(1), null, null, url, null);
         }
         Matcher wiki = WIKI_PATH.matcher(url);
         if (wiki.find()) {
             String tableId = queryParam(url, "table");
             String viewId = queryParam(url, "view");
-            return new FeishuResourceRef(FeishuResourceKind.WIKI, wiki.group(1), tableId, viewId, url);
+            return new FeishuResourceRef(FeishuResourceKind.WIKI, wiki.group(1), tableId, viewId, url, null);
         }
         Matcher base = BASE_PATH.matcher(url);
         if (base.find()) {
             String appToken = base.group(1);
             String tableId = queryParam(url, "table");
             String viewId = queryParam(url, "view");
-            return new FeishuResourceRef(FeishuResourceKind.BASE, appToken, tableId, viewId, url);
+            return new FeishuResourceRef(FeishuResourceKind.BASE, appToken, tableId, viewId, url, null);
         }
         return null;
     }

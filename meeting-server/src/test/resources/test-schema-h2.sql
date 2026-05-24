@@ -148,6 +148,7 @@ CREATE TABLE int_matter_progress_doc_config (
     resource_slot        INT          NOT NULL DEFAULT 0,
     feishu_doc_url       VARCHAR(2000) NULL,
     config_role          VARCHAR(16)  NOT NULL DEFAULT 'SOURCE',
+    bitable_display_mode VARCHAR(16)  NOT NULL DEFAULT 'GROUPED',
     generated_report_url VARCHAR(2000) NULL,
     generated_report_at  TIMESTAMP    NULL,
     enabled              INT          NOT NULL DEFAULT 1,

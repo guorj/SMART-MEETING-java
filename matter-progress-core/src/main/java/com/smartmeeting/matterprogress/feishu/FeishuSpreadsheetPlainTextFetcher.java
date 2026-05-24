@@ -11,6 +11,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -41,10 +42,13 @@ public final class FeishuSpreadsheetPlainTextFetcher {
         if (sheets.isEmpty()) {
             return "【电子表格】\n\n（无工作表）";
         }
+        sheets = new ArrayList<>(sheets);
+        sheets.sort(Comparator.comparingInt(s -> s.path("index").asInt(0)));
 
         StringBuilder out = new StringBuilder();
-        out.append("【电子表格摘要，共 ").append(Math.min(sheets.size(), MAX_SHEETS)).append(" 个工作表】\n");
+        out.append("【电子表格摘要】\n");
         int count = 0;
+        int skipped = 0;
         for (JsonNode sheet : sheets) {
             if (count >= MAX_SHEETS) {
                 out.append("\n\n（其余工作表已省略，请在飞书中打开查看）");
@@ -53,16 +57,20 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             if (sheet.path("hidden").asBoolean(false)) {
                 continue;
             }
-            String sheetId = sheet.path("sheet_id").asText("");
+            if (!isReadableSheetResource(sheet)) {
+                skipped++;
+                continue;
+            }
+            String sheetId = resolveSheetId(sheet);
             if (sheetId.isBlank()) {
+                skipped++;
                 continue;
             }
             String title = sheet.path("title").asText("未命名工作表");
             JsonNode grid = sheet.path("grid_properties");
-            String range = buildReadRange(sheetId, grid);
-            JsonNode values = readRangeValues(restTemplate, root, tenantToken, token, range);
-            String tableMd = formatValuesAsMarkdownTable(title, values);
+            String tableMd = readSheetAsMarkdown(restTemplate, root, tenantToken, token, sheetId, title, grid);
             if (tableMd.isBlank()) {
+                skipped++;
                 continue;
             }
             if (count > 0) {
@@ -72,9 +80,69 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             count++;
         }
         if (count == 0) {
-            return "【电子表格】\n\n（工作表为空或不可读）";
+            return "【电子表格】\n\n（工作表为空或不可读；部分工作表 sheetId 无效已跳过，请在飞书中打开查看）";
+        }
+        if (skipped > 0) {
+            out.append("\n\n（已跳过 ").append(skipped).append(" 个不可读工作表）");
         }
         return out.toString().trim();
+    }
+
+    /** 仅读取普通网格 sheet；跳过 bitable、仪表盘等 resource_type。 */
+    static boolean isReadableSheetResource(JsonNode sheet) {
+        if (sheet == null || sheet.isNull()) {
+            return false;
+        }
+        String type = sheet.path("resource_type").asText("").trim().toLowerCase();
+        if (type.isEmpty() || "sheet".equals(type) || "sheets".equals(type)) {
+            return true;
+        }
+        return false;
+    }
+
+    static String resolveSheetId(JsonNode sheet) {
+        String id = sheet.path("sheet_id").asText("").trim();
+        if (!id.isEmpty()) {
+            return id;
+        }
+        return sheet.path("sheetId").asText("").trim();
+    }
+
+    private static String readSheetAsMarkdown(
+            RestTemplate restTemplate,
+            String baseUrl,
+            String tenantToken,
+            String spreadsheetToken,
+            String sheetId,
+            String title,
+            JsonNode grid) {
+        String range = buildReadRange(sheetId, grid);
+        try {
+            JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, range);
+            return formatValuesAsMarkdownTable(title, values);
+        } catch (RuntimeException first) {
+            if (!isSheetIdNotFound(first)) {
+                throw first;
+            }
+        }
+        String fallbackRange = sheetId + "!A1:" + columnIndexToLetter(DEFAULT_MAX_COLS - 1) + DEFAULT_MAX_ROWS;
+        try {
+            JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, fallbackRange);
+            return formatValuesAsMarkdownTable(title, values);
+        } catch (RuntimeException second) {
+            if (isSheetIdNotFound(second)) {
+                return "";
+            }
+            throw second;
+        }
+    }
+
+    static boolean isSheetIdNotFound(RuntimeException e) {
+        if (e == null || e.getMessage() == null) {
+            return false;
+        }
+        String msg = e.getMessage();
+        return msg.contains("90215") || msg.contains("SheetIdNotFound") || msg.contains("not found sheetId");
     }
 
     static String buildReadRange(String sheetId, JsonNode gridProperties) {
@@ -211,9 +279,10 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             String tenantToken,
             String spreadsheetToken,
             String range) {
-        String encodedRange = URLEncoder.encode(range, StandardCharsets.UTF_8);
+        String encodedRange = encodeRangeForUrlPath(range);
         String url = UriComponentsBuilder
-                .fromUriString(baseUrl + "/open-apis/sheets/v2/spreadsheets/" + spreadsheetToken + "/values/" + encodedRange)
+                .fromUriString(baseUrl + "/open-apis/sheets/v2/spreadsheets/" + spreadsheetToken + "/values/"
+                        + encodedRange)
                 .queryParam("valueRenderOption", "ToString")
                 .toUriString();
         JsonNode json = exchangeGet(restTemplate, url, tenantToken);
@@ -234,6 +303,24 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             throw new RuntimeException("飞书 sheets API 响应为空: " + url);
         }
         return json;
+    }
+
+    /** v2 values 路径中的 range：保留 {@code !}，对其余特殊字符编码。 */
+    static String encodeRangeForUrlPath(String range) {
+        if (range == null || range.isBlank()) {
+            return "";
+        }
+        StringBuilder encoded = new StringBuilder();
+        for (int i = 0; i < range.length(); i++) {
+            char c = range.charAt(i);
+            if (c == '!' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+                    || (c >= '0' && c <= '9') || c == ':' || c == '.' || c == '_' || c == '-') {
+                encoded.append(c);
+            } else {
+                encoded.append(URLEncoder.encode(String.valueOf(c), StandardCharsets.UTF_8));
+            }
+        }
+        return encoded.toString();
     }
 
     private static String normalizeBaseUrl(String baseUrl) {

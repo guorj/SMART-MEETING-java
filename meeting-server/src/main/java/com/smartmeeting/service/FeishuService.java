@@ -11,8 +11,10 @@ import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
+import com.smartmeeting.matterprogress.feishu.BitableDisplayMode;
 import com.smartmeeting.matterprogress.feishu.BitableFieldFormatter;
 import com.smartmeeting.matterprogress.feishu.BitablePlainTextExporter;
+import com.smartmeeting.matterprogress.feishu.DocxBlockMarkdownExporter;
 import com.smartmeeting.matterprogress.feishu.BitableTableInfo;
 import com.smartmeeting.matterprogress.feishu.FeishuSpreadsheetPlainTextFetcher;
 import com.smartmeeting.service.feishu.FeishuResourceKind;
@@ -452,7 +454,7 @@ public class FeishuService {
         return switch (ref.kind()) {
             case DOCX -> fetchDocxPlainText(ref.primaryToken());
             case WIKI -> fetchWikiPlainText(ref);
-            case BASE -> fetchBitablePlainText(ref.primaryToken(), ref.tableId());
+            case BASE -> fetchBitablePlainText(ref.primaryToken(), ref.tableId(), bitableMode(ref));
             case UNKNOWN -> throw new RuntimeException(
                     "无法识别飞书链接类型，请使用 /docx/、/wiki/ 或 /base/?table= 的完整 HTTPS 链接");
         };
@@ -498,7 +500,7 @@ public class FeishuService {
             return fetchDocxPlainText(objToken);
         }
         if ("bitable".equalsIgnoreCase(objType)) {
-            return fetchBitablePlainText(objToken, ref.tableId());
+            return fetchBitablePlainText(objToken, ref.tableId(), bitableMode(ref));
         }
         if ("sheet".equalsIgnoreCase(objType)) {
             return fetchSheetPlainText(objToken);
@@ -531,16 +533,21 @@ public class FeishuService {
      * @throws RuntimeException         飞书 API 返回异常时
      */
     public String fetchBitablePlainText(String appToken, String tableId) {
+        return fetchBitablePlainText(appToken, tableId, BitableDisplayMode.GROUPED);
+    }
+
+    public String fetchBitablePlainText(String appToken, String tableId, BitableDisplayMode mode) {
         if (appToken == null || appToken.isBlank()) {
             throw new IllegalArgumentException("base app_token 为空");
         }
+        BitableDisplayMode effective = mode != null ? mode : BitableDisplayMode.GROUPED;
         String app = appToken.trim();
         if (tableId == null || tableId.isBlank()) {
-            return fetchAllBitableTablesPlainText(app);
+            return fetchAllBitableTablesPlainText(app, effective);
         }
         String table = tableId.trim();
         try {
-            return searchBitableRecords(app, table, null);
+            return searchBitableRecords(app, table, null, effective);
         } catch (RuntimeException first) {
             if (!isWrongTableIdError(first)) {
                 throw first;
@@ -555,7 +562,7 @@ public class FeishuService {
                         .map(BitableTableInfo::tableName)
                         .findFirst()
                         .orElse(null);
-                return searchBitableRecords(app, corrected, name);
+                return searchBitableRecords(app, corrected, name, effective);
             }
             throw new RuntimeException(formatWrongTableIdHint(app, table, available), first);
         }
@@ -565,10 +572,15 @@ public class FeishuService {
      * 拉取 base 下全部数据表（多 sheet），每表独立分区导出。
      */
     public String fetchAllBitableTablesPlainText(String appToken) {
+        return fetchAllBitableTablesPlainText(appToken, BitableDisplayMode.GROUPED);
+    }
+
+    public String fetchAllBitableTablesPlainText(String appToken, BitableDisplayMode mode) {
         List<BitableTableInfo> tables = listBitableTables(appToken);
         if (tables.isEmpty()) {
             return "【多维表格摘要，共 0 条 · 0 个数据表】\n\n（无数据表）";
         }
+        BitableDisplayMode effective = mode != null ? mode : BitableDisplayMode.GROUPED;
         List<BitablePlainTextExporter.BitableTableSlice> slices = new ArrayList<>();
         int totalRows = 0;
         for (BitableTableInfo table : tables) {
@@ -578,14 +590,19 @@ public class FeishuService {
                     table.tableId(), table.tableName(), items));
         }
         String title = "【多维表格摘要，共 " + totalRows + " 条 · " + tables.size() + " 个数据表】";
-        return BitablePlainTextExporter.exportMultiTable(slices, title);
+        return BitablePlainTextExporter.exportMultiTable(slices, title, effective);
     }
 
-    private String searchBitableRecords(String appToken, String tableId, String tableName) {
+    private static BitableDisplayMode bitableMode(FeishuResourceRef ref) {
+        return BitableDisplayMode.from(ref != null ? ref.bitableDisplayMode() : null);
+    }
+
+    private String searchBitableRecords(String appToken, String tableId, String tableName,
+            BitableDisplayMode mode) {
         List<JsonNode> items = searchBitableRecordItems(appToken, tableId);
         String label = tableName != null && !tableName.isBlank() ? tableName.trim() : tableId;
         String title = "【多维表格·" + label + "，共 " + items.size() + " 条】";
-        return BitablePlainTextExporter.export(items, title);
+        return BitablePlainTextExporter.export(items, title, mode);
     }
 
     private List<JsonNode> searchBitableRecordItems(String appToken, String tableId) {
@@ -732,33 +749,7 @@ public class FeishuService {
      * 从单条 block JSON 中提取可见文字（遍历除元数据字段外、含 {@code elements} 的子对象）。
      */
     private static void appendDocxBlockPlainText(JsonNode block, StringBuilder out) {
-        Iterator<Map.Entry<String, JsonNode>> it = block.fields();
-        while (it.hasNext()) {
-            Map.Entry<String, JsonNode> e = it.next();
-            String key = e.getKey();
-            if ("block_id".equals(key) || "block_type".equals(key) || "parent_id".equals(key) || "children".equals(key)) {
-                continue;
-            }
-            JsonNode val = e.getValue();
-            if (val != null && val.isObject() && val.has("elements") && val.get("elements").isArray()) {
-                appendDocxTextElements(val.get("elements"), out);
-            }
-        }
-        out.append('\n');
-    }
-
-    /** 从 Docx block 的 elements 数组提取 text_run 与 equation 文字。 */
-    private static void appendDocxTextElements(JsonNode elements, StringBuilder out) {
-        for (JsonNode el : elements) {
-            if (el == null || !el.isObject()) {
-                continue;
-            }
-            if (el.has("text_run")) {
-                out.append(el.path("text_run").path("content").asText(""));
-            } else if (el.has("equation")) {
-                out.append(el.path("equation").path("content").asText(""));
-            }
-        }
+        DocxBlockMarkdownExporter.appendBlock(block, out);
     }
 
     /**

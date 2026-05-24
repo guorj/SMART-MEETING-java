@@ -9,7 +9,8 @@ package com.smartmeeting.service.feishu;
  * @param primaryToken  docx document_id、wiki node_token、或 base app_token
  * @param tableId       多维表格 table_id（仅 BASE）
  * @param viewId        多维表格 view_id（可选，仅 BASE）
- * @param sourceUrl     原始配置或浏览器链接
+ * @param sourceUrl           原始配置或浏览器链接
+ * @param bitableDisplayMode  来自 int_matter_progress_doc_config；null 表示 GROUPED
  */
 public record FeishuResourceRef(
         FeishuResourceKind kind,
@@ -20,8 +21,14 @@ public record FeishuResourceRef(
         /** 多维表格 view_id（可选，仅 BASE） */
         String viewId,
         /** 原始配置或浏览器链接 */
-        String sourceUrl
+        String sourceUrl,
+        /** RAW | GROUPED，仅会中 bitable 导出使用 */
+        String bitableDisplayMode
 ) {
+    public FeishuResourceRef(FeishuResourceKind kind, String primaryToken, String tableId, String viewId,
+            String sourceUrl) {
+        this(kind, primaryToken, tableId, viewId, sourceUrl, null);
+    }
     /**
      * 是否配置了有效的外链 URL。
      *

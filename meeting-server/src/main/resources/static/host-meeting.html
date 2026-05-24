@@ -254,7 +254,42 @@
       color: #1565c0; font-size: 12px; font-weight: 600; cursor: pointer;
     }
     .feishu-bitable-expand:hover { text-decoration: underline; }
-    .weekly-report-block h4 { font-size: 14px; font-weight: 700; color: #333; margin: 0 0 8px; }
+    .weekly-report-block {
+      margin-top: 4px; padding: 16px 18px 14px;
+      background: linear-gradient(180deg, #f8fbff 0%, #fff 40px);
+      border: 1px solid #dbe7f5; border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(21, 101, 192, .06);
+    }
+    .weekly-report-block h4 { font-size: 15px; font-weight: 700; color: #0d47a1; margin: 0 0 10px; }
+    .weekly-report-block .muted { font-size: 12px; margin-bottom: 10px; }
+    .weekly-report-block .feishu-doc-article { padding: 4px 2px 0; }
+    .md-body-host blockquote {
+      margin: 8px 0 12px; padding: 8px 12px; border-left: 4px solid #90caf9;
+      background: #f5f9ff; color: #455a64; font-size: 13px; border-radius: 0 8px 8px 0;
+    }
+    .md-body-host h2.docx-section-cn {
+      margin-top: 18px; padding-bottom: 6px; border-bottom: 2px solid #e3f2fd; color: #1565c0;
+    }
+    .md-body-host h3.docx-status-completed { color: #2e7d32; }
+    .md-body-host h3.docx-status-delayed { color: #c62828; }
+    .md-body-host h3.docx-status-progress { color: #1565c0; }
+    .md-body-host h3.docx-status-completed + ul,
+    .md-body-host h3.docx-status-completed + p + ul {
+      border-left: 4px solid #81c784; padding-left: 1.1rem; background: #f1f8e9; border-radius: 0 8px 8px 0;
+      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
+    }
+    .md-body-host h3.docx-status-delayed + ul,
+    .md-body-host h3.docx-status-delayed + p + ul {
+      border-left: 4px solid #ef5350; padding-left: 1.1rem; background: #ffebee; border-radius: 0 8px 8px 0;
+      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
+    }
+    .md-body-host h3.docx-status-progress + ul,
+    .md-body-host h3.docx-status-progress + p + ul {
+      border-left: 4px solid #64b5f6; padding-left: 1.1rem; background: #e3f2fd; border-radius: 0 8px 8px 0;
+      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
+    }
+    .md-body-host li { line-height: 1.55; }
+    .md-body-host strong { color: #1a237e; }
     .feishu-bitable-table tbody tr:nth-child(even) td { background: #fafbfc; }
     .feishu-bitable-table tbody tr:hover td { background: #e8f4fd; }
     .feishu-bitable-empty { padding: 28px 16px; text-align: center; color: #90a4ae; font-size: 14px; }
@@ -306,7 +341,48 @@
       border-color: #cfd8dc; background: #f8f9fa;
     }
     .feishu-bitable-section-older .feishu-bitable-table { opacity: .94; }
+    .feishu-bitable-status-group {
+      margin: 14px 0 0 12px;
+      padding: 0 0 4px 12px;
+      border-left: 4px solid #cfd8dc;
+    }
+    .feishu-bitable-status-group:first-of-type { margin-top: 10px; }
+    .feishu-bitable-status-head {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #37474f;
+    }
+    .feishu-bitable-status-tag {
+      display: inline-block;
+      padding: 2px 10px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .02em;
+    }
+    .feishu-bitable-status-completed { border-left-color: #66bb6a; }
+    .feishu-bitable-status-completed .feishu-bitable-status-tag { background: #e8f5e9; color: #2e7d32; }
+    .feishu-bitable-status-delayed { border-left-color: #ef5350; }
+    .feishu-bitable-status-delayed .feishu-bitable-status-tag { background: #ffebee; color: #c62828; }
+    .feishu-bitable-status-in-progress { border-left-color: #42a5f5; }
+    .feishu-bitable-status-in-progress .feishu-bitable-status-tag { background: #e3f2fd; color: #1565c0; }
+    .feishu-bitable-status-count { font-size: 12px; font-weight: 500; color: #78909c; }
+    .feishu-bitable-status-empty {
+      margin: 4px 0 8px 4px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #90a4ae;
+      background: #f5f7f8;
+      border-radius: 6px;
+      border: 1px dashed #cfd8dc;
+    }
     .feishu-bitable-table tbody tr.row-status-done td { background: #f1f8e9; }
+    .feishu-bitable-table tbody tr.row-status-delayed td { background: #ffebee; }
+    .feishu-bitable-table tbody tr.row-status-delayed:hover td { background: #ffcdd2; }
     .feishu-bitable-table tbody tr.row-status-done-stale td { background: #f5f5f5; color: #757575; }
     .feishu-bitable-table tbody tr.row-status-pending td { background: #fffde7; }
     .feishu-bitable-table tbody tr.row-status-progress td { background: #e3f2fd; }
@@ -327,6 +403,17 @@
     .feishu-field-row:last-child { border-bottom: none; }
     .feishu-field-label { color: #607d8b; font-weight: 600; line-height: 1.45; }
     .feishu-field-value { color: #263238; word-break: break-word; line-height: 1.5; }
+    .feishu-field-value-long {
+      max-height: 14em; min-height: 2.5em; overflow-y: auto; overflow-x: hidden;
+      padding: 8px 10px; margin-top: 2px;
+      background: #f8fafc; border: 1px solid #dde3ea; border-radius: 6px;
+      white-space: pre-wrap; word-break: break-word; line-height: 1.55;
+      font-size: 13px; scrollbar-width: thin;
+    }
+    .feishu-field-value-long::-webkit-scrollbar { width: 6px; }
+    .feishu-field-value-long::-webkit-scrollbar-thumb { background: #b0bec5; border-radius: 4px; }
+    .feishu-bitable-table td.cell-long-text { vertical-align: top; padding: 6px 8px; }
+    .feishu-bitable-table td.cell-long-text .feishu-field-value-long { max-height: 10em; }
     .feishu-doc-article { padding: 2px 4px 8px; }
     .feishu-doc-plain {
       white-space: pre-wrap; word-break: break-word; font-size: 13px;
@@ -982,6 +1069,28 @@
         return s.indexOf('【多维表格') >= 0 || /---\s*记录\s*\d+\s*---/.test(s);
       }
 
+      function isLongTextBitableField(fieldName) {
+        if (!fieldName) return false;
+        return /进展|记录|说明|备注|描述|内容|汇总|详情|意见|最新/.test(String(fieldName));
+      }
+
+      function shouldUseScrollableFieldValue(fieldName, text) {
+        var s = text == null ? '' : String(text);
+        return isLongTextBitableField(fieldName) || s.length > 100 || s.indexOf('\n') >= 0;
+      }
+
+      function setBitableFieldValueEl(el, text, fieldName) {
+        var s = text != null && String(text).trim() !== '' ? String(text) : '—';
+        el.textContent = '';
+        if (shouldUseScrollableFieldValue(fieldName, s)) {
+          el.classList.add('feishu-field-value-long');
+          el.textContent = s;
+        } else {
+          el.classList.remove('feishu-field-value-long');
+          el.textContent = s;
+        }
+      }
+
       function parseBitableRecordBlocks(blockText) {
         var records = [];
         var parts = (blockText || '').split(/---\s*记录\s*(\d+)\s*---/);
@@ -990,6 +1099,13 @@
           var block = (parts[i + 1] || '').trim();
           var fields = [];
           block.split('\n').forEach(function (line) {
+            if (/^\s{2,}\S/.test(line) && fields.length) {
+              var cont = line.trim();
+              if (cont) {
+                fields[fields.length - 1].value += '\n' + cont;
+              }
+              return;
+            }
             var li = line.trim();
             if (!li) return;
             var colon = li.indexOf(':');
@@ -1004,6 +1120,40 @@
         return records;
       }
 
+      var BITABLE_STATUS_GROUPS = [
+        { id: 'completed', title: '已完成', marker: '已完成' },
+        { id: 'delayed', title: '延期', marker: '延期' },
+        { id: 'in_progress', title: '进行中', marker: '进行中' }
+      ];
+
+      function parseBitableStatusGroups(secBody) {
+        var groups = [];
+        var body = secBody == null ? '' : String(secBody).trim();
+        var hasStatus = body.indexOf('=== §已完成 ===') >= 0
+            || body.indexOf('=== §延期 ===') >= 0
+            || body.indexOf('=== §进行中 ===') >= 0;
+        if (!hasStatus) {
+          return null;
+        }
+        BITABLE_STATUS_GROUPS.forEach(function (g) {
+          var re = new RegExp('===\\s*§' + g.marker + '\\s*===');
+          var parts = body.split(re);
+          var chunk = '';
+          if (parts.length > 1) {
+            var after = parts[1];
+            var nextIdx = after.search(/===\s*§(?:已完成|延期|进行中)\s*===/);
+            chunk = (nextIdx >= 0 ? after.substring(0, nextIdx) : after).trim();
+          }
+          var empty = chunk.indexOf('（本分类暂无记录）') >= 0;
+          groups.push({
+            id: g.id,
+            title: g.title,
+            records: empty ? [] : parseBitableRecordBlocks(chunk)
+          });
+        });
+        return groups;
+      }
+
       function parseBitableTimeSections(body) {
         var sections = [];
         var block = body == null ? '' : String(body).trim();
@@ -1012,11 +1162,26 @@
           for (var si = 1; si < secParts.length; si += 2) {
             var sectionLabel = (secParts[si] || '').trim();
             if (sectionLabel.indexOf('数据表：') === 0) continue;
+            if (sectionLabel === '已完成' || sectionLabel === '延期' || sectionLabel === '进行中') {
+              continue;
+            }
             var secBody = (secParts[si + 1] || '').trim();
+            var isRecent = sectionLabel.indexOf('近三个月') >= 0
+                || (sectionLabel.indexOf('以前') < 0 && sectionLabel.indexOf('更早') < 0
+                    && sectionLabel.indexOf('三个月') < 0);
+            if (sectionLabel.indexOf('以前') >= 0 || sectionLabel.indexOf('更早') >= 0) {
+              isRecent = false;
+            }
+            var secId = isRecent ? 'recent' : 'older';
+            var statusGroups = secId === 'recent' ? parseBitableStatusGroups(secBody) : null;
+            var records = statusGroups
+                ? statusGroups.reduce(function (acc, g) { return acc.concat(g.records || []); }, [])
+                : parseBitableRecordBlocks(secBody);
             sections.push({
-              id: sectionLabel.indexOf('以前') >= 0 ? 'older' : 'recent',
+              id: secId,
               title: sectionLabel.replace(/^§/, ''),
-              records: parseBitableRecordBlocks(secBody)
+              records: records,
+              statusGroups: statusGroups
             });
           }
         } else {
@@ -1056,11 +1221,46 @@
         return { title: title, records: records, sections: sections, tableGroups: tableGroups };
       }
 
+      function appendBitableStatusGroupsView(parent, statusGroups) {
+        var groups = statusGroups && statusGroups.length
+            ? statusGroups
+            : BITABLE_STATUS_GROUPS.map(function (g) {
+              return { id: g.id, title: g.title, records: [] };
+            });
+        groups.forEach(function (grp) {
+          var grpWrap = document.createElement('div');
+          grpWrap.className = 'feishu-bitable-status-group feishu-bitable-status-' + grp.id.replace('_', '-');
+          var grpHead = document.createElement('div');
+          grpHead.className = 'feishu-bitable-status-head';
+          var tag = document.createElement('span');
+          tag.className = 'feishu-bitable-status-tag';
+          tag.textContent = grp.title;
+          var grpCount = document.createElement('span');
+          grpCount.className = 'feishu-bitable-status-count';
+          var n = (grp.records || []).length;
+          grpCount.textContent = n ? (n + ' 条') : '暂无';
+          grpHead.appendChild(tag);
+          grpHead.appendChild(grpCount);
+          grpWrap.appendChild(grpHead);
+          if (!n) {
+            var empty = document.createElement('div');
+            empty.className = 'feishu-bitable-status-empty';
+            empty.textContent = '本分类暂无记录';
+            grpWrap.appendChild(empty);
+          } else {
+            appendBitableRecordsView(grpWrap, grp.records);
+          }
+          parent.appendChild(grpWrap);
+        });
+      }
+
       function appendBitableTimeSectionsView(parent, sections) {
         (sections || []).forEach(function (sec) {
-          if (!sec.records || !sec.records.length) return;
+          var hasRows = sec.records && sec.records.length;
+          var hasStatusLayout = sec.id === 'recent' && sec.statusGroups;
+          if (!hasRows && !hasStatusLayout) return;
           if (sec.id === 'all') {
-            appendBitableRecordsView(parent, sec.records);
+            if (hasRows) appendBitableRecordsView(parent, sec.records);
             return;
           }
           var secWrap = document.createElement('div');
@@ -1073,12 +1273,16 @@
           titleSpan.textContent = sec.title || (sec.id === 'recent' ? '近三个月（按创建日期）' : '三个月以前');
           var countSpan = document.createElement('span');
           countSpan.className = 'feishu-bitable-section-count';
-          countSpan.textContent = sec.records.length + ' 条';
+          countSpan.textContent = (sec.records ? sec.records.length : 0) + ' 条';
           head.appendChild(badge);
           head.appendChild(titleSpan);
           head.appendChild(countSpan);
           secWrap.appendChild(head);
-          appendBitableRecordsView(secWrap, sec.records);
+          if (hasStatusLayout) {
+            appendBitableStatusGroupsView(secWrap, sec.statusGroups);
+          } else if (hasRows) {
+            appendBitableRecordsView(secWrap, sec.records);
+          }
           parent.appendChild(secWrap);
         });
       }
@@ -1113,18 +1317,62 @@
         return anchor >= now - 7 * 24 * 60 * 60 * 1000 && anchor <= now + 86400000;
       }
 
+      function bitableRecordIsCompleted(rec) {
+        var status = '';
+        var doneFlag = null;
+        (rec.fields || []).forEach(function (f) {
+          if (!f.name) return;
+          if (f.name.indexOf('状态') >= 0 || f.name.indexOf('完成情况') >= 0) {
+            status = String(f.value || '');
+          }
+          if (f.name.indexOf('是否完成') >= 0 || f.name.indexOf('已完成') >= 0) {
+            var v = String(f.value || '').trim();
+            if (v === '是' || v.toLowerCase() === 'true') doneFlag = true;
+            if (v === '否' || v.toLowerCase() === 'false') doneFlag = false;
+          }
+        });
+        if (doneFlag === true) return true;
+        if (!status) return false;
+        if (/进行中/.test(status)) return false;
+        if (/未完成|待办|待开始|未开始/.test(status)) return false;
+        return /已完成|已关闭|已办结/.test(status)
+            || (/完成/.test(status) && !/未完成/.test(status));
+      }
+
+      function bitableRecordIsDelayed(rec) {
+        if (bitableRecordIsCompleted(rec)) return false;
+        var daysText = '';
+        var status = '';
+        (rec.fields || []).forEach(function (f) {
+          if (!f.name) return;
+          if (f.name.indexOf('距离截止') >= 0) daysText = String(f.value || '');
+          if (f.name.indexOf('状态') >= 0 || f.name.indexOf('完成情况') >= 0) {
+            status = String(f.value || '');
+          }
+        });
+        if (status && /延期|逾期|超期|过期/.test(status)) return true;
+        if (daysText && (/已延期|逾期|超期|过期/.test(daysText) || /-\d+\s*天/.test(daysText))) return true;
+        var deadlineMs = 0;
+        (rec.fields || []).forEach(function (f) {
+          if (f.name && f.name.indexOf('截止日期') >= 0 && f.name.indexOf('距离') < 0) {
+            deadlineMs = Math.max(deadlineMs, parseBitableFieldDateMs(f.value));
+          }
+        });
+        return deadlineMs > 0 && deadlineMs < Date.now() - 86400000;
+      }
+
       function bitableRecordStatusClass(rec) {
+        if (bitableRecordIsCompleted(rec)) {
+          return bitableCompletedWithinSevenDays(rec) ? 'row-status-done' : 'row-status-done-stale';
+        }
+        if (bitableRecordIsDelayed(rec)) return 'row-status-delayed';
         var status = '';
         (rec.fields || []).forEach(function (f) {
           if (f.name && (f.name.indexOf('状态') >= 0 || f.name.indexOf('完成情况') >= 0)) {
             status = String(f.value || '');
           }
         });
-        if (!status) return '';
         if (/进行中/.test(status)) return 'row-status-progress';
-        if (/已完成|已关闭|已办结/.test(status) || (/完成/.test(status) && !/未完成/.test(status))) {
-          return bitableCompletedWithinSevenDays(rec) ? 'row-status-done' : 'row-status-done-stale';
-        }
         return 'row-status-pending';
       }
 
@@ -1176,7 +1424,18 @@
       }
 
       function setBitableCellContent(td, text, profile) {
+        var fieldName = profile ? profile.name : '';
         var s = text != null && String(text).trim() !== '' ? String(text) : '—';
+        td.textContent = '';
+        td.classList.remove('cell-truncated', 'cell-long-text', 'expanded');
+        if (shouldUseScrollableFieldValue(fieldName, s)) {
+          td.classList.add('cell-long-text');
+          var box = document.createElement('div');
+          box.className = 'feishu-field-value-long';
+          box.textContent = s;
+          td.appendChild(box);
+          return;
+        }
         td.textContent = s;
         if (profile && s.length > 280) {
           td.classList.add('cell-truncated');
@@ -1303,7 +1562,7 @@
           lab.textContent = f.name;
           var val = document.createElement('div');
           val.className = 'feishu-field-value';
-          val.textContent = f.value || '—';
+          setBitableFieldValueEl(val, f.value, f.name);
           row.appendChild(lab);
           row.appendChild(val);
           card.appendChild(row);
@@ -1328,6 +1587,36 @@
           out.push(buf.join('\n'));
           buf = [];
         }
+        function classifyLine(t) {
+          if (/^#{1,6}\s/.test(t) || /^[-*+]\s/.test(t) || /^\d+\.\s/.test(t) || /^>\s/.test(t)) {
+            return t;
+          }
+          if (/^会前事项|^前期事项|进度通报/.test(t) && t.length < 40) {
+            return '# ' + t;
+          }
+          if (/^[一二三四五六七八九十百千]+、/.test(t)) {
+            return '## ' + t;
+          }
+          if (/^【[^】]+】$/.test(t)) {
+            return '### ' + t;
+          }
+          if (/^(已完成|延期|进行中)[：:]\s*$/.test(t)) {
+            return '### ' + t.replace(/[：:]\s*$/, '');
+          }
+          if (/^(已完成|延期|进行中)\s*$/.test(t)) {
+            return '### ' + t;
+          }
+          if (/^三、\s*风险提示/.test(t) || /^##\s*三、/.test(t)) {
+            return '## ' + t.replace(/^##\s*/, '');
+          }
+          if (/^[-•●▪]\s+/.test(t)) {
+            return '- ' + t.replace(/^[-•●▪]\s+/, '');
+          }
+          if (/^⚠️/.test(t)) {
+            return '> ' + t;
+          }
+          return null;
+        }
         lines.forEach(function (line) {
           var t = line.trim();
           if (!t) {
@@ -1335,15 +1624,35 @@
             out.push('');
             return;
           }
-          if (/^#{1,6}\s/.test(t) || /^[-*+]\s/.test(t) || /^\d+\.\s/.test(t) || /^>\s/.test(t)) {
+          var classified = classifyLine(t);
+          if (classified) {
             flushBuf();
-            out.push(t);
+            out.push(classified);
             return;
           }
           buf.push(line);
         });
         flushBuf();
         return out.join('\n\n');
+      }
+
+      function decorateFeishuDocArticle(el) {
+        if (!el) return;
+        el.querySelectorAll('h1').forEach(function (h) {
+          if (/通报|对比/.test(h.textContent || '')) h.classList.add('docx-report-title');
+        });
+        el.querySelectorAll('h2').forEach(function (h) {
+          var t = (h.textContent || '').trim();
+          if (/^[一二三四五六七八九十]+、/.test(t) || /^##?\s*三、/.test(t)) {
+            h.classList.add('docx-section-cn');
+          }
+        });
+        el.querySelectorAll('h3').forEach(function (h) {
+          var t = (h.textContent || '').trim();
+          if (/已完成/.test(t)) h.classList.add('docx-status-completed');
+          else if (/延期/.test(t)) h.classList.add('docx-status-delayed');
+          else if (/进行中/.test(t)) h.classList.add('docx-status-progress');
+        });
       }
 
       function renderFeishuMarkdownInto(el, markdown) {
@@ -1353,6 +1662,7 @@
           try {
             var rawHtml = marked.parse(text, { breaks: true, gfm: true, mangle: false, headerIds: false });
             el.innerHTML = DOMPurify.sanitize(rawHtml, { USE_PROFILES: { html: true } });
+            decorateFeishuDocArticle(el);
             return;
           } catch (err) { console.warn('Feishu markdown render failed', err); }
         }
@@ -1597,7 +1907,9 @@
         if (res.ok && res.data && weeklyReport) {
           applyAgendaDocContainerStyles(targets.body, opts.useMainPanel);
           targets.body.innerHTML = '';
-          appendWeeklyReportBlocks(ensureFeishuDocPanel(targets.body), topic, weeklyReport);
+          var panel = ensureFeishuDocPanel(targets.body);
+          panel.classList.add('feishu-doc-panel-weekly-only');
+          appendWeeklyReportBlocks(panel, topic, weeklyReport);
           return;
         }
         if (res.ok || res.status === 404) {

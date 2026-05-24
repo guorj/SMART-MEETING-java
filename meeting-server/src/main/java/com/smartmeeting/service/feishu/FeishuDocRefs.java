@@ -90,7 +90,17 @@ public final class FeishuDocRefs {
         if (cfg == null) {
             return;
         }
-        addFromUrl(target, cfg.getFeishuDocUrl());
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
+        if (ref == null || !ref.showOnHostPage()) {
+            return;
+        }
+        String key = dedupeKey(ref);
+        for (FeishuResourceRef existing : target) {
+            if (dedupeKey(existing).equals(key)) {
+                return;
+            }
+        }
+        target.add(ref);
     }
 
     /**
