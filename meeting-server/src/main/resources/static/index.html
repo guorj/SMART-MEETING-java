@@ -106,7 +106,7 @@
     </div>
 
     <!-- 发版改静态 JS：同步改下面 ?v= 与 static/recorder.js 内 SM_STATIC_ASSET_V -->
-    <script src="/static/recorder.js?v=sm-20260512-5"></script>
+    <script src="/static/recorder.js?v=sm-20260524-1"></script>
     <script>
     /**
      * 智能会议录音 - 前端主逻辑 (内联版)
@@ -203,8 +203,8 @@
         document.getElementById('resumeBtn').style.display = 'inline-block';
     }
 
-    function resumeRecording() {
-        if (recorder) recorder.resume();
+    async function resumeRecording() {
+        if (recorder) await recorder.resume();
         document.getElementById('resumeBtn').style.display = 'none';
         document.getElementById('pauseBtn').style.display = 'inline-block';
     }

@@ -10,6 +10,7 @@ import org.springframework.web.socket.*;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -38,6 +39,9 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
     /** 会议 ID → 是否处于暂停推流状态 */
     private final Map<String, Boolean> pausedMeetings = new ConcurrentHashMap<>();
+
+    /** 会议 ID → 最近一次收到 PCM 的时刻（毫秒），用于静音自动暂停 */
+    private final Map<String, Long> lastAudioFrameAtMs = new ConcurrentHashMap<>();
 
     /**
      * @param jwtUtil           JWT 校验与参会 token 解析
@@ -93,6 +97,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
 
         frameCounters.put(meetingId, 0L);
         pausedMeetings.put(meetingId, false);
+        lastAudioFrameAtMs.put(meetingId, System.currentTimeMillis());
 
         log.info("Audio WS connected: meetingId={}, sessionId={}", meetingId, session.getId());
 
@@ -141,6 +146,8 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             byte[] pcmData = new byte[buffer.remaining()];
             buffer.get(pcmData);
 
+            lastAudioFrameAtMs.put(meetingId, System.currentTimeMillis());
+
             // 如果暂停了，不发送给 ASR
             if (Boolean.TRUE.equals(pausedMeetings.get(meetingId))) {
                 log.debug("Dropping audio frame for paused meeting: {}", meetingId);
@@ -188,15 +195,9 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             }
 
             if ("pause".equals(type)) {
-                recordingService.pauseRecording(meetingId);
-                pausedMeetings.put(meetingId, true);
-                log.info("Recording paused for meeting: {}", meetingId);
-                sendText(session, "{\"type\":\"paused\",\"meetingId\":\"" + meetingId + "\"}");
+                applyPause(session, meetingId, false);
             } else if ("resume".equals(type)) {
-                recordingService.resumeRecording(meetingId);
-                pausedMeetings.put(meetingId, false);
-                log.info("Recording resumed for meeting: {}", meetingId);
-                sendText(session, "{\"type\":\"resumed\",\"meetingId\":\"" + meetingId + "\"}");
+                applyResume(session, meetingId);
             } else if ("stop".equals(type)) {
                 log.info("Recording stopped for meeting: {}", meetingId);
                 try {
@@ -216,6 +217,81 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         } catch (Exception e) {
             log.warn("Failed to handle control message: {}", payload, e);
         }
+    }
+
+    /**
+     * 暂停推流：更新录音态、挂起讯飞 ASR（释放配额），保持浏览器 WebSocket。
+     *
+     * @param autoPause true 表示静音超时触发的自动暂停
+     */
+    void applyPause(WebSocketSession session, String meetingId, boolean autoPause) {
+        try {
+            recordingService.pauseRecording(meetingId);
+        } catch (Exception e) {
+            log.warn("pauseRecording skipped for {}: {}", meetingId, e.getMessage());
+        }
+        pausedMeetings.put(meetingId, true);
+        asrBridgeService.suspendRealtimeAsr(meetingId);
+        log.info("Recording paused for meeting: {} (auto={})", meetingId, autoPause);
+        if (autoPause) {
+            sendText(session, "{\"type\":\"auto_paused\",\"meetingId\":\"" + meetingId
+                    + "\",\"message\":\"连续静音超时，已自动暂停推流与实时转写\"}");
+        } else {
+            sendText(session, "{\"type\":\"paused\",\"meetingId\":\"" + meetingId + "\"}");
+        }
+    }
+
+    /**
+     * 恢复推流：重建讯飞 ASR（若需要），并通知客户端。
+     */
+    void applyResume(WebSocketSession session, String meetingId) {
+        try {
+            recordingService.resumeRecording(meetingId);
+        } catch (Exception e) {
+            log.warn("resumeRecording skipped for {}: {}", meetingId, e.getMessage());
+        }
+        pausedMeetings.put(meetingId, false);
+        lastAudioFrameAtMs.put(meetingId, System.currentTimeMillis());
+        boolean asrOk = false;
+        if (asrProperties.isRealtimeEnabled()) {
+            asrOk = asrBridgeService.resumeRealtimeAsr(meetingId);
+            if (asrOk) {
+                sendText(session, "{\"type\":\"asr_reconnected\",\"meetingId\":\"" + meetingId + "\"}");
+            } else {
+                sendText(session, "{\"type\":\"asr_warning\",\"meetingId\":\"" + meetingId
+                        + "\",\"message\":\"实时转写重连失败，仅继续录音\"}");
+            }
+        }
+        log.info("Recording resumed for meeting: {}, asrOk={}", meetingId, asrOk);
+        sendText(session, "{\"type\":\"resumed\",\"meetingId\":\"" + meetingId + "\"}");
+    }
+
+    /**
+     * 供静音检测任务读取：会议是否处于暂停推流。
+     */
+    public boolean isMeetingPaused(String meetingId) {
+        return Boolean.TRUE.equals(pausedMeetings.get(meetingId));
+    }
+
+    /**
+     * 供静音检测任务读取：最近一次收到音频帧的时间戳（毫秒）。
+     */
+    public Long getLastAudioFrameAtMs(String meetingId) {
+        return lastAudioFrameAtMs.get(meetingId);
+    }
+
+    /**
+     * 供静音检测任务：对活跃会话执行自动暂停。
+     */
+    public void autoPauseForSilence(String meetingId) {
+        WebSocketSession session = activeSessions.get(meetingId);
+        if (session == null || !session.isOpen()) {
+            return;
+        }
+        if (Boolean.TRUE.equals(pausedMeetings.get(meetingId))) {
+            return;
+        }
+        applyPause(session, meetingId, true);
     }
 
     /**
@@ -241,6 +317,7 @@ public class AudioWebSocketHandler implements WebSocketHandler {
         activeSessions.remove(meetingId);
         frameCounters.remove(meetingId);
         pausedMeetings.remove(meetingId);
+        lastAudioFrameAtMs.remove(meetingId);
 
         // 结束 ASR（但不结束会议，等待用户发送飞书指令"结束会议"）
         try {
@@ -361,6 +438,13 @@ public class AudioWebSocketHandler implements WebSocketHandler {
      */
     public int getActiveSessionCount() {
         return activeSessions.size();
+    }
+
+    /**
+     * 当前存在活跃音频 WebSocket 的会议 ID 快照。
+     */
+    public Set<String> getActiveMeetingIds() {
+        return Set.copyOf(activeSessions.keySet());
     }
 
     /**

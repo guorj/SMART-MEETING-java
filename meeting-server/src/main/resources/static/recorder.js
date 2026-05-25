@@ -3,7 +3,7 @@
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
 /** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */
-const SM_STATIC_ASSET_V = 'sm-20260512-7';
+const SM_STATIC_ASSET_V = 'sm-20260524-1';
 
 function smAssetUrl(path) {
     const sep = path.includes('?') ? '&' : '?';
@@ -190,6 +190,16 @@ class MeetingRecorder {
                             this.sessionToken = msg.session_token;
                         } else if (msg.type === 'ping') {
                             this.ws.send(JSON.stringify({ type: 'pong' }));
+                        } else if (msg.type === 'auto_paused') {
+                            this.isPaused = true;
+                            this.onStatusChange?.('paused');
+                            this.onWarning?.(msg.message || '连续静音，已自动暂停推流');
+                        } else if (msg.type === 'asr_warning') {
+                            this.onWarning?.(msg.message || '实时转写异常');
+                            this.onTranscript?.(msg);
+                        } else if (msg.type === 'asr_reconnected') {
+                            console.log('ASR reconnected for meeting', msg.meetingId || this.meetingId);
+                            this.onTranscript?.(msg);
                         } else {
                             this.onTranscript?.(msg);
                         }
@@ -256,12 +266,21 @@ class MeetingRecorder {
         this.onStatusChange?.('paused');
     }
 
-    resume() {
+    async resume() {
         this.isPaused = false;
-        if (this.ws?.readyState === WebSocket.OPEN) {
-            this.ws.send(JSON.stringify({ type: 'resume' }));
+        try {
+            if (this.isRecording && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) {
+                await this._connectWebSocket();
+            }
+            if (this.ws?.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({ type: 'resume' }));
+            }
+            this.onStatusChange?.('recording');
+        } catch (e) {
+            this.isPaused = true;
+            this.onError?.('恢复录音失败: ' + (e.message || e));
+            this.onStatusChange?.('paused');
         }
-        this.onStatusChange?.('recording');
     }
 
     stop() {

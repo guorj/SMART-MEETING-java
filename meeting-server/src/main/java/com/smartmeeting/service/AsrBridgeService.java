@@ -154,6 +154,56 @@ public class AsrBridgeService {
     }
 
     /**
+     * 暂停会议时挂起实时 ASR：发送 end 并断开讯飞连接以释放配额，不关浏览器音频 WebSocket。
+     *
+     * @param meetingId 会议 ID
+     */
+    public void suspendRealtimeAsr(String meetingId) {
+        if (!asrProperties.isRealtimeEnabled()) {
+            return;
+        }
+        String current = xfyunClient.getCurrentMeetingId();
+        if (!xfyunClient.isConnected() && (current == null || !meetingId.equals(current))) {
+            speakerCounters.remove(meetingId);
+            return;
+        }
+        if (current != null && !meetingId.equals(current)) {
+            log.warn("【ASR挂起跳过】meetingId={} 与当前连接 {} 不一致", meetingId, current);
+            return;
+        }
+        log.info("【ASR挂起】meetingId={}，断开讯飞以省配额", meetingId);
+        endRealtimeAsr(meetingId);
+        try {
+            xfyunClient.disconnect();
+        } catch (Exception e) {
+            log.warn("【ASR挂起】disconnect: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 恢复会议时按需重建实时 ASR 连接。
+     *
+     * @param meetingId 会议 ID
+     * @return 连接成功为 true；实时转写关闭或连接失败为 false
+     */
+    public boolean resumeRealtimeAsr(String meetingId) {
+        if (isAsrActiveForMeeting(meetingId)) {
+            return true;
+        }
+        return startRealtimeAsr(meetingId);
+    }
+
+    /**
+     * 指定会议是否已建立且占用的讯飞实时 ASR 连接。
+     */
+    public boolean isAsrActiveForMeeting(String meetingId) {
+        return asrProperties.isRealtimeEnabled()
+                && xfyunClient.isConnected()
+                && meetingId != null
+                && meetingId.equals(xfyunClient.getCurrentMeetingId());
+    }
+
+    /**
      * 断开当前讯飞 ASR WebSocket 连接（不区分会议）。
      */
     public void disconnect() {
@@ -161,7 +211,7 @@ public class AsrBridgeService {
     }
 
     /**
-     * 讯飞转写结果回调：入库、推送前端、点名答到钩子，末包时关闭 WebSocket。
+     * 讯飞转写结果回调：入库、推送前端、点名答到钩子（ls=true 仅表示本段结束，不关浏览器 WS）。
      */
     private void onAsrResult(AsrResult result) {
         String meetingId = result.getMeetingId();
@@ -214,8 +264,7 @@ public class AsrBridgeService {
         }
 
         if (Boolean.TRUE.equals(result.getIsLast())) {
-            log.info("【ASR完成】收到最后一条结果，关闭WebSocket: meetingId={}", meetingId);
-            audioWebSocketHandler.closeSessionGracefully(meetingId);
+            log.debug("【ASR分段结束】ls=true meetingId={}（会中不关闭浏览器音频 WS）", meetingId);
         }
     }
 

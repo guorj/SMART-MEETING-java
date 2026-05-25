@@ -552,7 +552,7 @@
   <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
   <script src="/static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="/static/vendor/purify.min.js?v=sm-20260518-2"></script>
-  <script src="/static/recorder.js?v=sm-20260518-2"></script>
+  <script src="/static/recorder.js?v=sm-20260524-1"></script>
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
@@ -2498,7 +2498,7 @@
         } catch (e) {
           showErr(e.message || String(e));
           try {
-            if (recorder) recorder.resume();
+            if (recorder) await recorder.resume();
           } catch (err) { console.warn(err); }
         }
       };
@@ -2506,7 +2506,7 @@
         if (!meetingLive) return;
         showErr('');
         try {
-          if (recorder) recorder.resume();
+          if (recorder) await recorder.resume();
           renderHostState(await hostApi('/resume', { method: 'POST' }));
           setMeetingPausedUI(false);
         } catch (e) {
