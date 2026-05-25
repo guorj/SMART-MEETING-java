@@ -1,0 +1,29 @@
+* { box-sizing: border-box; }
+body { margin: 0; font-family: system-ui, sans-serif; background: #f4f6f8; color: #1a1a1a; }
+.hidden { display: none !important; }
+#login-panel { max-width: 360px; margin: 10vh auto; padding: 2rem; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+#login-panel input { width: 100%; margin: 0.5rem 0 1rem; padding: 0.5rem; }
+#app { display: flex; min-height: 100vh; }
+#sidebar { width: 200px; background: #1e293b; color: #e2e8f0; padding: 1rem 0; flex-shrink: 0; }
+#sidebar button { display: block; width: 100%; text-align: left; border: none; background: transparent; color: inherit; padding: 0.6rem 1rem; cursor: pointer; }
+#sidebar button.active { background: #334155; }
+main { flex: 1; padding: 1rem 1.5rem; min-width: 0; }
+#top-bar { margin-bottom: 1rem; font-size: 1.25rem; font-weight: 600; }
+.panel { background: #fff; padding: 1rem; border-radius: 8px; margin-bottom: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+th, td { border-bottom: 1px solid #e2e8f0; padding: 0.5rem; text-align: left; vertical-align: top; }
+textarea, input, select { padding: 0.35rem 0.5rem; border: 1px solid #cbd5e1; border-radius: 4px; font: inherit; }
+button.primary { background: #2563eb; color: #fff; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; margin-right: 0.35rem; }
+button.secondary { background: #e2e8f0; border: none; padding: 0.4rem 0.8rem; border-radius: 4px; cursor: pointer; margin-right: 0.35rem; }
+button.danger { background: #dc2626; color: #fff; border: none; padding: 0.35rem 0.6rem; border-radius: 4px; cursor: pointer; }
+.msg { color: #b45309; font-size: 0.85rem; }
+.tag { display: inline-block; background: #fef3c7; color: #92400e; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.75rem; }
+.tabs { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
+.tabs button { border: 1px solid #cbd5e1; background: #fff; padding: 0.35rem 0.75rem; border-radius: 4px; cursor: pointer; }
+.tabs button.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+.drawer-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 100; }
+.drawer { position: fixed; right: 0; top: 0; bottom: 0; width: min(420px, 95vw); background: #fff; z-index: 101; padding: 1rem; overflow: auto; box-shadow: -4px 0 16px rgba(0,0,0,.12); }
+.drawer h3 { margin-top: 0; }
+.drawer label { display: block; margin: 0.5rem 0 0.25rem; font-size: 0.85rem; color: #475569; }
+.drawer input, .drawer select, .drawer textarea { width: 100%; margin-bottom: 0.5rem; }
+.toolbar { display: flex; flex-wrap: wrap; gap: 0.35rem; align-items: center; margin-bottom: 0.75rem; }

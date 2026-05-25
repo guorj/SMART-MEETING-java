@@ -32,6 +32,8 @@
 
     <modules>
         <module>matter-progress-core</module>
+        <module>meeting-config-core</module>
+        <module>meeting-admin-server</module>
         <module>meeting-server</module>
     </modules>
 

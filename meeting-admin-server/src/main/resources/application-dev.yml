@@ -1,0 +1,4 @@
+meeting:
+  admin:
+    enabled: true
+    token: ${ADMIN_TOKEN:dev-admin-token}

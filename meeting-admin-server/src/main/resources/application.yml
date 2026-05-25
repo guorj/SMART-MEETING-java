@@ -1,0 +1,55 @@
+server:
+  port: ${ADMIN_SERVER_PORT:8766}
+  servlet:
+    encoding:
+      charset: UTF-8
+      enabled: true
+      force: true
+
+spring:
+  application:
+    name: meeting-admin-server
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
+  datasource:
+    url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
+    username: ${DB_USERNAME:intelligence}
+    password: ${DB_PASSWORD:intelligence@2026}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  sql:
+    init:
+      mode: never
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: auto
+
+meeting:
+  admin:
+    enabled: ${MEETING_ADMIN_ENABLED:true}
+    token: ${ADMIN_TOKEN:dev-admin-token}
+    modules:
+      - presets
+      - weekly-jobs
+      - meetings
+      - settings
+      - observability
+      - integrations
+    agenda-config:
+      file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}
+      file-path: ${MEETING_ADMIN_AGENDA_FILE_PATH:classpath:agenda-templates/example-presets.json}
+  runtime:
+    meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765}
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
+    internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
+  oauth:
+    feishu:
+      enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}
+      app-id: ${FEISHU_APP_ID:}
+      app-secret: ${FEISHU_APP_SECRET:}
+      redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:http://127.0.0.1:8766/admin/oauth/feishu/callback}
+      allowed-user-ids: []
+      session-ttl-hours: 8

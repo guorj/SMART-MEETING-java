@@ -193,7 +193,7 @@ public class MeetingTypePresetService {
                 String docUrl = n.path("feishuDocUrl").asText("").trim();
                 if (docUrl.isEmpty()) {
                     String legacyId = n.path("feishuDocToken").asText("").trim();
-                    docUrl = com.smartmeeting.service.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                    docUrl = com.smartmeeting.config.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
                     if (docUrl == null) {
                         docUrl = "";
                     }

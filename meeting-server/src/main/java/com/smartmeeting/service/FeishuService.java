@@ -17,8 +17,8 @@ import com.smartmeeting.matterprogress.feishu.BitablePlainTextExporter;
 import com.smartmeeting.matterprogress.feishu.DocxBlockMarkdownExporter;
 import com.smartmeeting.matterprogress.feishu.BitableTableInfo;
 import com.smartmeeting.matterprogress.feishu.FeishuSpreadsheetPlainTextFetcher;
-import com.smartmeeting.service.feishu.FeishuResourceKind;
-import com.smartmeeting.service.feishu.FeishuResourceRef;
+import com.smartmeeting.config.feishu.FeishuResourceKind;
+import com.smartmeeting.config.feishu.FeishuResourceRef;
 
 import java.util.*;
 

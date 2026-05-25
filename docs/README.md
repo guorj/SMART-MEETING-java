@@ -6,6 +6,10 @@
 |------|------|
 | [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（§1.2–1.4 双服务 + **matter-progress-core**；§3.8 配置分层） |
 | [**weekly-matter-comparison.md**](weekly-matter-comparison.md) | **会前事项对比通报**（v0.9：bot 定时对比、config_role、Job 参数、故障排查） |
+| [**meeting-admin.md**](meeting-admin.md) | **会议管理后台**（`meeting-admin-server` :8766，与 meeting-server 分离启动） |
+| [`scripts/start-dev.sh`](../scripts/start-dev.sh) | 开发一键启动 server / admin / both + 依赖检查 |
+| [admin-extensibility.md](admin-extensibility.md) | 后台 L1/L2/L3 扩展点开发说明 |
+| [meeting-admin-p2.md](meeting-admin-p2.md) | 后台 P2：internal API、OAuth、反代 |
 | [product/混合参会检点-用户手册.md](product/混合参会检点-用户手册.md) | 混合检点专题（与 USER-MANUAL 第 9 章同步） |
 
 ## 权威 / 日常维护

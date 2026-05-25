@@ -1,6 +1,6 @@
-package com.smartmeeting.service.feishu;
+package com.smartmeeting.config.feishu;
 
-import com.smartmeeting.entity.MatterProgressDocConfig;
+import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -8,11 +8,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/**
- * 飞书资源 URL 解析器：从配置 URL 或旧版 document_id 识别 docx / wiki / base（多维表格）类型。
- * <p>
- * 主要协作组件：{@link FeishuResourceRef}（解析结果载体）、{@link MatterProgressDocConfig}（数据库配置来源）。
- */
 public final class FeishuResourceResolver {
 
     private static final Pattern DOCX_PATH = Pattern.compile("/docx/([^/?#]+)", Pattern.CASE_INSENSITIVE);
@@ -22,13 +17,7 @@ public final class FeishuResourceResolver {
     private FeishuResourceResolver() {
     }
 
-    /**
-     * 从资料配置实体解析飞书资源引用。
-     *
-     * @param cfg 资料配置（含 feishuDocUrl）
-     * @return 解析后的资源引用；cfg 为 null 或 URL 无效时返回 {@code null}
-     */
-    public static FeishuResourceRef resolve(MatterProgressDocConfig cfg) {
+    public static FeishuResourceRef resolve(AgendaDocBindingSnapshot cfg) {
         if (cfg == null) {
             return null;
         }
@@ -44,12 +33,6 @@ public final class FeishuResourceResolver {
                 ref.kind(), ref.primaryToken(), ref.tableId(), ref.viewId(), ref.sourceUrl(), mode.trim());
     }
 
-    /**
-     * 从飞书文档 URL 字符串解析资源引用。
-     *
-     * @param feishuDocUrl 飞书 HTTPS 链接
-     * @return 解析后的资源引用；URL 为空或无法识别时返回 {@code null}
-     */
     public static FeishuResourceRef resolve(String feishuDocUrl) {
         String url = feishuDocUrl != null ? feishuDocUrl.trim() : "";
         if (url.isEmpty()) {
@@ -58,12 +41,6 @@ public final class FeishuResourceResolver {
         return resolveFromUrl(url);
     }
 
-    /**
-     * 判断是否为可识别的飞书 docx / wiki / base 链接（拒绝 /rec/、/host/ 等应用内地址）。
-     *
-     * @param url 待检测 URL
-     * @return 可识别返回 {@code true}；为空或无法识别时返回 {@code false}
-     */
     public static boolean isRecognizedFeishuDocUrl(String url) {
         String u = url != null ? url.trim() : "";
         if (u.isEmpty()) {
@@ -72,12 +49,14 @@ public final class FeishuResourceResolver {
         return resolveFromUrl(u) != null;
     }
 
-    /**
-     * 兼容旧 host_agenda：仅保存 document_id 时拼成 docx 链接。
-     *
-     * @param legacyDocId 旧版 document_id 或完整 URL
-     * @return docx HTTPS 链接；legacyDocId 为空时返回 {@code null}
-     */
+    public static String resolveLegacyDocumentId(AgendaDocBindingSnapshot cfg) {
+        FeishuResourceRef ref = resolve(cfg);
+        if (ref == null || ref.primaryToken() == null || ref.primaryToken().isBlank()) {
+            return null;
+        }
+        return ref.primaryToken();
+    }
+
     public static String legacyDocIdToDocxUrl(String legacyDocId) {
         if (legacyDocId == null || legacyDocId.isBlank()) {
             return null;
@@ -89,21 +68,6 @@ public final class FeishuResourceResolver {
         return "https://bytedance.feishu.cn/docx/" + t;
     }
 
-    /**
-     * 兼容旧逻辑：从配置返回主 token（docx id / wiki node / base app）。
-     *
-     * @param cfg 资料配置
-     * @return 主 token；无法解析时返回 {@code null}
-     */
-    public static String resolveLegacyDocumentId(MatterProgressDocConfig cfg) {
-        FeishuResourceRef ref = resolve(cfg);
-        if (ref == null || ref.primaryToken() == null || ref.primaryToken().isBlank()) {
-            return null;
-        }
-        return ref.primaryToken();
-    }
-
-    /** 从 URL 路径与 query 参数解析资源类型与 token。 */
     private static FeishuResourceRef resolveFromUrl(String url) {
         Matcher docx = DOCX_PATH.matcher(url);
         if (docx.find()) {
@@ -125,7 +89,6 @@ public final class FeishuResourceResolver {
         return null;
     }
 
-    /** 从 URL query 字符串提取指定参数值。 */
     private static String queryParam(String url, String name) {
         try {
             String q = URI.create(url).getRawQuery();

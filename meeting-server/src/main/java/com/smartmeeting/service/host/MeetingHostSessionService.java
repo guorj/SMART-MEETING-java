@@ -21,9 +21,11 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
 import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.config.agenda.AgendaBindingConverter;
+import com.smartmeeting.config.feishu.FeishuResourceRef;
+import com.smartmeeting.config.feishu.FeishuResourceResolver;
 import com.smartmeeting.service.feishu.FeishuDocRefs;
-import com.smartmeeting.service.feishu.FeishuResourceRef;
-import com.smartmeeting.service.feishu.FeishuResourceResolver;
+import com.smartmeeting.config.MeetingRuntimeConfig;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -72,39 +74,13 @@ public class MeetingHostSessionService {
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
     private final ObjectMapper objectMapper;
-
-    @Value("${meeting.host.enabled:true}")
-    private boolean hostEnabled;
-
-    @Value("${meeting.host.agenda-enabled:true}")
-    private boolean hostAgendaEnabled;
-
-    @Value("${meeting.host.tts-enabled:true}")
-    private boolean hostTtsEnabled;
-
-    @Value("${meeting.host.roll-call-enabled:true}")
-    private boolean hostRollCallEnabled;
-
-    @Value("${meeting.host.auto-roll-call-after-opening:true}")
-    private boolean hostAutoRollCallAfterOpening;
+    private final MeetingRuntimeConfig runtimeConfig;
 
     @Value("${meeting.host.reminder.topic-minutes-left:3}")
     private int topicWarnMinutes;
 
     @Value("${meeting.host.reminder.meeting-minutes-left:10,5}")
     private String meetingWarnMinutesCsv;
-
-    /** 每人「请某某答到」播报结束后的基础作答秒数（至少 5），不含 ASR 定稿缓冲 */
-    @Value("${meeting.host.roll-call.window-seconds:12}")
-    private int rollCallWindowSeconds;
-
-    /** 在基础窗口之上追加的秒数，缓解定稿滞后导致的漏记；与答到判定、未到超时共用同一 deadline */
-    @Value("${meeting.host.roll-call.asr-grace-seconds:6}")
-    private int hostRollCallAsrGraceSeconds;
-
-    /** 线上参会人打开个人链接盘点的等待秒数，结束后进入线下逐一点名 */
-    @Value("${meeting.host.roll-call.online-inventory-seconds:60}")
-    private int rollCallOnlineInventorySeconds;
 
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
@@ -141,7 +117,8 @@ public class MeetingHostSessionService {
                                      MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
-                                     ObjectMapper objectMapper) {
+                                     ObjectMapper objectMapper,
+                                     MeetingRuntimeConfig runtimeConfig) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
@@ -150,6 +127,7 @@ public class MeetingHostSessionService {
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
         this.objectMapper = objectMapper;
+        this.runtimeConfig = runtimeConfig;
     }
 
     /**
@@ -257,7 +235,7 @@ public class MeetingHostSessionService {
      * @throws BusinessException 主持未启用、会话已存在、会议不存在、议程为空等
      */
     public void start(String meetingId, HostStartRequest body) {
-        if (!hostEnabled) {
+        if (!runtimeConfig.isEnabled()) {
             throw new BusinessException(400, "AI 会议主持人功能未启用");
         }
         if (runtimes.containsKey(meetingId)) {
@@ -299,8 +277,9 @@ public class MeetingHostSessionService {
 
         pushHostState(meetingId);
         String openingLine = "会议开始。当前进行：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。";
-        boolean autoRollCall = hostAutoRollCallAfterOpening && hostRollCallEnabled && canAutoStartRollCall(meeting);
-        if (autoRollCall && hostTtsEnabled) {
+        boolean autoRollCall = runtimeConfig.isAutoRollCallAfterOpening() && runtimeConfig.isRollCallEnabled()
+                && canAutoStartRollCall(meeting, topics);
+        if (autoRollCall && runtimeConfig.isTtsEnabled()) {
             final String mid = meetingId;
             speakAsyncFutureWithDurationMs(meetingId, openingLine).thenAccept(openingDurationMs -> {
                 long waitMs = Math.max(0L, openingDurationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
@@ -312,7 +291,7 @@ public class MeetingHostSessionService {
                     }
                 }, waitMs, TimeUnit.MILLISECONDS);
             });
-        } else if (hostTtsEnabled) {
+        } else if (runtimeConfig.isTtsEnabled()) {
             speakAsync(meetingId, openingLine);
         } else if (autoRollCall) {
             final String mid = meetingId;
@@ -327,18 +306,32 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 会务预设中是否配置了非空应到名单（用于开场后是否自动进入检点）。
+     * 是否满足开场后自动检点：议程含检点会序 + 非空应到名单。
      *
-     * @param meeting 当前会议实体（读取 presetTypeCode 等）
-     * @return 若能解析出至少一名应到人员则为 true；名单不可用或业务校验失败则为 false（不抛异常）
+     * @param meeting 当前会议实体（读取 presetTypeCode、参会人等）
+     * @param topics  主持已解析的会序列表（与 {@link #resolveTopics} 一致）
+     * @return 议程与名单均就绪时为 true
      */
-    private boolean canAutoStartRollCall(Meeting meeting) {
+    private boolean canAutoStartRollCall(Meeting meeting, List<HostTopic> topics) {
+        if (!agendaHasRollCallChapter(topics)) {
+            log.debug("Skip auto roll-call: host agenda has no roll-call chapter meetingId={}",
+                    meeting.getId());
+            return false;
+        }
         try {
             List<RollCallPerson> people = loadRollCallPeopleFromMeeting(meeting);
             return people != null && !people.isEmpty();
         } catch (BusinessException ex) {
             return false;
         }
+    }
+
+    private static boolean agendaHasRollCallChapter(List<HostTopic> topics) {
+        if (topics == null || topics.isEmpty()) {
+            return false;
+        }
+        return RollCallAgendaGate.agendaHasRollCallChapter(
+                topics.stream().map(t -> t.title).toList());
     }
 
     /**
@@ -390,7 +383,7 @@ public class MeetingHostSessionService {
             speakAsync(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
         }
 
-        if (hostRollCallEnabled) {
+        if (runtimeConfig.isRollCallEnabled()) {
             rollCallOnlineInventoryMaybeTimeout(meetingId, rt, now);
             rollCallMaybeTimeout(meetingId, rt, now);
         }
@@ -589,6 +582,10 @@ public class MeetingHostSessionService {
             if (isRollCallActive(rt.rollCallPhase)) {
                 throw new BusinessException(400, "会议检点进行中");
             }
+            if (!agendaHasRollCallChapter(rt.topics)) {
+                throw new BusinessException(400,
+                        "当前会序未配置会议检点环节，请在 host_agenda 中增加标题含「检点」的会序项");
+            }
             Meeting meeting = meetingMapper.selectById(meetingId);
             if (meeting == null) {
                 throw new BusinessException(404, "会议不存在: " + meetingId);
@@ -606,7 +603,7 @@ public class MeetingHostSessionService {
             if (hasOnlinePending) {
                 rt.rollCallPhase = "ONLINE_INVENTORY";
                 rt.rollCallOnlineInventoryDeadlineMs =
-                        System.currentTimeMillis() + Math.max(15, rollCallOnlineInventorySeconds) * 1000L;
+                        System.currentTimeMillis() + Math.max(15, runtimeConfig.getRollCall().getOnlineInventorySeconds()) * 1000L;
                 pushHostState(meetingId);
                 final String mid = meetingId;
                 final long gen = rt.rollCallGeneration;
@@ -1104,21 +1101,22 @@ public class MeetingHostSessionService {
             return false;
         }
         HostTopic t = rt.topics.get(rt.currentIndex);
-        return "RUNNING".equals(t.status) && t.title != null && t.title.contains("检点");
+        return "RUNNING".equals(t.status) && t.title != null && RollCallAgendaGate.agendaHasRollCallChapter(
+                List.of(t.title));
     }
 
     /**
      * @return 每人基础作答秒数，至少为 5，取自配置 {@code meeting.host.roll-call.window-seconds}
      */
     private int rollCallBaseWindowSec() {
-        return Math.max(5, rollCallWindowSeconds);
+        return Math.max(5, runtimeConfig.getRollCall().getWindowSeconds());
     }
 
     /**
      * @return ASR 定稿缓冲秒数，取自配置且下限为 0
      */
     private int boundedAsrGraceSec() {
-        return Math.max(0, hostRollCallAsrGraceSeconds);
+        return Math.max(0, runtimeConfig.getRollCall().getAsrGraceSeconds());
     }
 
     /**
@@ -1552,7 +1550,7 @@ public class MeetingHostSessionService {
                         idx, meetingId);
                 continue;
             }
-            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
+            FeishuResourceRef ref = FeishuResourceResolver.resolve(AgendaBindingConverter.from(cfg));
             if (ref == null) {
                 continue;
             }
@@ -1653,6 +1651,7 @@ public class MeetingHostSessionService {
             }
         }
         ObjectNode rollCall = root.putObject("rollCall");
+        rollCall.put("agendaConfigured", agendaHasRollCallChapter(rt.topics));
         rollCall.put("phase", rt.rollCallPhase);
         rollCall.put("windowSec", rollCallTotalWaitSec());
         rollCall.put("baseWindowSec", rollCallBaseWindowSec());
@@ -1701,7 +1700,7 @@ public class MeetingHostSessionService {
      * @return PCM 按 16k s16le 估算的播放时长（毫秒），供检点 deadline 与自动下一议题等链式调度使用；失败为 0
      */
     private CompletableFuture<Long> speakAsyncFutureWithDurationMs(String meetingId, String text) {
-        if (!hostTtsEnabled) {
+        if (!runtimeConfig.isTtsEnabled()) {
             return CompletableFuture.completedFuture(0L);
         }
         return CompletableFuture.supplyAsync(() -> {
@@ -1767,13 +1766,13 @@ public class MeetingHostSessionService {
      * @param utteranceId 与 tts_meta / chunk 相同的 UUID
      */
     private void requireHostAgendaEnabled() {
-        if (!hostAgendaEnabled) {
+        if (!runtimeConfig.isAgendaEnabled()) {
             throw new BusinessException(400, "会序推进功能未启用");
         }
     }
 
     private void requireHostRollCallEnabled() {
-        if (!hostRollCallEnabled) {
+        if (!runtimeConfig.isRollCallEnabled()) {
             throw new BusinessException(400, "检点功能未启用");
         }
     }

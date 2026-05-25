@@ -22,6 +22,11 @@
             <artifactId>matter-progress-core</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>com.smartmeeting</groupId>
+            <artifactId>meeting-config-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- Spring Boot Starters -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

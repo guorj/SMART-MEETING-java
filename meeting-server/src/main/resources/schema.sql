@@ -204,3 +204,30 @@ CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
     UNIQUE KEY uk_weekly_comparison_job_name (job_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='每周事项对比定时任务（feishu-scheduled-bot + matter-progress-core）';
+
+-- v0.12 系统参数（meeting-admin-server 写，meeting-server reload）
+CREATE TABLE IF NOT EXISTS int_meeting_system_config (
+    id           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    config_key   VARCHAR(128)    NOT NULL COMMENT '参数键',
+    category     VARCHAR(32)     NOT NULL DEFAULT 'host' COMMENT '分组',
+    value_json   JSON            NOT NULL COMMENT '参数值',
+    description  VARCHAR(500)    NULL COMMENT '说明',
+    updated_at   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_meeting_system_config_key (config_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='会议系统可热改参数';
+
+-- v0.13 系统参数变更审计
+CREATE TABLE IF NOT EXISTS int_meeting_system_config_audit (
+    id             BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    config_key     VARCHAR(128)    NOT NULL COMMENT '参数键',
+    action         VARCHAR(16)     NOT NULL COMMENT 'UPSERT|DELETE',
+    old_value_json JSON            NULL COMMENT '变更前',
+    new_value_json JSON            NULL COMMENT '变更后',
+    operator       VARCHAR(64)     NULL COMMENT '操作者',
+    created_at     DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    KEY idx_config_audit_key_time (config_key, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='系统参数变更审计';

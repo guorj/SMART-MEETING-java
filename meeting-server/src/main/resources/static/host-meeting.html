@@ -494,7 +494,7 @@
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
-          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：点击「开始会议」且会议为会务类型 1～5、预设中已配置应到名单时，会先播报<strong>会议开场</strong>，播完后再<strong>自动</strong>进入检点（一般无需再点「开始检点」）；否则请先配置名单后再手动开始。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点；前者记为已完成，后者记为跳过）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
+          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
           <div class="row" style="margin-top:0">
             <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
             <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
@@ -2100,10 +2100,18 @@
         return '';
       }
 
-      /** 当前会序是否为「会议检点」环节（标题含检点或首项） */
-      function isRollCallChapterTopic(topic, topicIndex) {
-        if (topic && String(topic.title || '').indexOf('检点') >= 0) return true;
-        return (topicIndex | 0) === 0;
+      /** 会序列表是否配置了检点环节（任一标题含「检点」） */
+      function agendaHasRollCallChapter(topics) {
+        if (!topics || !topics.length) return false;
+        for (var i = 0; i < topics.length; i++) {
+          if (String(topics[i].title || '').indexOf('检点') >= 0) return true;
+        }
+        return false;
+      }
+
+      /** 当前会序是否为「会议检点」环节（仅标题含「检点」） */
+      function isRollCallChapterTopic(topic) {
+        return topic && String(topic.title || '').indexOf('检点') >= 0;
       }
 
       /**
@@ -2221,17 +2229,21 @@
          * 进入会序 2 及以后须隐藏，避免 DONE 阶段仍占位遮挡会序通报。
          */
         var rollCallActive = phase === 'ACTIVE' || phase === 'ONLINE_INVENTORY' || phase === 'OFFLINE_ROLL_CALL';
+        var rollCallAgendaConfigured = rc.agendaConfigured === true
+            || agendaHasRollCallChapter(topics);
         var curTopic = topics.length > curTopicIdx ? topics[curTopicIdx] : null;
-        var onRollCallChapter = isRollCallChapterTopic(curTopic, curTopicIdx);
-        var showRollCallPanel = rollCallActive || onRollCallChapter;
+        var onRollCallChapter = isRollCallChapterTopic(curTopic);
+        var showRollCallPanel = rollCallAgendaConfigured && (rollCallActive || onRollCallChapter);
         if (rcw) rcw.style.display = showRollCallPanel ? 'block' : 'none';
         var rcList = document.getElementById('rollCallList');
         var rcCd = document.getElementById('rollCallCountdown');
         var btnRs = document.getElementById('btnRollCallStart');
         var btnRk = document.getElementById('btnRollCallSkip');
         if (rcList && rcCd && btnRs && btnRk) {
-          if (!people.length && phase === 'NONE') {
-            rcList.innerHTML = '<p class="muted" style="padding:4px 0">具备应到名单时，开场播完将自动检点；此处也可再次点击「开始检点」发起新一轮。</p>';
+          if (!rollCallAgendaConfigured) {
+            rcList.innerHTML = '<p class="muted" style="padding:4px 0">当前会序未配置检点环节（host_agenda 中需有标题含「检点」的会序项），不会自动检点。</p>';
+          } else if (!people.length && phase === 'NONE') {
+            rcList.innerHTML = '<p class="muted" style="padding:4px 0">已配置检点会序；具备应到名单时开场播完将自动检点，也可手动「开始检点」。</p>';
           } else {
             rcList.innerHTML = people.map(function (p, i) {
               var cur = (phase === 'OFFLINE_ROLL_CALL' || phase === 'ACTIVE') && i === (rc.currentIndex | 0);
@@ -2258,7 +2270,7 @@
           } else {
             rcCd.textContent = '';
           }
-          btnRs.disabled = !meetingLive || rollCallActive;
+          btnRs.disabled = !meetingLive || !rollCallAgendaConfigured || rollCallActive;
           btnRk.disabled = !meetingLive || (phase !== 'OFFLINE_ROLL_CALL' && phase !== 'ACTIVE');
         }
         updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length);

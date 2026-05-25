@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>会议管理后台</title>
+  <link rel="stylesheet" href="/static/admin/admin.css"/>
+</head>
+<body>
+<div id="login-panel" class="panel">
+  <h1>会议管理后台</h1>
+  <p>独立进程 · 默认端口 8766</p>
+  <label>Admin Token <input id="token-input" type="password" autocomplete="off"/></label>
+  <button id="login-btn" type="button">进入</button>
+  <p style="margin-top:1rem"><a id="feishu-login-link" href="/admin/oauth/feishu/start">飞书 OAuth 登录（需配置启用）</a></p>
+</div>
+<div id="app" class="hidden">
+  <aside id="sidebar"></aside>
+  <main>
+    <header id="top-bar"><span id="route-title"></span></header>
+    <div id="module-root"></div>
+  </main>
+</div>
+<script src="/static/admin/admin.js"></script>
+</body>
+</html>

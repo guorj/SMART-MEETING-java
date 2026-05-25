@@ -55,7 +55,7 @@
 | ---- | ---- | -------- | ---- |
 | **core** | `smart-meeting-java/matter-progress-core` | jar | 对比流水线、JDBC、飞书 Doc、LLM |
 | **Bot 壳** | `feishu-scheduled-bot` | Spring Boot :8764 | Quartz 同步、`WeeklyMatterComparisonJob`、HTTP `/execute`、Spring 装配 |
-| **读侧** | `meeting-server` | Spring Boot :8765 | **不依赖 core**；`PresetAgendaDocService` 只读 DB |
+| **读侧** | `meeting-server` | Spring Boot :8765 | 依赖 `meeting-config-core`；`PresetAgendaDocService` 委托 `PresetAgendaMergeEngine` |
 
 Bot 装配类：`com.example.feishubot.config.MatterProgressCoreConfiguration`。  
 用户手册：[USER-MANUAL §1.4](USER-MANUAL.md)、[Bot §12.0](../../feishu-scheduled-bot/docs/USER-MANUAL.md)、[matter-progress-core/README.md](../matter-progress-core/README.md)。

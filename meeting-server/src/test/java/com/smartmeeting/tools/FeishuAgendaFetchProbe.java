@@ -1,8 +1,8 @@
 package com.smartmeeting.tools;
 
 import com.smartmeeting.service.FeishuService;
-import com.smartmeeting.service.feishu.FeishuResourceRef;
-import com.smartmeeting.service.feishu.FeishuResourceResolver;
+import com.smartmeeting.config.feishu.FeishuResourceRef;
+import com.smartmeeting.config.feishu.FeishuResourceResolver;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

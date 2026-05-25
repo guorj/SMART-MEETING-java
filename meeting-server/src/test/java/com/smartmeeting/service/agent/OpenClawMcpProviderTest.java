@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.smartmeeting.service.feishu.FeishuResourceRef;
+import com.smartmeeting.config.feishu.FeishuResourceRef;
 import org.junit.jupiter.api.BeforeEach;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;

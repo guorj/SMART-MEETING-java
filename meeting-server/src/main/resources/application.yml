@@ -150,6 +150,10 @@ meeting:
     refresh-enabled: ${MEETING_CACHE_REFRESH_ENABLED:true}
     refresh-cron: ${MEETING_CACHE_REFRESH_CRON:0 */10 * * * ?}
 
+  internal:
+    reload-enabled: ${MEETING_INTERNAL_RELOAD_ENABLED:true}
+    reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
+
   host:
     enabled: ${MEETING_HOST_ENABLED:true}
     # 会序推进（下一议题/跳过/加时）；轻量主持须保持 true

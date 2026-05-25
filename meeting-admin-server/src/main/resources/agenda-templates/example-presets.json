@@ -1,0 +1,12 @@
+{
+  "1": {
+    "displayName": "示例-综合例会（只读文件源）",
+    "hostAgenda": {
+      "items": [
+        { "title": "开场", "minutes": 5 },
+        { "title": "工作检点", "minutes": 15 },
+        { "title": "事项进度通报", "minutes": 20 }
+      ]
+    }
+  }
+}

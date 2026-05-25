@@ -1,6 +1,9 @@
 package com.smartmeeting.service.feishu;
 
-import com.smartmeeting.entity.MatterProgressDocConfig;
+import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.feishu.FeishuResourceKind;
+import com.smartmeeting.config.feishu.FeishuResourceRef;
+import com.smartmeeting.config.feishu.FeishuResourceResolver;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -101,8 +104,9 @@ class FeishuResourceResolverTest {
     /** 从配置对象解析 legacy documentId。 */
     @Test
     void legacyDocumentIdFromConfig() {
-        MatterProgressDocConfig c = new MatterProgressDocConfig();
-        c.setFeishuDocUrl("https://a.feishu.cn/base/appTok?table=tblX");
+        AgendaDocBindingSnapshot c = AgendaDocBindingSnapshot.builder()
+                .feishuDocUrl("https://a.feishu.cn/base/appTok?table=tblX")
+                .build();
         assertEquals("appTok", FeishuResourceResolver.resolveLegacyDocumentId(c));
     }
 
