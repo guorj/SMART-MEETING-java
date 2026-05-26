@@ -35,6 +35,7 @@ meeting:
       - api-reference
       - presets
       - weekly-jobs
+      - push-bot
       - meetings
       - settings
       - observability
@@ -45,6 +46,7 @@ meeting:
   runtime:
     meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765}
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
+    scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
     internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
   oauth:
     feishu:

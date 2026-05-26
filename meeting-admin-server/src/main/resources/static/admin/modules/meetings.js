@@ -13,7 +13,8 @@ AdminModules.register({
         </div>
       </div>
       <div class="panel table-wrap"><table id="m-table"><thead><tr><th>ID</th><th>标题</th><th>状态</th><th>会务</th><th>操作</th></tr></thead><tbody></tbody></table></div>
-      <pre id="m-detail" class="panel hidden"></pre>`;
+      <pre id="m-detail" class="panel hidden"></pre>
+      <p id="m-push-link" class="hidden"></p>`;
     const load = async () => {
       const status = document.getElementById('m-status').value;
       const preset = document.getElementById('m-preset').value;
@@ -35,6 +36,9 @@ AdminModules.register({
           const det = document.getElementById('m-detail');
           det.classList.remove('hidden');
           det.textContent = JSON.stringify(d, null, 2);
+          const pushLink = document.getElementById('m-push-link');
+          pushLink.classList.remove('hidden');
+          pushLink.innerHTML = '<a href="#/push-bot?tab=logs&meetingId=' + encodeURIComponent(a.dataset.id) + '">查看该会议推送日志 →</a>';
         };
       });
       tbody.querySelectorAll('a.m-end').forEach(a => {

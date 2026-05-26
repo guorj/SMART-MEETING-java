@@ -20,8 +20,8 @@ public class MeetingNotificationProperties {
     /** feishu-scheduled-bot 服务基地址 */
     private String botBaseUrl = "http://127.0.0.1:8764";
 
-    /** 调用 bot 接口时使用的 API Key */
-    private String botApiKey = "";
+    /** 调用 bot 接口时使用的 API Key（{@code meeting.notification.scheduled-bot-apikey}） */
+    private String scheduledBotApikey = "";
 
     /** Bot 调用失败时是否回退至 FeishuService 直连飞书 API */
     private boolean fallbackDirect = true;

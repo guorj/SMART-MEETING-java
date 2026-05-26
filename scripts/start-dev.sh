@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Smart Meeting dev launcher: meeting-server (:8765) / meeting-admin-server (:8766)
+# Smart Meeting dev restarter: meeting-server (:8765) / meeting-admin-server (:8766)
 # Usage:
 #   ./scripts/start-dev.sh              # interactive menu
-#   ./scripts/start-dev.sh server
-#   ./scripts/start-dev.sh admin
-#   ./scripts/start-dev.sh both
+#   ./scripts/start-dev.sh server       # restart meeting-server
+#   ./scripts/start-dev.sh admin        # restart meeting-admin
+#   ./scripts/start-dev.sh both         # restart both
 #   ./scripts/start-dev.sh both --local-deps
-#   ./scripts/start-dev.sh deps         # docker mysql+redis only
+#   ./scripts/start-dev.sh deps         # restart docker mysql+redis
 #   ./scripts/start-dev.sh compile
 #
 # Maven: 默认使用 PATH 中的本机 mvn（WSL 如 /usr/bin/mvn）；仅当无 mvn 或 USE_MVNW=1 时用 ./mvnw
@@ -62,7 +62,7 @@ export SPRING_PROFILES_ACTIVE ADMIN_TOKEN INTERNAL_RELOAD_TOKEN MEETING_SERVER_U
 banner() {
   echo ""
   echo "========================================"
-  echo "  Smart Meeting Dev Launcher"
+  echo "  Smart Meeting Dev Restarter"
   echo "  Root: $ROOT"
   echo "========================================"
   echo ""
@@ -137,8 +137,9 @@ start_local_deps() {
   export DB_USERNAME="${DB_USERNAME:-intelligence}"
   export DB_PASSWORD="${DB_PASSWORD:-intelligence@2026}"
 
-  echo "[..] docker compose up mysql redis ..."
+  echo "[..] docker compose up + restart mysql redis ..."
   docker compose -f "$ROOT/docker-compose.yml" up -d mysql redis
+  docker compose -f "$ROOT/docker-compose.yml" restart mysql redis
   DB_HOST="127.0.0.1"
   REDIS_HOST="127.0.0.1"
   export DB_HOST REDIS_HOST
@@ -184,11 +185,97 @@ compile_modules_for() {
   esac
 }
 
-# 在模块目录执行 spring-boot:run（避免 -pl -am 在父 pom 上跑导致无 mainClass）
-spawn_module() {
+kill_pids() {
+  local pids="$1"
+  [[ -n "$pids" ]] || return 0
+  local pid
+  for pid in $pids; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    kill "$pid" 2>/dev/null || true
+  done
+  sleep 1
+  for pid in $pids; do
+    [[ "$pid" =~ ^[0-9]+$ ]] || continue
+    kill -0 "$pid" 2>/dev/null && kill -9 "$pid" 2>/dev/null || true
+  done
+}
+
+pids_on_port() {
+  local port="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -ti ":$port" 2>/dev/null || true
+    return 0
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${port}/tcp" 2>/dev/null | tr -s ' ' '\n' | grep -E '^[0-9]+$' || true
+    return 0
+  fi
+  if command -v ss >/dev/null 2>&1; then
+    ss -lptn "sport = :$port" 2>/dev/null | sed -n 's/.*pid=\([0-9]*\).*/\1/p' || true
+    return 0
+  fi
+  echo ""
+}
+
+stop_module() {
   local module="$1"
   local port="$2"
   local title="$3"
+  local pidfile="$ROOT/logs/${module}.pid"
+  local stopped=false
+
+  if [[ -f "$pidfile" ]]; then
+    local pid
+    pid="$(cat "$pidfile" 2>/dev/null || true)"
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      echo "[..] stopping $title (pid $pid from $pidfile) ..."
+      kill_pids "$pid"
+      stopped=true
+    fi
+    rm -f "$pidfile"
+  fi
+
+  if tcp_open 127.0.0.1 "$port"; then
+    local port_pids
+    port_pids="$(pids_on_port "$port")"
+    if [[ -n "$port_pids" ]]; then
+      echo "[..] stopping $title on :$port (pids: $port_pids) ..."
+      kill_pids "$port_pids"
+      stopped=true
+    fi
+  fi
+
+  if command -v pkill >/dev/null 2>&1; then
+    if pgrep -f "${ROOT}/${module}.*spring-boot:run" >/dev/null 2>&1; then
+      echo "[..] stopping $title (spring-boot:run) ..."
+      pkill -f "${ROOT}/${module}.*spring-boot:run" 2>/dev/null || true
+      sleep 1
+      stopped=true
+    fi
+  fi
+
+  if [[ "$stopped" == true ]]; then
+    local i
+    for i in $(seq 1 15); do
+      tcp_open 127.0.0.1 "$port" || break
+      sleep 1
+    done
+    if tcp_open 127.0.0.1 "$port"; then
+      echo "[WARN] :$port still in use after stop; restart may fail" >&2
+    else
+      echo "[OK] $title stopped"
+    fi
+  else
+    echo "[..] $title not running on :$port"
+  fi
+}
+
+# 先停再起：在模块目录执行 spring-boot:run（避免 -pl -am 在父 pom 上跑导致无 mainClass）
+restart_module() {
+  local module="$1"
+  local port="$2"
+  local title="$3"
+  stop_module "$module" "$port" "$title"
   local mod_dir="${ROOT}/${module}"
   local log="$ROOT/logs/${module}.log"
   local pidfile="$ROOT/logs/${module}.pid"
@@ -201,28 +288,28 @@ spawn_module() {
   if [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]] || [[ -n "${WINDIR:-}" ]]; then
     if command -v start >/dev/null 2>&1; then
       start "$title" bash -lc "$run_line"
-      echo "[OK] started $title in new window -> http://127.0.0.1:$port"
+      echo "[OK] restarted $title in new window -> http://127.0.0.1:$port"
       return 0
     fi
     if command -v cmd.exe >/dev/null 2>&1; then
       cmd.exe //c start "" bash -lc "$run_line"
-      echo "[OK] started $title in new window -> http://127.0.0.1:$port"
+      echo "[OK] restarted $title in new window -> http://127.0.0.1:$port"
       return 0
     fi
   fi
   if command -v gnome-terminal >/dev/null 2>&1; then
     gnome-terminal --title="$title" -- bash -lc "$run_line; exec bash"
-    echo "[OK] started $title -> http://127.0.0.1:$port"
+    echo "[OK] restarted $title -> http://127.0.0.1:$port"
     return 0
   fi
   if command -v osascript >/dev/null 2>&1; then
     osascript -e "tell app \"Terminal\" to do script \"$run_line\""
-    echo "[OK] started $title -> http://127.0.0.1:$port"
+    echo "[OK] restarted $title -> http://127.0.0.1:$port"
     return 0
   fi
 
   mkdir -p "$ROOT/logs"
-  echo "[..] no GUI terminal; background $module (log: $log)"
+  echo "[..] no GUI terminal; background restart $module (log: $log)"
   : >"$log"
   nohup bash -lc "$run_line" >>"$log" 2>&1 &
   echo $! >"$pidfile"
@@ -255,11 +342,11 @@ print_menu_options() {
   {
     echo ""
     echo "./scripts/start-dev.sh              # 交互菜单"
-    echo "./scripts/start-dev.sh server       # meeting-server :8765"
-    echo "./scripts/start-dev.sh admin        # meeting-admin :8766"
-    echo "./scripts/start-dev.sh both         # 两个都起"
-    echo "./scripts/start-dev.sh both --local-deps   # 先 docker 起 MySQL+Redis"
-    echo "./scripts/start-dev.sh deps         # 只起依赖"
+    echo "./scripts/start-dev.sh server       # 重启 meeting-server :8765"
+    echo "./scripts/start-dev.sh admin        # 重启 meeting-admin :8766"
+    echo "./scripts/start-dev.sh both         # 重启两个服务"
+    echo "./scripts/start-dev.sh both --local-deps   # 重启 MySQL+Redis 并重启两个服务"
+    echo "./scripts/start-dev.sh deps         # 只重启 docker 依赖"
     echo "./scripts/start-dev.sh compile      # 只编译"
     echo ""
     echo "Choice: 1-7 对应上表顺序，或 server/admin/both/deps/compile，0 退出"
@@ -337,7 +424,7 @@ run_target() {
     start_local_deps || true
     if [[ "$choice" == deps ]]; then
       [[ "$SKIP_DEP_CHECK" == true ]] || check_deps || true
-      echo "Deps ready. Run: ./scripts/start-dev.sh server|admin|both"
+      echo "Deps restarted. Run: ./scripts/start-dev.sh server|admin|both"
       exit 0
     fi
   fi
@@ -361,19 +448,19 @@ run_target() {
 
   case "$choice" in
     server)
-      spawn_module meeting-server 8765 meeting-server
+      restart_module meeting-server 8765 meeting-server
       echo "Host: http://127.0.0.1:8765/host/{meetingId}"
       ;;
     admin)
-      spawn_module meeting-admin-server 8766 meeting-admin-server
+      restart_module meeting-admin-server 8766 meeting-admin-server
       echo "Admin: http://127.0.0.1:8766/admin  X-Admin-Token: $ADMIN_TOKEN"
       ;;
     both)
-      spawn_module meeting-server 8765 meeting-server
+      restart_module meeting-server 8765 meeting-server
       sleep 2
-      spawn_module meeting-admin-server 8766 meeting-admin-server
+      restart_module meeting-admin-server 8766 meeting-admin-server
       echo ""
-      echo "Both started. Wait for :8765 before admin internal APIs."
+      echo "Both restarted. Wait for :8765 before admin internal APIs."
       echo "  Admin: http://127.0.0.1:8766/admin  token=$ADMIN_TOKEN"
       echo "  Server: http://127.0.0.1:8765"
       ;;
@@ -393,5 +480,5 @@ run_target() {
 choice="$(resolve_target | tail -1)"
 choice="$(echo "$choice" | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
 [[ "$choice" == exit ]] && exit 0
-[[ -z "$choice" ]] && { echo "未选择启动项" >&2; exit 1; }
+[[ -z "$choice" ]] && { echo "未选择重启项" >&2; exit 1; }
 run_target "$choice"

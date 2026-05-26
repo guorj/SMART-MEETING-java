@@ -8,8 +8,9 @@ AdminModules.register({
     const datalistOptions = names => names.map(n => `<option value="${esc(n)}"></option>`).join('');
 
     root.innerHTML = `
-      <div class="panel"><p>保存后需重启 feishu-scheduled-bot 或刷新 Quartz。bot 手动执行见 USER-MANUAL §12。</p>
-        <button class="primary" id="wj-new">新建任务</button></div>
+      <div class="panel"><p>保存后点击「同步 Quartz」或等待 bot 轮询（约 15s）。</p>
+        <button class="primary" id="wj-new">新建任务</button>
+        <button type="button" id="wj-reload">同步 Quartz</button></div>
       <div class="panel"><table><tr><th>id</th><th>name</th><th>on</th><th>cron</th><th>last</th><th></th></tr>
         <tbody id="wj-tbody"></tbody></table></div>
       <div class="panel hidden" id="wj-editor">
@@ -42,6 +43,15 @@ AdminModules.register({
       el.textContent = text;
     };
 
+    document.getElementById('wj-reload').onclick = async () => {
+      try {
+        await AdminApi.fetch('/api/v1/admin/weekly-jobs/reload-schedule', { method: 'POST' });
+        alert('Quartz 已同步');
+      } catch (e) {
+        alert('同步失败: ' + e.message);
+      }
+    };
+
     const showEditor = (job) => {
       document.getElementById('wj-editor').classList.remove('hidden');
       document.getElementById('wj-save-msg').classList.add('hidden');
@@ -58,11 +68,26 @@ AdminModules.register({
 
     jobs.forEach(j => {
       const tr = document.createElement('tr');
-      tr.innerHTML = '<td>' + j.id + '</td><td>' + j.jobName + '</td><td>' + j.enabled + '</td><td>' + j.cronExpression + '</td><td>' + (j.lastRunStatus || '-') + '</td><td><a href="#" data-id="' + j.id + '">编辑</a></td>';
+      tr.innerHTML = '<td>' + j.id + '</td><td>' + j.jobName + '</td><td>' + j.enabled + '</td><td>' + j.cronExpression + '</td><td>' + (j.lastRunStatus || '-') + '</td><td>'
+        + '<a href="#" class="wj-edit" data-id="' + j.id + '">编辑</a> '
+        + '<a href="#" class="wj-exec" data-id="' + j.id + '">执行</a></td>';
       tbody.appendChild(tr);
     });
-    tbody.querySelectorAll('a').forEach(a => {
+    tbody.querySelectorAll('a.wj-edit').forEach(a => {
       a.onclick = e => { e.preventDefault(); showEditor(jobs.find(x => String(x.id) === a.dataset.id)); };
+    });
+    tbody.querySelectorAll('a.wj-exec').forEach(a => {
+      a.onclick = async e => {
+        e.preventDefault();
+        if (!confirm('立即执行对比任务 #' + a.dataset.id + '？')) return;
+        try {
+          const r = await AdminApi.fetch('/api/v1/admin/weekly-jobs/' + a.dataset.id + '/execute', { method: 'POST' });
+          alert('结果: ' + (r.status || JSON.stringify(r)) + (r.generatedReportUrl ? '\n' + r.generatedReportUrl : ''));
+          location.reload();
+        } catch (err) {
+          alert('执行失败: ' + err.message);
+        }
+      };
     });
     document.getElementById('wj-new').onclick = () => showEditor(null);
     document.getElementById('wj-cancel').onclick = () => document.getElementById('wj-editor').classList.add('hidden');
@@ -101,8 +126,11 @@ AdminModules.register({
         } else {
           await AdminApi.fetch('/api/v1/admin/weekly-jobs', { method: 'POST', body: JSON.stringify(body) });
         }
-        showMsg('已保存', false);
-        setTimeout(() => location.reload(), 400);
+        try {
+          await AdminApi.fetch('/api/v1/admin/weekly-jobs/reload-schedule', { method: 'POST' });
+        } catch (_) { /* bot 未配置时仍视为保存成功 */ }
+        showMsg('已保存并已请求同步 Quartz', false);
+        setTimeout(() => location.reload(), 500);
       } catch (e) {
         showMsg('保存失败: ' + (e.message || '未知错误'), true);
       }

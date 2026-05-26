@@ -57,9 +57,12 @@
   }
 
   async function navigate(hash) {
-    location.hash = hash || '#/presets';
-    const route = (location.hash || '#/presets').replace('#', '');
-    const m = modules.find(x => x.uiRouteHash === '#' + route || x.uiRouteHash === location.hash);
+    const fullHash = hash || location.hash || '#/presets';
+    if (hash) {
+      location.hash = hash;
+    }
+    const routePath = (location.hash || '#/presets').replace('#', '').split('?')[0];
+    const m = modules.find(x => x.uiRouteHash === '#' + routePath);
     if (!m) return;
     await ensureScript(m);
     document.querySelectorAll('#sidebar-nav button').forEach(b => {
@@ -68,7 +71,7 @@
     document.getElementById('route-title').textContent = m.displayName;
     const root = document.getElementById('module-root');
     root.innerHTML = '';
-    const mod = AdminModules.registry[route] || AdminModules.registry[m.uiRouteHash.replace('#', '')];
+    const mod = AdminModules.registry[routePath];
     if (mod && mod.mount) mod.mount(root);
     else root.innerHTML = '<p class="msg">模块脚本未加载</p>';
   }

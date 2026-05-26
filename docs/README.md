@@ -6,6 +6,7 @@
 |------|------|
 | [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（§1.2–1.4 双服务 + **matter-progress-core**；§3.8 配置分层） |
 | [**weekly-matter-comparison.md**](weekly-matter-comparison.md) | **会前事项对比通报**（v0.9：bot 定时对比、config_role、Job 参数、故障排查） |
+| [**langfuse-integration-plan.md**](langfuse-integration-plan.md) | **Langfuse Prompt 管理集成方案**（项目结构图、分期落地、PromptRegistry 设计） |
 | [**meeting-admin.md**](meeting-admin.md) | **会议管理后台**（`meeting-admin-server` :8766，与 meeting-server 分离启动） |
 | [`scripts/start-dev.sh`](../scripts/start-dev.sh) | 开发一键启动 server / admin / both + 依赖检查 |
 | [admin-extensibility.md](admin-extensibility.md) | 后台 L1/L2/L3 扩展点开发说明 |

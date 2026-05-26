@@ -4,6 +4,7 @@ import com.smartmeeting.admin.api.dto.ApiResponse;
 import com.smartmeeting.admin.api.dto.WeeklyJobDto;
 import com.smartmeeting.admin.api.dto.MatterConfigOptionDto;
 import com.smartmeeting.admin.service.AgendaConfigService;
+import com.smartmeeting.admin.service.BotBridgeService;
 import com.smartmeeting.admin.service.WeeklyJobAdminService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +19,7 @@ public class WeeklyJobAdminController {
 
     private final WeeklyJobAdminService weeklyJobAdminService;
     private final AgendaConfigService agendaConfigService;
+    private final BotBridgeService botBridge;
 
     @GetMapping("/matter-config-options")
     public ApiResponse<List<MatterConfigOptionDto>> matterOptions(
@@ -50,5 +52,15 @@ public class WeeklyJobAdminController {
     public ApiResponse<Void> delete(@PathVariable long id) {
         weeklyJobAdminService.delete(id);
         return ApiResponse.ok();
+    }
+
+    @PostMapping("/{id}/execute")
+    public ApiResponse<Map<String, Object>> execute(@PathVariable long id) {
+        return ApiResponse.ok(botBridge.executeWeeklyComparison(id));
+    }
+
+    @PostMapping("/reload-schedule")
+    public ApiResponse<Map<String, Object>> reloadSchedule() {
+        return ApiResponse.ok(botBridge.reloadSchedule());
     }
 }

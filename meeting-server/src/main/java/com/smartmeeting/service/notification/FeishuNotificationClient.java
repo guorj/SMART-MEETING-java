@@ -49,7 +49,7 @@ public class FeishuNotificationClient {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-API-Key", properties.getBotApiKey());
+        headers.set("X-API-Key", properties.getScheduledBotApikey());
 
         List<CardElementDto> cardElements = elements.stream()
                 .map(e -> new CardElementDto(
@@ -114,7 +114,7 @@ public class FeishuNotificationClient {
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.set("X-API-Key", properties.getBotApiKey());
+        headers.set("X-API-Key", properties.getScheduledBotApikey());
 
         EventPushBody body = new EventPushBody(
                 "smart-meeting",

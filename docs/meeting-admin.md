@@ -43,8 +43,9 @@ cd smart-meeting-java
 |---------|------|
 | `api-reference` | **数据更新 API** 目录：方法/路径/请求响应示例/cURL（`GET /api/v1/admin/api-reference/catalog`） |
 | `presets` | 会务预设 `int_meeting_type_preset`（会序+资料一体：`host_agenda` v2 `items[].docs[]`） |
-| `weekly-jobs` | `int_weekly_matter_comparison_job` CRUD |
-| `meetings` | 会议列表/详情/主持与录音链接 |
+| `weekly-jobs` | `int_weekly_matter_comparison_job` CRUD；**立即执行**、**同步 Quartz**（经 bot API） |
+| `push-bot` | feishu-scheduled-bot **推送任务 / 日志**（经 `BotBridgeService` 代理 `/api/tasks`、`/api/logs`） |
+| `meetings` | 会议列表/详情/主持与录音链接；详情可跳转 **会议推送日志** |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
 
 ## 系统参数热加载
@@ -57,6 +58,22 @@ cd smart-meeting-java
 
 - `INTERNAL_RELOAD_TOKEN`（默认 `dev-internal-reload`）
 - `ADMIN_TOKEN` / `MEETING_SERVER_URL`
+- `MEETING_NOTIFY_BOT_URL` / `SCHEDULED_BOT_APIKEY`（默认 `jq_int_meeting_key`；三进程须相同）
+- 生产反代示例：`https://oa.qdyhjz.cn/scheduled-bot`（Nginx **不剥**前缀；bot `prod` 配置 `server.servlet.context-path=/scheduled-bot`，与 meeting-server `/meeting-server` 同理）
+
+## Bot 桥接（推送调度）
+
+`meeting-admin-server` 通过 `BotBridgeService` 持有 `X-API-Key`，浏览器仅使用 `X-Admin-Token`：
+
+| Admin API | Bot API |
+|-----------|---------|
+| `GET/POST/PUT/DELETE /api/v1/admin/push-tasks/*` | `/api/tasks/*` |
+| `GET /api/v1/admin/push-logs` | `/api/logs`（含 `meetingId` 筛选） |
+| `POST /api/v1/admin/bot/reload-schedule` | `/api/admin/reload-schedule` |
+| `POST /api/v1/admin/weekly-jobs/{id}/execute` | `/api/weekly-comparison/jobs/{id}/execute` |
+| `GET /api/v1/admin/integrations/health` | bot 可达性探测 |
+
+UI：`/admin#/push-bot`（任务 + 日志 Tab）；`/admin#/weekly-jobs`（对比任务 + 立即执行）。
 
 ## DDL
 
@@ -78,7 +95,7 @@ DDL：除 `v0.12` 外，执行 `v0.13-meeting-system-config-audit.sql`（新库�
 
 - UI：`/admin#/api-reference`
 - 元数据：`GET /api/v1/admin/api-reference/meta`
-- 目录：`GET /api/v1/admin/api-reference/catalog`（源码维护于 `AdminDataApiCatalogService`）
+- 目录：`GET /api/v1/admin/api-reference/catalog`（源码维护于 `AdminDataApiCatalogService`）    
 - 覆盖：agenda-config、meetings、system-config、weekly-jobs、meeting-server internal 桥接接口
 
 ## P1.5 / 继续迭代（当前）

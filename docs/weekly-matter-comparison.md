@@ -238,7 +238,7 @@ INSERT INTO int_weekly_matter_comparison_job (
 
 ```http
 POST /api/weekly-comparison/jobs/{id}/execute
-X-API-Key: <FEISHU_API_KEY>
+X-API-Key: <SCHEDULED_BOT_APIKEY>
 ```
 
 响应：`status=SUCCESS` 时含 `generatedReportUrl`；失败 `409` + `error`。

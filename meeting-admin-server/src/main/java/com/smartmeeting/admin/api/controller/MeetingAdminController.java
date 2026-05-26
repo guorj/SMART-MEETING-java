@@ -6,6 +6,8 @@ import com.smartmeeting.admin.api.dto.MeetingAdminDetailDto;
 import com.smartmeeting.admin.api.dto.MeetingAdminLinksDto;
 import com.smartmeeting.admin.api.dto.MeetingAdminSummaryDto;
 import com.smartmeeting.admin.service.MeetingAdminService;
+import com.smartmeeting.admin.service.BotBridgeService;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -15,6 +17,7 @@ import org.springframework.web.bind.annotation.*;
 public class MeetingAdminController {
 
     private final MeetingAdminService meetingAdminService;
+    private final BotBridgeService botBridge;
 
     @GetMapping
     public ApiResponse<Page<MeetingAdminSummaryDto>> list(
@@ -39,5 +42,16 @@ public class MeetingAdminController {
     public ApiResponse<java.util.Map<String, Boolean>> forceEnd(@PathVariable String meetingId) {
         boolean ok = meetingAdminService.forceEndMeeting(meetingId);
         return ApiResponse.ok(java.util.Map.of("success", ok));
+    }
+
+    @GetMapping("/{meetingId}/push-logs")
+    public ApiResponse<JsonNode> pushLogs(
+            @PathVariable String meetingId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return ApiResponse.ok(botBridge.get("/api/logs", java.util.Map.of(
+                "meetingId", meetingId,
+                "page", String.valueOf(page),
+                "size", String.valueOf(size))));
     }
 }
