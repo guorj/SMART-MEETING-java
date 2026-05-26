@@ -1,0 +1,518 @@
+package com.smartmeeting.config.agenda;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartmeeting.config.feishu.FeishuResourceResolver;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Optional;
+
+/**
+ * host_agenda JSON 编解码（v2：items[].docs[] 为资料权威存储）。
+ */
+public final class HostAgendaJsonCodec {
+
+    public static final int VERSION = 2;
+    private static final DateTimeFormatter ISO_LOCAL = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+
+    private HostAgendaJsonCodec() {
+    }
+
+    public static List<HostAgendaItem> parseItems(ObjectMapper mapper, String hostAgendaJson) {
+        List<HostAgendaItem> out = new ArrayList<>();
+        if (hostAgendaJson == null || hostAgendaJson.isBlank()) {
+            return out;
+        }
+        try {
+            JsonNode root = mapper.readTree(hostAgendaJson);
+            JsonNode items = root.path("items");
+            if (!items.isArray()) {
+                return out;
+            }
+            for (JsonNode n : items) {
+                HostAgendaItem item = parseItemNode(n);
+                if (item != null) {
+                    out.add(item);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return out;
+    }
+
+    public static HostAgendaItem parseItemAtIndex(ObjectMapper mapper, String hostAgendaJson, int agendaIndex) {
+        if (hostAgendaJson == null || hostAgendaJson.isBlank() || agendaIndex < 0) {
+            return null;
+        }
+        try {
+            JsonNode root = mapper.readTree(hostAgendaJson);
+            JsonNode items = root.path("items");
+            if (!items.isArray() || agendaIndex >= items.size()) {
+                return null;
+            }
+            return parseItemNode(items.get(agendaIndex));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    public static String toJson(ObjectMapper mapper, List<HostAgendaItem> items) {
+        if (items == null || items.isEmpty()) {
+            return null;
+        }
+        try {
+            ObjectNode root = mapper.createObjectNode();
+            root.put("version", VERSION);
+            ArrayNode arr = root.putArray("items");
+            for (HostAgendaItem item : items) {
+                if (item == null || item.getTitle() == null || item.getTitle().isBlank()) {
+                    continue;
+                }
+                ObjectNode n = arr.addObject();
+                n.put("title", item.getTitle().trim());
+                int min = item.getMinutes() != null && item.getMinutes() > 0 ? item.getMinutes() : 10;
+                n.put("minutes", min);
+                if (item.getDetail() != null && !item.getDetail().isBlank()) {
+                    n.put("detail", item.getDetail().trim());
+                }
+                List<HostAgendaDocBinding> docs = normalizedDocs(item);
+                if (!docs.isEmpty()) {
+                    ArrayNode docArr = n.putArray("docs");
+                    for (HostAgendaDocBinding doc : docs) {
+                        writeDocNode(docArr.addObject(), doc);
+                    }
+                }
+            }
+            if (arr.isEmpty()) {
+                return null;
+            }
+            return mapper.writerWithDefaultPrettyPrinter().writeValueAsString(root);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    public static List<AgendaDocBindingSnapshot> extractAllBindings(int presetTypeCode, String hostAgendaJson,
+                                                                    ObjectMapper mapper) {
+        List<AgendaDocBindingSnapshot> out = new ArrayList<>();
+        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
+        for (int i = 0; i < items.size(); i++) {
+            HostAgendaItem item = items.get(i);
+            if (item.getDocs() == null) {
+                continue;
+            }
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc == null || !doc.isEnabled()) {
+                    continue;
+                }
+                out.add(toSnapshot(doc, presetTypeCode, i));
+            }
+        }
+        return out;
+    }
+
+    public static List<AgendaDocBindingSnapshot> extractBindingsForAgenda(int presetTypeCode, String hostAgendaJson,
+                                                                          int agendaIndex, ObjectMapper mapper) {
+        HostAgendaItem item = parseItemAtIndex(mapper, hostAgendaJson, agendaIndex);
+        if (item == null || item.getDocs() == null) {
+            return List.of();
+        }
+        List<AgendaDocBindingSnapshot> out = new ArrayList<>();
+        for (HostAgendaDocBinding doc : item.getDocs()) {
+            if (doc != null && doc.isEnabled()) {
+                out.add(toSnapshot(doc, presetTypeCode, agendaIndex));
+            }
+        }
+        out.sort(Comparator
+                .comparingInt((AgendaDocBindingSnapshot b) -> b.getResourceSlot() != null ? b.getResourceSlot() : 0)
+                .thenComparing(b -> b.getConfigName() != null ? b.getConfigName() : ""));
+        return out;
+    }
+
+    public static Optional<AgendaReportBinding> findReportBinding(String hostAgendaJson, int agendaIndex,
+                                                                  ObjectMapper mapper) {
+        HostAgendaItem item = parseItemAtIndex(mapper, hostAgendaJson, agendaIndex);
+        if (item == null || item.getDocs() == null) {
+            return Optional.empty();
+        }
+        HostAgendaDocBinding row = item.getDocs().stream()
+                .filter(d -> d != null && d.isEnabled())
+                .filter(d -> {
+                    String role = d.getRole() != null ? d.getRole().trim().toUpperCase(Locale.ROOT) : "";
+                    return "OUTPUT".equals(role) || "BOTH".equals(role);
+                })
+                .max(Comparator.comparingInt(HostAgendaDocBinding::resolvedSlot))
+                .orElse(null);
+        if (row == null) {
+            return Optional.empty();
+        }
+        String outputFeishu = null;
+        if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getRole()))
+                && row.getUrl() != null && !row.getUrl().isBlank()) {
+            outputFeishu = row.getUrl().trim();
+        }
+        return Optional.of(new AgendaReportBinding(
+                row.getGeneratedReportUrl(),
+                row.getGeneratedReportAt(),
+                outputFeishu));
+    }
+
+    public static Optional<LocatedDoc> findDocByConfigName(String hostAgendaJson, String configName,
+                                                             ObjectMapper mapper) {
+        if (configName == null || configName.isBlank()) {
+            return Optional.empty();
+        }
+        String name = configName.trim();
+        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
+        for (int i = 0; i < items.size(); i++) {
+            if (items.get(i).getDocs() == null) {
+                continue;
+            }
+            for (HostAgendaDocBinding doc : items.get(i).getDocs()) {
+                if (doc != null && name.equals(doc.getConfigName())) {
+                    return Optional.of(new LocatedDoc(i, doc));
+                }
+            }
+        }
+        return Optional.empty();
+    }
+
+    public static String updateGeneratedReport(ObjectMapper mapper, String hostAgendaJson, String configName,
+                                               String reportUrl, LocalDateTime generatedAt) {
+        if (hostAgendaJson == null || hostAgendaJson.isBlank() || configName == null || configName.isBlank()) {
+            return hostAgendaJson;
+        }
+        String name = configName.trim();
+        Optional<LocatedDoc> located = findDocByConfigName(hostAgendaJson, name, mapper);
+        if (located.isEmpty()) {
+            return hostAgendaJson;
+        }
+        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
+        LocatedDoc loc = located.get();
+        if (loc.agendaIndex() >= items.size()) {
+            return hostAgendaJson;
+        }
+        HostAgendaItem item = items.get(loc.agendaIndex());
+        if (item.getDocs() == null) {
+            return hostAgendaJson;
+        }
+        for (int j = 0; j < item.getDocs().size(); j++) {
+            HostAgendaDocBinding d = item.getDocs().get(j);
+            if (d != null && name.equals(d.getConfigName())) {
+                d.setGeneratedReportUrl(reportUrl);
+                d.setGeneratedReportAt(generatedAt);
+                break;
+            }
+        }
+        return toJson(mapper, items);
+    }
+
+    public static AgendaDocBindingSnapshot toSnapshot(HostAgendaDocBinding doc, int presetTypeCode, int agendaIndex) {
+        return AgendaDocBindingSnapshot.builder()
+                .configName(doc.getConfigName())
+                .presetTypeCode(presetTypeCode)
+                .agendaIndex(agendaIndex)
+                .resourceSlot(doc.resolvedSlot())
+                .feishuDocUrl(doc.getUrl())
+                .enabled(doc.isEnabled() ? 1 : 0)
+                .configRole(doc.getRole() != null ? doc.getRole() : "SOURCE")
+                .bitableDisplayMode(doc.getBitableDisplayMode())
+                .generatedReportUrl(doc.getGeneratedReportUrl())
+                .generatedReportAt(doc.getGeneratedReportAt())
+                .build();
+    }
+
+    public static HostAgendaDocBinding fromSnapshot(AgendaDocBindingSnapshot snap) {
+        if (snap == null) {
+            return null;
+        }
+        return HostAgendaDocBinding.builder()
+                .configName(snap.getConfigName())
+                .role(snap.getConfigRole())
+                .slot(snap.getResourceSlot())
+                .url(snap.getFeishuDocUrl())
+                .bitableDisplayMode(snap.getBitableDisplayMode())
+                .enabled(snap.getEnabled() == null || snap.getEnabled() == 1)
+                .generatedReportUrl(snap.getGeneratedReportUrl())
+                .generatedReportAt(snap.getGeneratedReportAt())
+                .build();
+    }
+
+    public static boolean isVersion2(String hostAgendaJson, ObjectMapper mapper) {
+        if (hostAgendaJson == null || hostAgendaJson.isBlank()) {
+            return false;
+        }
+        try {
+            return mapper.readTree(hostAgendaJson).path("version").asInt(0) == VERSION;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    /**
+     * 将独立表 doc 行合并进 host_agenda v2（幂等：已是 v2 则原样返回）。
+     */
+    public static String mergeDocTableRows(ObjectMapper mapper, String hostAgendaJson, int presetTypeCode,
+                                           List<AgendaDocBindingSnapshot> docRows) {
+        if (isVersion2(hostAgendaJson, mapper)) {
+            return hostAgendaJson;
+        }
+        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
+        if (docRows == null || docRows.isEmpty()) {
+            return items.isEmpty() ? hostAgendaJson : toJson(mapper, items);
+        }
+        for (AgendaDocBindingSnapshot snap : docRows) {
+            if (snap == null || snap.getAgendaIndex() == null) {
+                continue;
+            }
+            if (snap.getPresetTypeCode() != null && snap.getPresetTypeCode() != presetTypeCode) {
+                continue;
+            }
+            int idx = snap.getAgendaIndex();
+            if (idx < 0 || idx >= items.size()) {
+                continue;
+            }
+            HostAgendaItem item = items.get(idx);
+            List<HostAgendaDocBinding> docs = item.getDocs() != null
+                    ? new ArrayList<>(item.getDocs()) : new ArrayList<>();
+            String name = snap.getConfigName();
+            boolean exists = name != null && docs.stream()
+                    .anyMatch(d -> d != null && name.equals(d.getConfigName()));
+            if (!exists) {
+                HostAgendaDocBinding doc = fromSnapshot(snap);
+                if (doc != null) {
+                    docs.add(doc);
+                }
+            }
+            item.setDocs(docs);
+            syncLegacyFeishuFields(item);
+        }
+        return toJson(mapper, items);
+    }
+
+    public record LocatedDoc(int agendaIndex, HostAgendaDocBinding doc) {
+    }
+
+    private static HostAgendaItem parseItemNode(JsonNode n) {
+        if (n == null || n.isNull()) {
+            return null;
+        }
+        String title = n.path("title").asText("").trim();
+        if (title.isEmpty()) {
+            return null;
+        }
+        HostAgendaItem item = new HostAgendaItem();
+        item.setTitle(title);
+        item.setMinutes(n.path("minutes").asInt(10));
+        String detail = n.path("detail").asText("").trim();
+        if (!detail.isEmpty()) {
+            item.setDetail(detail);
+        }
+        List<HostAgendaDocBinding> docs = new ArrayList<>();
+        JsonNode docsNode = n.path("docs");
+        if (docsNode.isArray()) {
+            for (JsonNode d : docsNode) {
+                HostAgendaDocBinding doc = parseDocNode(d);
+                if (doc != null) {
+                    docs.add(doc);
+                }
+            }
+        }
+        if (docs.isEmpty()) {
+            docs.addAll(promoteLegacyFeishuFields(n));
+        }
+        if (!docs.isEmpty()) {
+            item.setDocs(docs);
+            syncLegacyFeishuFields(item);
+        }
+        return item;
+    }
+
+    private static List<HostAgendaDocBinding> promoteLegacyFeishuFields(JsonNode n) {
+        List<HostAgendaDocBinding> docs = new ArrayList<>();
+        JsonNode feishuDocs = n.path("feishuDocs");
+        if (feishuDocs.isArray()) {
+            int slot = 0;
+            for (JsonNode d : feishuDocs) {
+                String url = extractUrlFromNode(d);
+                if (!url.isBlank()) {
+                    docs.add(HostAgendaDocBinding.builder()
+                            .role("SOURCE")
+                            .slot(slot++)
+                            .url(url)
+                            .enabled(true)
+                            .build());
+                }
+            }
+            return docs;
+        }
+        String url = n.path("feishuDocUrl").asText("").trim();
+        if (url.isEmpty()) {
+            url = FeishuResourceResolver.legacyDocIdToDocxUrl(n.path("feishuDocToken").asText("").trim());
+            if (url == null) {
+                url = "";
+            }
+        }
+        if (!url.isBlank()) {
+            docs.add(HostAgendaDocBinding.builder()
+                    .role("SOURCE")
+                    .slot(0)
+                    .url(url)
+                    .enabled(true)
+                    .build());
+        }
+        return docs;
+    }
+
+    private static HostAgendaDocBinding parseDocNode(JsonNode d) {
+        if (d == null || d.isNull()) {
+            return null;
+        }
+        String url = extractUrlFromNode(d);
+        String configName = d.path("configName").asText("").trim();
+        if (configName.isEmpty()) {
+            configName = d.path("config_name").asText("").trim();
+        }
+        String role = d.path("role").asText("").trim();
+        if (role.isEmpty()) {
+            role = d.path("configRole").asText("").trim();
+        }
+        if (role.isEmpty()) {
+            role = d.path("config_role").asText("SOURCE").trim();
+        }
+        if (configName.isEmpty() && url.isBlank()) {
+            return null;
+        }
+        String bdm = d.path("bitableDisplayMode").asText("").trim();
+        if (bdm.isEmpty()) {
+            bdm = d.path("bitable_display_mode").asText("").trim();
+        }
+        LocalDateTime genAt = null;
+        String genAtStr = d.path("generatedReportAt").asText("").trim();
+        if (genAtStr.isEmpty()) {
+            genAtStr = d.path("generated_report_at").asText("").trim();
+        }
+        if (!genAtStr.isEmpty()) {
+            try {
+                genAt = LocalDateTime.parse(genAtStr, ISO_LOCAL);
+            } catch (Exception ignored) {
+            }
+        }
+        String genUrl = d.path("generatedReportUrl").asText("").trim();
+        if (genUrl.isEmpty()) {
+            genUrl = d.path("generated_report_url").asText("").trim();
+        }
+        return HostAgendaDocBinding.builder()
+                .configName(configName.isEmpty() ? null : configName)
+                .role(role.isEmpty() ? "SOURCE" : role)
+                .slot(d.path("slot").asInt(d.path("resourceSlot").asInt(d.path("resource_slot").asInt(0))))
+                .url(url.isBlank() ? null : url)
+                .bitableDisplayMode(bdm.isEmpty() ? null : bdm)
+                .enabled(!d.has("enabled") || d.path("enabled").asInt(1) == 1)
+                .generatedReportUrl(genUrl.isEmpty() ? null : genUrl)
+                .generatedReportAt(genAt)
+                .build();
+    }
+
+    private static String extractUrlFromNode(JsonNode d) {
+        String url = d.path("url").asText("").trim();
+        if (url.isEmpty()) {
+            url = d.path("feishuDocUrl").asText("").trim();
+        }
+        if (url.isEmpty()) {
+            String legacyId = d.path("token").asText("").trim();
+            if (legacyId.isEmpty()) {
+                legacyId = d.path("feishuDocToken").asText("").trim();
+            }
+            url = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+            if (url == null) {
+                url = "";
+            }
+        }
+        return url;
+    }
+
+    private static void writeDocNode(ObjectNode n, HostAgendaDocBinding doc) {
+        if (doc.getConfigName() != null && !doc.getConfigName().isBlank()) {
+            n.put("configName", doc.getConfigName().trim());
+        }
+        n.put("role", doc.getRole() != null ? doc.getRole() : "SOURCE");
+        n.put("slot", doc.resolvedSlot());
+        if (doc.getUrl() != null && !doc.getUrl().isBlank()) {
+            n.put("url", doc.getUrl().trim());
+        }
+        if (doc.getBitableDisplayMode() != null && !doc.getBitableDisplayMode().isBlank()) {
+            n.put("bitableDisplayMode", doc.getBitableDisplayMode());
+        }
+        n.put("enabled", doc.isEnabled());
+        if (doc.getGeneratedReportUrl() != null && !doc.getGeneratedReportUrl().isBlank()) {
+            n.put("generatedReportUrl", doc.getGeneratedReportUrl().trim());
+        }
+        if (doc.getGeneratedReportAt() != null) {
+            n.put("generatedReportAt", doc.getGeneratedReportAt().format(ISO_LOCAL));
+        }
+    }
+
+    private static List<HostAgendaDocBinding> normalizedDocs(HostAgendaItem item) {
+        if (item.getDocs() != null && !item.getDocs().isEmpty()) {
+            return item.getDocs();
+        }
+        return promoteLegacyFeishuFieldsFromItem(item);
+    }
+
+    private static List<HostAgendaDocBinding> promoteLegacyFeishuFieldsFromItem(HostAgendaItem item) {
+        List<HostAgendaDocBinding> docs = new ArrayList<>();
+        if (item.getFeishuDocs() != null) {
+            int slot = 0;
+            for (var ref : item.getFeishuDocs()) {
+                if (ref != null && ref.getUrl() != null && !ref.getUrl().isBlank()) {
+                    docs.add(HostAgendaDocBinding.builder()
+                            .role("SOURCE")
+                            .slot(slot++)
+                            .url(ref.getUrl().trim())
+                            .enabled(true)
+                            .build());
+                }
+            }
+        } else if (item.getFeishuDocUrl() != null && !item.getFeishuDocUrl().isBlank()) {
+            docs.add(HostAgendaDocBinding.builder()
+                    .role("SOURCE")
+                    .slot(0)
+                    .url(item.getFeishuDocUrl().trim())
+                    .enabled(true)
+                    .build());
+        }
+        return docs;
+    }
+
+    private static void syncLegacyFeishuFields(HostAgendaItem item) {
+        if (item.getDocs() == null || item.getDocs().isEmpty()) {
+            return;
+        }
+        List<HostAgendaFeishuDocRef> refs = new ArrayList<>();
+        for (HostAgendaDocBinding doc : item.getDocs()) {
+            if (doc.getUrl() == null || doc.getUrl().isBlank()) {
+                continue;
+            }
+            if (!AgendaDocRoleRules.isSourceRoleForMerge(toSnapshot(doc, 0, 0))) {
+                continue;
+            }
+            refs.add(HostAgendaFeishuDocRef.builder().url(doc.getUrl().trim()).build());
+        }
+        if (!refs.isEmpty()) {
+            item.setFeishuDocs(refs);
+            item.setFeishuDocUrl(refs.get(0).getUrl());
+        }
+    }
+
+    private static String nullToEmpty(String s) {
+        return s == null ? "" : s;
+    }
+}

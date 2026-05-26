@@ -1,13 +1,11 @@
 package com.smartmeeting.service;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.AgendaDocContentResponse;
 import com.smartmeeting.api.dto.AgendaDocPartDto;
 import com.smartmeeting.api.dto.AgendaWeeklyReportDto;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
-import com.smartmeeting.config.agenda.AgendaBindingConverter;
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 import com.smartmeeting.config.agenda.AgendaDocRoleRules;
 import com.smartmeeting.config.agenda.AgendaReportBinding;
@@ -18,11 +16,9 @@ import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import com.smartmeeting.config.feishu.FeishuResourceKind;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
-import com.smartmeeting.entity.MatterProgressDocConfig;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.exception.BusinessException;
-import com.smartmeeting.repository.MatterProgressDocConfigMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.service.cache.MeetingPresetCacheService;
 import com.smartmeeting.service.cache.PresetBundle;
@@ -32,22 +28,19 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
 /**
  * 预设会序飞书资料绑定服务（应用层）。
  * <p>
- * 合并 / enrich / 资源解析委托 {@link PresetAgendaMergeEngine}（meeting-config-core）；
- * 本类负责 DB、Redis 缓存与飞书正文 HTTP 拉取。
+ * 资料权威存储为 {@code int_meeting_type_preset.host_agenda} v2；合并委托 {@link PresetAgendaMergeEngine}。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class PresetAgendaDocService {
 
-    private final MatterProgressDocConfigMapper configMapper;
     private final MeetingTypePresetMapper presetMapper;
     private final MeetingPresetCacheService presetCache;
     private final FeishuService feishuService;
@@ -55,12 +48,10 @@ public class PresetAgendaDocService {
 
     public PresetBundle refreshPresetBundle(int presetTypeCode) {
         if (presetTypeCode < 1 || presetTypeCode > 5) {
-            return new PresetBundle(null, List.of());
+            return new PresetBundle(null);
         }
         MeetingTypePreset preset = presetMapper.selectById(presetTypeCode);
-        LambdaQueryWrapper<MatterProgressDocConfig> q = enabledPresetQuery(presetTypeCode);
-        List<MatterProgressDocConfig> docs = configMapper.selectList(q);
-        return presetCache.putPresetBundle(presetTypeCode, preset, docs);
+        return presetCache.putPresetBundle(presetTypeCode, preset);
     }
 
     public void refreshAllPresetBundles() {
@@ -84,73 +75,43 @@ public class PresetAgendaDocService {
                 presetTypeCode,
                 presetJson,
                 HostAgendaDtoConverter.toCoreList(requestItems),
-                listEnabledSnapshotsByPreset(presetTypeCode));
+                List.of());
     }
 
     public String toHostAgendaJson(List<HostAgendaItemDto> items) {
         return PresetAgendaMergeEngine.toHostAgendaJson(objectMapper, HostAgendaDtoConverter.toCoreList(items));
     }
 
-    public List<MatterProgressDocConfig> listEnabledByPreset(int presetTypeCode) {
+    public List<AgendaDocBindingSnapshot> listEnabledByPreset(int presetTypeCode) {
         if (presetTypeCode < 1 || presetTypeCode > 5) {
             return List.of();
         }
-        LambdaQueryWrapper<MatterProgressDocConfig> q = enabledPresetQuery(presetTypeCode);
-        return presetCache.getMatterProgressDocs(presetTypeCode, () -> configMapper.selectList(q)).stream()
-                .filter(PresetAgendaDocService::isSourceRoleForMerge)
-                .toList();
+        return PresetAgendaMergeEngine.filterSourceBindings(
+                PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
+                        presetTypeCode, presetHostAgendaJson(presetTypeCode), objectMapper));
     }
 
     public Optional<AgendaReportBinding> findReportBindingForAgenda(int presetTypeCode, int agendaIndex) {
         if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
             return Optional.empty();
         }
-        LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
-        q.eq(MatterProgressDocConfig::getEnabled, 1)
-                .eq(MatterProgressDocConfig::getPresetTypeCode, presetTypeCode)
-                .eq(MatterProgressDocConfig::getAgendaIndex, agendaIndex)
-                .in(MatterProgressDocConfig::getConfigRole, "OUTPUT", "BOTH")
-                .orderByDesc(MatterProgressDocConfig::getId)
-                .last("LIMIT 1");
-        MatterProgressDocConfig row = configMapper.selectOne(q);
-        if (row == null) {
-            return Optional.empty();
-        }
-        return PresetAgendaMergeEngine.findReportBinding(List.of(AgendaBindingConverter.from(row)), presetTypeCode, agendaIndex);
+        return PresetAgendaMergeEngine.findReportBindingInHostAgenda(
+                presetHostAgendaJson(presetTypeCode), agendaIndex, objectMapper);
     }
 
-    public static boolean isSourceRoleForMerge(MatterProgressDocConfig cfg) {
-        return AgendaDocRoleRules.isSourceRoleForMerge(AgendaBindingConverter.from(cfg));
+    public static boolean isSourceRoleForMerge(AgendaDocBindingSnapshot cfg) {
+        return AgendaDocRoleRules.isSourceRoleForMerge(cfg);
     }
 
-    public List<MatterProgressDocConfig> listConfigsForAgenda(int presetTypeCode, int agendaIndex) {
+    public List<AgendaDocBindingSnapshot> listConfigsForAgenda(int presetTypeCode, int agendaIndex) {
         if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
             return List.of();
         }
-        return listConfigsForAgendaFromDb(presetTypeCode, agendaIndex);
-    }
-
-    public List<MatterProgressDocConfig> listConfigsForAgendaFromDb(int presetTypeCode, int agendaIndex) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
-            return List.of();
-        }
-        if (configMapper == null) {
-            return listEnabledByPreset(presetTypeCode).stream()
-                    .filter(c -> c.getAgendaIndex() != null && c.getAgendaIndex() == agendaIndex)
-                    .sorted(Comparator
-                            .comparingInt((MatterProgressDocConfig c) ->
-                                    c.getResourceSlot() != null ? c.getResourceSlot() : 0)
-                            .thenComparingLong(c -> c.getId() != null ? c.getId() : 0L))
-                    .toList();
-        }
-        LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
-        q.eq(MatterProgressDocConfig::getEnabled, 1)
-                .eq(MatterProgressDocConfig::getPresetTypeCode, presetTypeCode)
-                .eq(MatterProgressDocConfig::getAgendaIndex, agendaIndex)
-                .orderByAsc(MatterProgressDocConfig::getResourceSlot)
-                .orderByAsc(MatterProgressDocConfig::getId);
-        List<MatterProgressDocConfig> rows = configMapper.selectList(q);
-        return rows != null ? rows : List.of();
+        return PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
+                        presetTypeCode, presetHostAgendaJson(presetTypeCode), objectMapper).stream()
+                .filter(b -> b.getAgendaIndex() != null && b.getAgendaIndex() == agendaIndex)
+                .filter(b -> b.getEnabled() != null && b.getEnabled() == 1)
+                .toList();
     }
 
     public void enrichHostAgendaItems(int presetTypeCode, List<HostAgendaItemDto> items) {
@@ -162,7 +123,7 @@ public class PresetAgendaDocService {
                 presetTypeCode,
                 presetHostAgendaJson(presetTypeCode),
                 coreItems,
-                listEnabledSnapshotsByPreset(presetTypeCode));
+                List.of());
         for (int i = 0; i < items.size() && i < coreItems.size(); i++) {
             HostAgendaDtoConverter.copyFeishuFields(coreItems.get(i), items.get(i));
         }
@@ -188,7 +149,7 @@ public class PresetAgendaDocService {
         String presetJson = preset != null ? presetHostAgendaJson(preset) : null;
         List<AgendaDocBindingSnapshot> bindings = List.of();
         if (preset != null && preset >= 1 && preset <= 5) {
-            bindings = AgendaBindingConverter.fromList(listConfigsForAgenda(preset, agendaIndex));
+            bindings = listConfigsForAgenda(preset, agendaIndex);
         }
         return PresetAgendaMergeEngine.resolveAllResources(
                 meeting != null ? meeting.getHostAgenda() : null,
@@ -335,23 +296,8 @@ public class PresetAgendaDocService {
         return PresetAgendaMergeEngine.hostAgendaItemHasFeishu(HostAgendaDtoConverter.toCore(item));
     }
 
-    private List<AgendaDocBindingSnapshot> listEnabledSnapshotsByPreset(int presetTypeCode) {
-        return AgendaBindingConverter.fromList(listEnabledByPreset(presetTypeCode));
-    }
-
     private String presetHostAgendaJson(int presetTypeCode) {
         MeetingTypePreset preset = getPresetCached(presetTypeCode);
         return preset != null ? preset.getHostAgenda() : null;
-    }
-
-    private static LambdaQueryWrapper<MatterProgressDocConfig> enabledPresetQuery(int presetTypeCode) {
-        LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
-        q.eq(MatterProgressDocConfig::getEnabled, 1)
-                .eq(MatterProgressDocConfig::getPresetTypeCode, presetTypeCode)
-                .isNotNull(MatterProgressDocConfig::getAgendaIndex)
-                .orderByAsc(MatterProgressDocConfig::getAgendaIndex)
-                .orderByAsc(MatterProgressDocConfig::getResourceSlot)
-                .orderByAsc(MatterProgressDocConfig::getId);
-        return q;
     }
 }

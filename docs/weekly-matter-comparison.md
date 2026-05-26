@@ -10,16 +10,14 @@
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  feishu-scheduled-bot（Quartz，默认周一 10:00 Asia/Shanghai）              │
 │  matter-progress-core :: WeeklyMatterComparisonService                    │
-│    ① 读 SOURCE config_name → feishu_doc_url → 拉取飞书正文               │
-│    ② 读 int_meeting_minute（PRESET_LAST_7_DAYS 或 MEETING_IDS）          │
-│    ③ LLM 生成对比 Markdown（无 Key 时用 fallback 模板）                    │
-│    ④ 创建飞书 Doc → 写回 OUTPUT 行 generated_report_url / _at            │
-│    （不写群通知；不覆盖 feishu_doc_url）                                   │
+│  默认 MCP：OpenClaw Agent + lark-mcp(tenant) + meeting-mysql → 写 Doc    │
+│  失败降级 Legacy：Java tenant 拉 SOURCE/纪要 → LLM → RestFeishuDocClient   │
+│  （不写群通知；不覆盖 feishu_doc_url）                                   │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │ MySQL 共库（如 intelligence）
                                 ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  int_matter_progress_doc_config                                           │
+│  int_meeting_type_preset.host_agenda (v2 items[].docs[])                    │
 │    config_role=SOURCE  → 合并 host 会序飞书外链（PresetAgendaDocService）   │
 │    config_role=OUTPUT  → bot 写回 generated_report_url                   │
 │    config_role=BOTH    → 可同时作 SOURCE + 写回（少见）                   │
@@ -42,6 +40,18 @@
 | `host_state.briefingMarkdown` / `briefingStatus` | 前端 loading/ready/failed 通报 UI |
 | `meeting.host.agenda-briefing.*` | 配置项已无效（代码已删） |
 | 会序通报 TTS | `AgendaBriefingTtsScriptBuilder` 已删 |
+
+### 1.1 执行路径（MCP vs Legacy）
+
+| 条件 | 路径 | 飞书 / 数据 | 报告 |
+|------|------|-------------|------|
+| `delegate-to-mcp=true`（默认）且 MCP 成功 | **MCP** | Agent + Gateway `lark-mcp`（**须** `tenant_access_token`）+ `meeting-mysql` | Skill `matter-progress` |
+| MCP 失败且 `legacy-fallback-on-mcp-failure=true`（默认） | **Legacy fallback** | `RestFeishuDocClient`（tenant） | `LlmComparisonReportGenerator` |
+| `delegate-to-mcp=false` | **Legacy** | 同上 | 同上 |
+
+Gateway 运维：[WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md](../mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md) · core README 路径表：[matter-progress-core/README.md](../matter-progress-core/README.md)
+
+**已移除**：Legacy 内 `OpenClawComparisonReportGenerator`（向 Gateway 传 Java 预读正文的第二条 WS）；OpenClaw 仅保留 MCP Delegate。
 
 **保留**
 
@@ -79,7 +89,11 @@ schema-upgrade/v0.10-drop-openclaw-briefing.sql
 
 Bot 侧 Flyway：`feishu-scheduled-bot/.../db/migration/V5__weekly_matter_comparison_job.sql`（仅 job 表；配置表列在 meeting DDL 中）。
 
-### 2.2 `int_matter_progress_doc_config` 新增列
+### 2.2 资料配置（`host_agenda` v2，已废弃独立表）
+
+历史版本使用 `int_matter_progress_doc_config`；现网请执行 `v0.14` + `HostAgendaV2DataMigrate --apply` 后 `v0.15` DROP。字段映射：
+
+### 2.2.1 原 `int_matter_progress_doc_config` 列（归档说明）
 
 | 列 | 类型 | 说明 |
 |----|------|------|
@@ -211,9 +225,12 @@ INSERT INTO int_weekly_matter_comparison_job (
 
 | 配置项 | 环境变量 | 默认 | 说明 |
 |--------|----------|------|------|
+| `openclaw.delegate-to-mcp` | `FEISHU_WEEKLY_COMPARISON_DELEGATE_TO_MCP` | `true` | MCP 全托管（见 §1.1） |
+| `openclaw.legacy-fallback-on-mcp-failure` | `FEISHU_WEEKLY_COMPARISON_LEGACY_FALLBACK` | `true` | MCP 失败 → Legacy LLM + tenant 飞书 |
+| `openclaw.timeout-seconds` | `FEISHU_WEEKLY_COMPARISON_OPENCLAW_TIMEOUT` | `300` | WS 等待 Agent |
 | `sync-polling-enabled` | `FEISHU_WEEKLY_COMPARISON_SYNC` | `true` | DB↔Quartz 对账（组 `weekly-comparison-group`） |
-| `read-output-feishu-doc-url` | `FEISHU_WEEKLY_COMPARISON_READ_OUTPUT_URL` | `true` | 对比时是否额外读取 OUTPUT 行 `feishu_doc_url` |
-| `llm.api-url` | `MEETING_LLM_API_URL` | DeepSeek URL | 对比报告生成 |
+| `read-output-feishu-doc-url` | `FEISHU_WEEKLY_COMPARISON_READ_OUTPUT_URL` | `true` | Legacy：是否额外读 OUTPUT 的 `feishu_doc_url` |
+| `llm.api-url` | `MEETING_LLM_API_URL` | DeepSeek URL | **Legacy / fallback** 报告生成 |
 | `llm.api-key` | `MEETING_LLM_API_KEY` | `test` | `test` 或空则走 fallback Markdown |
 | `llm.model` | `MEETING_LLM_MODEL` | `deepseek-chat` | |
 
@@ -242,13 +259,13 @@ X-API-Key: <FEISHU_API_KEY>
 
 ## 6. 运维 Checklist
 
-1. 执行 v0.9 DDL + seed（或手工 INSERT job / OUTPUT 行）。
-2. 确认 `source_config_names` 每行 `enabled=1` 且 `feishu_doc_url` 有效。
-3. 确认 `output_config_name` 存在，`config_role` 为 `OUTPUT` 或 `BOTH`，且 `preset_type_code` + `agenda_index` 与主持会序一致。
-4. 配置 `MEETING_LLM_API_KEY`、飞书 `FEISHU_APP_ID/SECRET`；bot 与 meeting **共库**。
-5. 启动 bot；可选 `POST .../execute` 试跑。
-6. 验证：`SELECT generated_report_url FROM int_matter_progress_doc_config WHERE config_name='preset1-weekly-report-out'`。
-7. 开 preset=1 会议，进入对应 `agenda_index` 会序，主持页左侧应出现「会前事项对比通报」链接。
+1. **Gateway（MCP 默认路径）**：按 [WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md](../mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md) 合并 `openclaw-mcp-config.yml`，确认 `lark-mcp` 为 **`tenant_access_token`**，`openclaw mcp show lark-mcp` 通过后重启 Gateway。
+2. 执行 v0.9 DDL + v0.14/v0.15 `host_agenda` 迁移（或手工维护 preset JSON + job 行）。
+3. 确认 `source_config_names` 每行在 `host_agenda` 中 `enabled` 且 `feishuDocUrl` 有效。
+4. 确认 `output_config_name` 存在，`configRole` 为 `OUTPUT` 或 `BOTH`，且 preset + `agendaIndex` 与主持会序一致。
+5. Bot：`delegate-to-mcp=true`、`legacy-fallback-on-mcp-failure=true`；Legacy 需有效 `MEETING_LLM_API_KEY` 与 `feishu.weekly-comparison.app-id/secret`；与 meeting **共库**。
+6. 启动 bot；日志应含 `pipeline=OpenClaw-MCP`；可选 `POST .../execute` 试跑。
+7. 验证：preset `host_agenda` 对应 `configName` 的 `generatedReportUrl` 已写回；主持页会序出现「会前事项对比通报」链接。
 
 ---
 
@@ -257,7 +274,8 @@ X-API-Key: <FEISHU_API_KEY>
 | 现象 | 排查 |
 |------|------|
 | 主持页无通报链接 | OUTPUT 行是否存在；`generated_report_url` 是否 NULL；preset/agenda_index 是否与会序一致 |
-| job `last_run_status=FAILED` | 查 `last_run_error`；飞书 token、LLM Key、source config 名是否存在 |
+| job `last_run_status=FAILED` | 查 `last_run_error`；Gateway `tenant_access_token`、MCP 白名单、LLM Key、source config 名 |
+| MCP 成功但 Doc 空/旧数据 | Gateway 用了 user token 或 Secret 错应用 | 见 Gateway 检查清单 §3 |
 | 报告内容过简 | `MEETING_LLM_API_KEY=test` 触发 fallback；或纪要/资料为空 |
 | 议程仍出现 OUTPUT 的 feishu 链 | 检查 `config_role` 是否为纯 `OUTPUT`（不应参与 merge） |
 | Quartz 未触发 | `enabled=1`；`feishu.weekly-comparison.sync-polling-enabled`；日志 `Weekly comparison sync` |
@@ -269,7 +287,9 @@ X-API-Key: <FEISHU_API_KEY>
 | 模块 | 路径 |
 |------|------|
 | 核心 Facade | `matter-progress-core/.../WeeklyMatterComparisonService.java` |
-| 配置仓储 | `matter-progress-core/.../JdbcMatterProgressConfigRepository.java` |
+| MCP Delegate | `matter-progress-core/.../OpenClawMcpWeeklyComparisonDelegate.java` |
+| 配置仓储 | `matter-progress-core/.../JdbcPresetHostAgendaConfigRepository.java` |
+| Gateway 清单 | `mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md` |
 | 纪要查询 | `matter-progress-core/.../JdbcMeetingMinuteQuery.java` |
 | 飞书读写 | `matter-progress-core/.../RestFeishuDocClient.java` |
 | Bot 装配 | `feishu-scheduled-bot/.../MatterProgressCoreConfiguration.java` |
@@ -294,4 +314,4 @@ X-API-Key: <FEISHU_API_KEY>
 
 ---
 
-*文档版本：2026-05-23 · 对应 v0.9 weekly matter comparison 实现*
+*文档版本：2026-05-24 · v0.9 + MCP 默认路径 + host_agenda v2*

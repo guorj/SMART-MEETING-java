@@ -1,12 +1,12 @@
 package com.smartmeeting.config;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.smartmeeting.entity.MatterProgressDocConfig;
-import com.smartmeeting.repository.MatterProgressDocConfigMapper;
-import com.smartmeeting.repository.MeetingMinuteMapper;
-import com.smartmeeting.service.PresetAgendaDocService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
+import com.smartmeeting.repository.MeetingMinuteMapper;
+import com.smartmeeting.service.PresetAgendaDocService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -23,8 +23,7 @@ import java.util.stream.Collectors;
 /**
  * 数据库种子数据启动校验器。
  * <p>
- * 应用就绪后只读校验：禁止误开 {@code spring.sql.init} 覆盖种子数据；
- * 检查 preset=1 会序飞书 URL 是否可解析。不执行任何 INSERT/UPDATE。
+ * 应用就绪后只读校验 preset=1 的 host_agenda v2 内嵌飞书资料；不执行任何 INSERT/UPDATE。
  */
 @Slf4j
 @Component
@@ -36,15 +35,10 @@ public class DatabaseSeedStartupValidator {
 
     private final Environment environment;
     private final MeetingDatabaseProperties databaseProperties;
-    private final MatterProgressDocConfigMapper docConfigMapper;
     private final MeetingMinuteMapper meetingMinuteMapper;
     private final PresetAgendaDocService presetAgendaDocService;
+    private final ObjectMapper objectMapper;
 
-    /**
-     * 应用就绪事件回调，执行启动校验流程。
-     * <p>
-     * 依次检查 SQL 初始化模式、纪要表可用性及 preset=1 飞书资料配置。
-     */
     @EventListener(ApplicationReadyEvent.class)
     public void validateOnStartup() {
         guardSqlInitMode();
@@ -115,28 +109,28 @@ public class DatabaseSeedStartupValidator {
     }
 
     private void validatePresetAgendaDocConfigs() {
-        LambdaQueryWrapper<MatterProgressDocConfig> q = new LambdaQueryWrapper<>();
-        q.eq(MatterProgressDocConfig::getEnabled, 1)
-                .eq(MatterProgressDocConfig::getPresetTypeCode, PRESET_COMPREHENSIVE)
-                .isNotNull(MatterProgressDocConfig::getAgendaIndex)
-                .in(MatterProgressDocConfig::getAgendaIndex, EXPECTED_AGENDA_INDICES)
-                .orderByAsc(MatterProgressDocConfig::getAgendaIndex);
-        List<MatterProgressDocConfig> rows = docConfigMapper.selectList(q);
+        var preset = presetAgendaDocService.getPresetCached(PRESET_COMPREHENSIVE);
+        String json = preset != null ? preset.getHostAgenda() : null;
+        List<AgendaDocBindingSnapshot> rows = PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
+                PRESET_COMPREHENSIVE, json, objectMapper).stream()
+                .filter(b -> b.getEnabled() != null && b.getEnabled() == 1)
+                .filter(b -> b.getAgendaIndex() != null && EXPECTED_AGENDA_INDICES.contains(b.getAgendaIndex()))
+                .toList();
 
         List<String> issues = new ArrayList<>();
         Set<Integer> found = rows.stream()
-                .map(MatterProgressDocConfig::getAgendaIndex)
+                .map(AgendaDocBindingSnapshot::getAgendaIndex)
                 .collect(Collectors.toSet());
         for (int idx : EXPECTED_AGENDA_INDICES) {
             if (!found.contains(idx)) {
-                issues.add("preset=1 缺少 agenda_index=" + idx + " 的已启用飞书资料配置");
+                issues.add("preset=1 host_agenda 缺少 agenda_index=" + idx + " 的已启用飞书资料");
             }
         }
-        for (MatterProgressDocConfig cfg : rows) {
+        for (AgendaDocBindingSnapshot cfg : rows) {
             int idx = cfg.getAgendaIndex();
             String url = cfg.getFeishuDocUrl();
             if (url == null || url.isBlank()) {
-                issues.add("agenda_index=" + idx + " feishu_doc_url 为空");
+                issues.add("agenda_index=" + idx + " url 为空");
                 continue;
             }
             FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
@@ -145,22 +139,21 @@ public class DatabaseSeedStartupValidator {
             }
         }
         if (issues.isEmpty()) {
-            log.info("会序飞书配置启动校验通过: preset=1 共 {} 条 agenda_index 1–4", rows.size());
+            log.info("会序飞书配置启动校验通过: preset=1 host_agenda 内嵌 {} 条 agenda_index 1–4", rows.size());
             return;
         }
-        log.warn("会序飞书配置启动校验发现问题（未改库，请运维在 int_matter_progress_doc_config 中修正）:\n  - {}",
-                String.join("\n  - ", issues));
+        log.warn("会序飞书配置启动校验发现问题（{} 条）: {}", issues.size(), String.join("; ", issues));
     }
 
     private boolean isTestProfile() {
-        return Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equalsIgnoreCase);
+        return Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(p -> "test".equalsIgnoreCase(p) || p.toLowerCase().contains("test"));
     }
 
     private static String abbreviate(String s, int max) {
-        if (s == null) {
-            return "";
+        if (s == null || s.length() <= max) {
+            return s;
         }
-        String t = s.trim();
-        return t.length() <= max ? t : t.substring(0, max) + "…";
+        return s.substring(0, max - 3) + "...";
     }
 }

@@ -54,7 +54,7 @@ CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
     organizer_name       VARCHAR(100) NULL     COMMENT '组织人',
     leader_name          VARCHAR(100) NULL     COMMENT '会议主导',
     participants_names   TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔',
-    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 {"items":[{"title","minutes","detail?","feishuDocUrl?","feishuDocs"?},...]}'
+    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 v2 {"version":2,"items":[{"title","minutes","docs":[{"configName","role","slot","url",...}]}]}'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设';
 
 CREATE TABLE IF NOT EXISTS int_meeting_participant (
@@ -161,27 +161,7 @@ CREATE TABLE IF NOT EXISTS int_user_mapping (
     INDEX idx_feishu_open_id (feishu_open_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书ID映射表';
 
-CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
-    id               BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    config_name      VARCHAR(64)   NOT NULL COMMENT '逻辑配置名，全局唯一',
-    preset_type_code INT UNSIGNED  NULL     COMMENT '会务预设 1-5；NULL 为全局 legacy',
-    agenda_index     INT UNSIGNED  NULL     COMMENT 'host_agenda.items 下标（0-based）',
-    resource_slot    INT UNSIGNED  NOT NULL DEFAULT 0 COMMENT '同会序多份资料槽位 0,1,2…',
-    feishu_doc_url   VARCHAR(2000) NULL     COMMENT '飞书链接：/docx/、/wiki/、/base/?table=',
-    enabled          TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
-    config_role      VARCHAR(16)   NOT NULL DEFAULT 'SOURCE' COMMENT 'SOURCE|OUTPUT|BOTH',
-    bitable_display_mode VARCHAR(16) NOT NULL DEFAULT 'GROUPED' COMMENT 'RAW=会中平铺；GROUPED=近三月+完成/延期/进行中',
-    generated_report_url VARCHAR(2000) NULL COMMENT 'bot 写回的对比报告飞书 URL',
-    generated_report_at  DATETIME NULL COMMENT '最近一次 bot 生成时间',
-    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_matter_progress_config_name (config_name),
-    UNIQUE KEY uk_preset_agenda_doc (preset_type_code, agenda_index, resource_slot),
-    KEY idx_matter_progress_enabled_id (enabled, id),
-    KEY idx_matter_progress_preset (preset_type_code, enabled, agenda_index)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会序飞书资料配置（主持页外链与 bot 对比报告 generated_report_url）';
+-- int_matter_progress_doc_config 已废弃：资料内嵌 int_meeting_type_preset.host_agenda v2（见 v0.14/v0.15 升级脚本）
 
 CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
     id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',

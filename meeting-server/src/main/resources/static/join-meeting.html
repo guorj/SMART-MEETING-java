@@ -19,6 +19,16 @@
   <div id="status">正在登记…</div>
   <script>
     (function () {
+      var p = location.pathname || '';
+      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var base = document.createElement('base');
+      base.href = ctx ? ctx + '/' : '/';
+      document.head.appendChild(base);
+    })();
+  </script>
+  <script src="static/meeting-context.js?v=sm-20260525-1"></script>
+  <script>
+    (function () {
       var statusEl = document.getElementById('status');
       var pathParts = location.pathname.split('/').filter(Boolean);
       var meetingId = pathParts.length >= 2 ? pathParts[pathParts.length - 1] : null;
@@ -27,7 +37,7 @@
         statusEl.innerHTML = '<span class="err">链接无效，请从飞书重新打开个人入会链接。</span>';
         return;
       }
-      fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/check-in', {
+      fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/check-in'), {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' }
       }).then(function (res) { return res.json().then(function (j) { return { res: res, j: j }; }); })

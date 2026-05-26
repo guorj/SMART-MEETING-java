@@ -63,7 +63,7 @@ public class MeetingPresetController {
             throw new BusinessException(400, "仅支持 preset code 1-5");
         }
         PresetBundle bundle = presetAgendaDocService.refreshPresetBundle(code);
-        int docCount = bundle.matterDocs() != null ? bundle.matterDocs().size() : 0;
-        return ApiResponse.ok("refreshed preset " + code + ", matter-doc configs=" + docCount);
+        int docCount = bundle != null ? bundle.embeddedDocCount() : 0;
+        return ApiResponse.ok("refreshed preset " + code + ", embedded docs=" + docCount);
     }
 }

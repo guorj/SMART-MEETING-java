@@ -2,6 +2,8 @@
 
 本文档列出当前 Gateway 配置下 **Agent / Skill 可用的 MCP 工具全名**，以及 OpenAPI 与白名单的对应关系。
 
+**会前对比 Gateway 部署**：见 [WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md](WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md)（`tenant_access_token`、白名单、启动后 `mcp show` 验证）。
+
 ## 命名规则
 
 | 层级 | 格式 | 示例 |

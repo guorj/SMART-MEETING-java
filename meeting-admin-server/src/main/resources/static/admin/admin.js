@@ -31,15 +31,16 @@
 
   async function loadManifest() {
     modules = await AdminApi.fetch('/api/v1/admin/modules');
-    const sb = document.getElementById('sidebar');
-    sb.innerHTML = '';
+    const nav = document.getElementById('sidebar-nav');
+    nav.innerHTML = '';
     for (const m of modules) {
       if (!m.enabled) continue;
       const btn = document.createElement('button');
+      btn.type = 'button';
       btn.textContent = m.displayName;
       btn.dataset.hash = m.uiRouteHash;
       btn.onclick = () => navigate(m.uiRouteHash);
-      sb.appendChild(btn);
+      nav.appendChild(btn);
     }
   }
 
@@ -61,7 +62,7 @@
     const m = modules.find(x => x.uiRouteHash === '#' + route || x.uiRouteHash === location.hash);
     if (!m) return;
     await ensureScript(m);
-    document.querySelectorAll('#sidebar button').forEach(b => {
+    document.querySelectorAll('#sidebar-nav button').forEach(b => {
       b.classList.toggle('active', b.dataset.hash === m.uiRouteHash);
     });
     document.getElementById('route-title').textContent = m.displayName;

@@ -73,6 +73,16 @@ public class WeeklyJobAdminService {
     }
 
     public void update(long id, WeeklyJobDto dto) {
+        WeeklyJobDto existing = get(id);
+        if (dto.getFeishuFolderToken() == null) {
+            dto.setFeishuFolderToken(existing.getFeishuFolderToken());
+        }
+        if (dto.getOutputDocTitleTpl() == null || dto.getOutputDocTitleTpl().isBlank()) {
+            dto.setOutputDocTitleTpl(existing.getOutputDocTitleTpl());
+        }
+        if (dto.getScheduleTimezone() == null || dto.getScheduleTimezone().isBlank()) {
+            dto.setScheduleTimezone(existing.getScheduleTimezone());
+        }
         validateJob(dto);
         int n = jdbc.update(
                 """

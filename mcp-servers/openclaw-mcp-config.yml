@@ -3,6 +3,12 @@
 # 合并到 profile 配置：instances/<profile>/config/openclaw.json 或
 # ~/.openclaw-<profile>/openclaw.json 的 mcp.servers（勿用顶层 mcpServers）。
 # 工具全名表：mcp-servers/LARK-MCP-TOOLS.md
+# 会前对比部署检查：mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md
+#
+# 【重要】会前对比（weekly-comparison）生产必须：
+#   - lark-mcp --token-mode tenant_access_token（下方已写死，勿改 user/oauth）
+#   - -a/-s 与 feishu-scheduled-bot feishu.weekly-comparison.app-id/secret 一致
+#   - 合并后：openclaw --profile <p> mcp show lark-mcp → 确认 tenant_access_token
 #
 # 文档：https://documentation.openclaw.ai/gateway/configuration-reference#mcp
 
@@ -32,7 +38,7 @@ mcp:
         # OpenAPI 白名单（逗号分隔，勿用 preset.default，以免带入多余写接口）
         - bitable.v1.appTableField.list,bitable.v1.appTableRecord.search,docx.v1.document.create,docx.v1.documentBlockChildren.create,docx.v1.document.rawContent,wiki.v2.space.getNode
         - --token-mode
-        - tenant_access_token       # bot 身份读表/写 Doc
+        - tenant_access_token       # 会前对比强制租户身份；禁止 user_access_token / --oauth
         - -l
         - zh                        # 工具描述中文
         - -c

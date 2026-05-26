@@ -12,4 +12,6 @@ public class HostAgendaItem {
     private String detail;
     private String feishuDocUrl;
     private List<HostAgendaFeishuDocRef> feishuDocs;
+    /** host_agenda v2：与会序强绑定的资料列表 */
+    private List<HostAgendaDocBinding> docs;
 }

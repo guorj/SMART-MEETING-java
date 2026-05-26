@@ -47,8 +47,18 @@
     <p class="sub" style="margin-top:24px">飞书入口提交后将打开录音页 <code>/rec/会议ID?token=…</code>（不自动开始拾音）；群内推送「会议已开始」通知。</p>
 
     <script>
+    (function () {
+      var p = location.pathname || '';
+      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var base = document.createElement('base');
+      base.href = ctx ? ctx + '/' : '/';
+      document.head.appendChild(base);
+    })();
+    </script>
+    <script src="static/meeting-context.js?v=sm-20260525-1"></script>
+    <script>
     let presets = [];
-    const apiBase = '';
+    const apiBase = meetingContextPath();
     const params = new URLSearchParams(location.search);
     const webEntryToken = params.get('token');
 

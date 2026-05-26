@@ -106,7 +106,17 @@
     </div>
 
     <!-- 发版改静态 JS：同步改下面 ?v= 与 static/recorder.js 内 SM_STATIC_ASSET_V -->
-    <script src="/static/recorder.js?v=sm-20260524-1"></script>
+    <script>
+    (function () {
+      var p = location.pathname || '';
+      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var base = document.createElement('base');
+      base.href = ctx ? ctx + '/' : '/';
+      document.head.appendChild(base);
+    })();
+    </script>
+    <script src="static/meeting-context.js?v=sm-20260525-1"></script>
+    <script src="static/recorder.js?v=sm-20260524-1"></script>
     <script>
     /**
      * 智能会议录音 - 前端主逻辑 (内联版)
@@ -173,8 +183,7 @@
         startBtn.textContent = '⏳ 连接中...';
 
         // 构建WebSocket URL
-        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${wsProtocol}//${location.host}/ws/audio/${meetingId}?token=${encodeURIComponent(token)}`;
+        const wsUrl = meetingWsUrl('/ws/audio/' + meetingId + '?token=' + encodeURIComponent(token));
 
         recorder = new MeetingRecorder(meetingId, token, wsUrl);
 
@@ -302,7 +311,7 @@
     async function loadMeetingAgendaFeishuLinks() {
         if (!token || !meetingId) return;
         try {
-            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId), {
+            const res = await fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)), {
                 headers: { 'Authorization': 'Bearer ' + token }
             });
             const j = await res.json();
@@ -332,7 +341,7 @@
             }
             if (recorder) recorder.stop();
 
-            const res = await fetch('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end', {
+            const res = await fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end'), {
                 method: 'POST',
                 headers: { 'Authorization': 'Bearer ' + token }
             });

@@ -9,13 +9,17 @@
 <body>
 <div id="login-panel" class="panel">
   <h1>会议管理后台</h1>
-  <p>独立进程 · 默认端口 8766</p>
-  <label>Admin Token <input id="token-input" type="password" autocomplete="off"/></label>
-  <button id="login-btn" type="button">进入</button>
-  <p style="margin-top:1rem"><a id="feishu-login-link" href="/admin/oauth/feishu/start">飞书 OAuth 登录（需配置启用）</a></p>
+  <p>Smart Meeting Admin · 端口 8766</p>
+  <label for="token-input">Admin Token</label>
+  <input id="token-input" type="password" autocomplete="off" placeholder="dev-admin-token"/>
+  <button id="login-btn" type="button" class="primary">进入后台</button>
+  <p class="login-foot"><a id="feishu-login-link" href="/admin/oauth/feishu/start">飞书 OAuth 登录</a>（需配置启用）</p>
 </div>
 <div id="app" class="hidden">
-  <aside id="sidebar"></aside>
+  <aside id="sidebar">
+    <div class="sidebar-brand"><strong>会议管理</strong><span>meeting-admin-server</span></div>
+    <nav id="sidebar-nav"></nav>
+  </aside>
   <main>
     <header id="top-bar"><span id="route-title"></span></header>
     <div id="module-root"></div>

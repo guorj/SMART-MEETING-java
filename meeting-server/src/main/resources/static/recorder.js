@@ -6,8 +6,9 @@
 const SM_STATIC_ASSET_V = 'sm-20260524-1';
 
 function smAssetUrl(path) {
-    const sep = path.includes('?') ? '&' : '?';
-    return path + sep + 'v=' + encodeURIComponent(SM_STATIC_ASSET_V);
+    const resolved = (typeof meetingAsset === 'function') ? meetingAsset(path) : path;
+    const sep = resolved.includes('?') ? '&' : '?';
+    return resolved + sep + 'v=' + encodeURIComponent(SM_STATIC_ASSET_V);
 }
 
 class MeetingRecorder {
@@ -156,9 +157,17 @@ class MeetingRecorder {
         if (this.wsUrlBase && !this.sessionToken) {
             return this.wsUrlBase;
         }
+        if (typeof meetingWsUrl === 'function') {
+            const suffix = this.sessionToken
+                ? '/ws/audio/' + this.meetingId + '?token=' + encodeURIComponent(this.token)
+                    + '&reconnect=true&session_token=' + encodeURIComponent(this.sessionToken)
+                : '/ws/audio/' + this.meetingId + '?token=' + encodeURIComponent(this.token);
+            return meetingWsUrl(suffix);
+        }
         const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = location.host;
-        const base = `${protocol}//${host}/ws/audio/${this.meetingId}`;
+        const ctx = (typeof meetingContextPath === 'function') ? meetingContextPath() : '';
+        const base = `${protocol}//${host}${ctx}/ws/audio/${this.meetingId}`;
         if (this.sessionToken) {
             return `${base}?token=${encodeURIComponent(this.token)}&reconnect=true&session_token=${encodeURIComponent(this.sessionToken)}`;
         }

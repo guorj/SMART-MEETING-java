@@ -8,7 +8,7 @@ import org.springframework.stereotype.Component;
 @Component
 @ConfigurationProperties(prefix = "meeting.runtime")
 public class RuntimeBridgeProperties {
-    private String meetingServerBaseUrl = "http://127.0.0.1:8765";
+    private String meetingServerBaseUrl = "http://127.0.0.1:8765/meeting-server";
     private String botBaseUrl = "http://127.0.0.1:8764";
     private String internalReloadToken = "";
 }

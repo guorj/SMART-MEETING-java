@@ -53,8 +53,9 @@ location /admin/ {
 location /api/v1/admin/ {
   proxy_pass http://127.0.0.1:8766/api/v1/admin/;
 }
-location /api/v1/meetings/ {
-  proxy_pass http://127.0.0.1:8765/api/v1/meetings/;
+# meeting-server 使用 context-path=/meeting-server；内网桥接 http://127.0.0.1:8765/meeting-server
+location /meeting-server/ {
+  proxy_pass http://127.0.0.1:8765;
 }
 ```
 

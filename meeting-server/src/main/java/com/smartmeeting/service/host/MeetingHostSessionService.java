@@ -16,7 +16,7 @@ import com.smartmeeting.enums.CheckInSource;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.exception.BusinessException;
-import com.smartmeeting.entity.MatterProgressDocConfig;
+import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
@@ -49,7 +49,8 @@ import java.util.concurrent.TimeUnit;
 /**
  * AI 会议主持会话：单会议维度的议题进度、倒计时、飞书群静音、主持端 WebSocket 状态推送与讯飞 TTS 播报编排。
  * <p>
- * 主持页订阅 {@code host_state} 与 {@code tts_*} 消息；本服务负责生成话术文本、合成 PCM 后经 {@link MeetingHostWebSocketHandler} 下发。
+ * 主持页订阅 {@code host_state}、{@code host_toast}（时间类提醒）与 {@code tts_*} 消息；
+ * 时间提醒经 toast 下发，其余话术合成 PCM 后经 {@link MeetingHostWebSocketHandler} 下发。
  * 检点流程与 ASR 答到判定见 {@link #onRollCallFinalTranscript}、{@link #isRollCallAnswerWindowArmed}。
  */
 @Slf4j
@@ -65,6 +66,8 @@ public class MeetingHostSessionService {
      * 主持页已对 PCM 排队播放；本值仍用于开场后自动检点、检点收尾后自动下一议题等调度延迟。
      */
     private static final long HOST_TTS_CLIENT_PLAYBACK_TAIL_MS = 600L;
+    /** 时间类提醒 toast 展示时长（毫秒），与主持页 {@code host-meeting.html} 一致 */
+    private static final int HOST_REMINDER_TOAST_MS = 3000;
 
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
@@ -348,13 +351,17 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 每秒：更新议题/会议剩余并可能播报提醒；议题到时仅提示不自动切题；推进检点超时；广播最新 {@code host_state}。
+     * 每秒：更新议题/会议剩余并可能推送时间提醒 toast；议题到时仅提示不自动切题；推进检点超时；广播最新 {@code host_state}。
      *
      * @param meetingId 会议主键；若已无 runtime 或处于暂停则直接返回
      */
     private void tick(String meetingId) {
         HostRuntime rt = runtimes.get(meetingId);
-        if (rt == null || rt.paused) {
+        if (rt == null) {
+            return;
+        }
+        if (rt.paused) {
+            pushHostState(meetingId);
             return;
         }
         long now = System.currentTimeMillis();
@@ -365,14 +372,14 @@ public class MeetingHostSessionService {
 
         int tw = Math.max(1, topicWarnMinutes) * 60;
         if (rt.lastTopicLeftSec > tw && topicLeftSec <= tw) {
-            speakAsync(meetingId, "当前议题还剩 " + topicWarnMinutes + " 分钟。");
+            pushHostToast(meetingId, "当前议题还剩 " + topicWarnMinutes + " 分钟。");
         }
         rt.lastTopicLeftSec = topicLeftSec;
 
         for (int m : defaultMeetingWarns()) {
             int sec = m * 60;
             if (rt.lastMeetingLeftSec > sec && meetingLeftSec <= sec) {
-                speakAsync(meetingId, "会议还剩 " + m + " 分钟。");
+                pushHostToast(meetingId, "会议还剩 " + m + " 分钟。");
                 break;
             }
         }
@@ -380,7 +387,7 @@ public class MeetingHostSessionService {
 
         if (topicLeftSec == 0 && !rt.topicTimeUpAnnounced) {
             rt.topicTimeUpAnnounced = true;
-            speakAsync(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
+            pushHostToast(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
         }
 
         if (runtimeConfig.isRollCallEnabled()) {
@@ -1518,7 +1525,7 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 将 {@code int_matter_progress_doc_config} 作为默认资料合并进运行时议题。
+     * 将预设 {@code host_agenda} 内嵌资料作为默认合并进运行时议题。
      * <p>
      * 若预设模板 {@code host_agenda} 或当前议题已绑定飞书（含 POST /start 显式传入），则跳过该会序的配置表行。
      */
@@ -1533,7 +1540,7 @@ public class MeetingHostSessionService {
             return;
         }
         presetAgendaDocService.getPresetCached(presetTypeCode);
-        for (MatterProgressDocConfig cfg : presetAgendaDocService.listEnabledByPreset(presetTypeCode)) {
+        for (AgendaDocBindingSnapshot cfg : presetAgendaDocService.listEnabledByPreset(presetTypeCode)) {
             if (cfg.getAgendaIndex() == null) {
                 continue;
             }
@@ -1550,7 +1557,7 @@ public class MeetingHostSessionService {
                         idx, meetingId);
                 continue;
             }
-            FeishuResourceRef ref = FeishuResourceResolver.resolve(AgendaBindingConverter.from(cfg));
+            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
             if (ref == null) {
                 continue;
             }
@@ -1596,6 +1603,24 @@ public class MeetingHostSessionService {
             hostWebSocketHandler.broadcastText(meetingId, objectMapper.writeValueAsString(root));
         } catch (Exception e) {
             log.warn("pushHostState: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 向主持页推送时间类提醒 toast（右下角展示，不占用 TTS 队列）。
+     *
+     * @param meetingId 会议主键
+     * @param text      提醒文案
+     */
+    private void pushHostToast(String meetingId, String text) {
+        try {
+            ObjectNode root = objectMapper.createObjectNode();
+            root.put("type", "host_toast");
+            root.put("text", text);
+            root.put("durationMs", HOST_REMINDER_TOAST_MS);
+            hostWebSocketHandler.broadcastText(meetingId, objectMapper.writeValueAsString(root));
+        } catch (Exception e) {
+            log.warn("pushHostToast meetingId={}: {}", meetingId, e.getMessage());
         }
     }
 

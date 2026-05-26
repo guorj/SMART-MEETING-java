@@ -41,7 +41,8 @@ cd smart-meeting-java
 
 | 模块 ID | 说明 |
 |---------|------|
-| `presets` | 会务预设 `int_meeting_type_preset`、资料 `int_matter_progress_doc_config` |
+| `api-reference` | **数据更新 API** 目录：方法/路径/请求响应示例/cURL（`GET /api/v1/admin/api-reference/catalog`） |
+| `presets` | 会务预设 `int_meeting_type_preset`（会序+资料一体：`host_agenda` v2 `items[].docs[]`） |
 | `weekly-jobs` | `int_weekly_matter_comparison_job` CRUD |
 | `meetings` | 会议列表/详情/主持与录音链接 |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
@@ -68,18 +69,27 @@ cd smart-meeting-java
 | **数据查看** | 按 meetingId 查纪要、转写片段 |
 | **会议运维** | 状态/preset 筛选、参会人列表、`POST .../force-end` |
 | **对比任务** | 任务编辑表单、matter config 名下拉 |
-| **会序与资料** | doc 绑定增删改（prompt 表单） |
+| **会序与资料** | 会序行内嵌资料绑定，一次保存（`agenda-bundle`） |
 | **系统参数** | 按 category 分组、恢复默认、变更审计 `v0.13` |
 
 DDL：除 `v0.12` 外，执行 `v0.13-meeting-system-config-audit.sql`（新库已写入 `schema.sql` 尾部）。
+
+## 数据更新 API 参考
+
+- UI：`/admin#/api-reference`
+- 元数据：`GET /api/v1/admin/api-reference/meta`
+- 目录：`GET /api/v1/admin/api-reference/catalog`（源码维护于 `AdminDataApiCatalogService`）
+- 覆盖：agenda-config、meetings、system-config、weekly-jobs、meeting-server internal 桥接接口
 
 ## P1.5 / 继续迭代（当前）
 
 | 能力 | 说明 |
 |------|------|
-| 会序表编辑 | `GET/PUT .../agenda-items`，表格模式 + JSON 高级模式 |
+| 会序与资料一体化 | `GET/PUT .../agenda-bundle`：每行含 `bindings[]`，保存时按行序重写 `agenda_index` 并清理孤儿 doc |
+| 会序表（兼容） | `GET/PUT .../agenda-items` 仅 host_agenda |
 | 会序校验 | `POST .../validate-agenda`（检点关键词提示等） |
-| 资料绑定抽屉 | 侧栏表单替代 prompt |
+| 资料卡片 | 挂在会序行下；`PUT …/agenda-bundle` 写入 `host_agenda` JSON（已移除独立 `doc-bindings` API） |
+| JSON 高级 | 仅 `host_agenda_json`，不联动资料索引 |
 | 批量刷新快照 | `POST .../refresh-meetings-host-agenda?dryRun=`，仅 ISSUE_COLLECTING/INVITED |
 | file_based Provider | `meeting.admin.agenda-config.file-enabled=true` 时只读加载 classpath JSON |
 | 对比任务校验 | 保存前校验 cron、JSON、必填项 |

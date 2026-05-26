@@ -32,6 +32,7 @@ meeting:
     enabled: ${MEETING_ADMIN_ENABLED:true}
     token: ${ADMIN_TOKEN:dev-admin-token}
     modules:
+      - api-reference
       - presets
       - weekly-jobs
       - meetings

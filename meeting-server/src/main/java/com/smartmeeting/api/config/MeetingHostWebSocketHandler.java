@@ -153,9 +153,8 @@ public class MeetingHostWebSocketHandler implements WebSocketHandler {
      * @return 会议 ID
      */
     private String extractMeetingId(WebSocketSession session) {
-        String path = session.getUri().getPath();
-        String[] parts = path.split("/");
-        return parts.length >= 4 ? parts[3] : null;
+        return WebSocketMeetingIdPaths.meetingIdFromPath(
+                session.getUri() != null ? session.getUri().getPath() : null);
     }
 
     /**

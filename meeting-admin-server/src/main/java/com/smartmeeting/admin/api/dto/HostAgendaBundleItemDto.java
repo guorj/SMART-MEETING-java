@@ -1,0 +1,24 @@
+package com.smartmeeting.admin.api.dto;
+
+import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import lombok.Builder;
+import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 会序行 + 该行资料绑定（管理端一体化编辑）。
+ */
+@Data
+@Builder
+public class HostAgendaBundleItemDto {
+    private int index;
+    private String title;
+    private Integer minutes;
+    private boolean hasRollCallKeyword;
+    /** 加载时存在 agenda_index 越界或未挂载的资料 */
+    private boolean hasOrphanDocs;
+    @Builder.Default
+    private List<AgendaDocBindingSnapshot> bindings = new ArrayList<>();
+}

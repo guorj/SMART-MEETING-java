@@ -1,6 +1,7 @@
 server:
   port: ${SERVER_PORT:8765}
   servlet:
+    context-path: ${MEETING_CONTEXT_PATH:/meeting-server}
     encoding:
       charset: UTF-8
       enabled: true
@@ -83,7 +84,7 @@ meeting:
   kafka:
     enabled: ${KAFKA_ENABLED:false}
 
-  base-url: ${BASE_URL:http://localhost:8765}
+  base-url: ${BASE_URL:http://localhost:8765/meeting-server}
 
   web:
     # 浏览器缓存 /static/**（秒）；前端发布后若仍见旧壳可调小或提高 page-cache-buster
@@ -164,6 +165,7 @@ meeting:
     roll-call-enabled: ${MEETING_HOST_ROLL_CALL_ENABLED:true}
     # 开场白播完后自动进入检点（须 roll-call-enabled=true 且预设有应到名单）
     auto-roll-call-after-opening: ${MEETING_HOST_AUTO_ROLL_CALL_AFTER_OPENING:true}
+    # 时间类提醒经 WebSocket host_toast 在主持页右下角展示（3s 自动消失），不走 TTS
     reminder:
       topic-minutes-left: 1
       meeting-minutes-left: "10,3"

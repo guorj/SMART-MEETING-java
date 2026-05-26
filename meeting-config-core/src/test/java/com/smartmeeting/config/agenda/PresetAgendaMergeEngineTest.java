@@ -107,6 +107,28 @@ class PresetAgendaMergeEngineTest {
     }
 
     @Test
+    void hostAgendaV2_roundTrip_docsEmbedded() {
+        HostAgendaItem item = new HostAgendaItem();
+        item.setTitle("会序1");
+        item.setMinutes(5);
+        item.setDocs(List.of(HostAgendaDocBinding.builder()
+                .configName("preset1-weekly-report-out")
+                .role("OUTPUT")
+                .slot(0)
+                .url("https://x.feishu.cn/base/app1")
+                .enabled(true)
+                .build()));
+        String json = PresetAgendaMergeEngine.toHostAgendaJson(JSON, List.of(item));
+        var parsed = PresetAgendaMergeEngine.parseHostAgendaItems(JSON, json);
+        assertEquals(1, parsed.size());
+        assertEquals(1, parsed.get(0).getDocs().size());
+        assertEquals("preset1-weekly-report-out", parsed.get(0).getDocs().get(0).getConfigName());
+        var report = PresetAgendaMergeEngine.findReportBindingInHostAgenda(json, 0, JSON);
+        assert report.isPresent();
+        assertEquals("https://x.feishu.cn/base/app1", report.get().outputFeishuDocUrl());
+    }
+
+    @Test
     void resolveAllResources_prefersRuntimeUrl() {
         List<HostAgendaFeishuDocRef> runtime = List.of(
                 HostAgendaFeishuDocRef.builder().url("https://x.feishu.cn/docx/doxRuntime").build());

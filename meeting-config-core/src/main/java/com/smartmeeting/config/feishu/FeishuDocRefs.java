@@ -1,6 +1,7 @@
 package com.smartmeeting.config.feishu;
 
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.agenda.HostAgendaDocBinding;
 import com.smartmeeting.config.agenda.HostAgendaFeishuDocRef;
 
 import java.util.ArrayList;
@@ -44,6 +45,23 @@ public final class FeishuDocRefs {
 
     public static void addFromUrl(List<FeishuResourceRef> target, String url) {
         FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
+        if (ref == null || !ref.showOnHostPage()) {
+            return;
+        }
+        String key = dedupeKey(ref);
+        for (FeishuResourceRef existing : target) {
+            if (dedupeKey(existing).equals(key)) {
+                return;
+            }
+        }
+        target.add(ref);
+    }
+
+    public static void addFromDocBinding(List<FeishuResourceRef> target, HostAgendaDocBinding doc) {
+        if (doc == null) {
+            return;
+        }
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(doc);
         if (ref == null || !ref.showOnHostPage()) {
             return;
         }

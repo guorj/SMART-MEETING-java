@@ -1,25 +1,22 @@
 package com.smartmeeting.config.agenda;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.config.feishu.FeishuDocRefs;
-import com.smartmeeting.config.feishu.FeishuResourceKind;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
 /**
- * 预设会序与 doc 绑定合并引擎（无 DB / Redis / 飞书 HTTP）。
+ * 预设会序与内嵌资料合并引擎（无 DB / Redis / 飞书 HTTP）。
  * <p>
- * meeting-server 的 {@code PresetAgendaDocService}、meeting-admin 预览等应委托本类，
- * 仅由应用层负责加载 {@link AgendaDocBindingSnapshot} 与缓存。
+ * 资料权威存储为 {@code int_meeting_type_preset.host_agenda} v2 {@code items[].docs[]}，
+ * 由 {@link HostAgendaJsonCodec} 编解码。
  */
 public final class PresetAgendaMergeEngine {
 
@@ -31,60 +28,21 @@ public final class PresetAgendaMergeEngine {
                                             List<HostAgendaItem> requestItems,
                                             List<AgendaDocBindingSnapshot> sourceBindings) {
         if (presetTypeCode < 1 || presetTypeCode > 5) {
-            return toHostAgendaJson(objectMapper, requestItems);
+            return HostAgendaJsonCodec.toJson(objectMapper, requestItems);
         }
         List<HostAgendaItem> items = copyHostAgendaItems(requestItems);
         if (items.isEmpty() && presetHostAgendaJson != null && !presetHostAgendaJson.isBlank()) {
-            items = parseHostAgendaItems(objectMapper, presetHostAgendaJson);
+            items = new ArrayList<>(HostAgendaJsonCodec.parseItems(objectMapper, presetHostAgendaJson));
         }
         if (items.isEmpty()) {
             return null;
         }
         enrichHostAgendaItems(presetTypeCode, presetHostAgendaJson, items, sourceBindings);
-        return toHostAgendaJson(objectMapper, items);
+        return HostAgendaJsonCodec.toJson(objectMapper, items);
     }
 
     public static String toHostAgendaJson(ObjectMapper objectMapper, List<HostAgendaItem> items) {
-        if (items == null || items.isEmpty()) {
-            return null;
-        }
-        try {
-            var root = objectMapper.createObjectNode();
-            var arr = root.putArray("items");
-            for (HostAgendaItem dto : items) {
-                if (dto == null || dto.getTitle() == null || dto.getTitle().isBlank()) {
-                    continue;
-                }
-                var n = arr.addObject();
-                n.put("title", dto.getTitle().trim());
-                int min = dto.getMinutes() != null && dto.getMinutes() > 0 ? dto.getMinutes() : 10;
-                n.put("minutes", min);
-                if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
-                    n.put("detail", dto.getDetail().trim());
-                }
-                if (dto.getFeishuDocs() != null && !dto.getFeishuDocs().isEmpty()) {
-                    var docs = n.putArray("feishuDocs");
-                    for (HostAgendaFeishuDocRef ref : dto.getFeishuDocs()) {
-                        if (ref == null || ref.getUrl() == null || ref.getUrl().isBlank()) {
-                            continue;
-                        }
-                        var d = docs.addObject();
-                        if (ref.getKind() != null && !ref.getKind().isBlank()) {
-                            d.put("kind", ref.getKind());
-                        }
-                        d.put("url", ref.getUrl().trim());
-                    }
-                } else if (dto.getFeishuDocUrl() != null && !dto.getFeishuDocUrl().isBlank()) {
-                    n.put("feishuDocUrl", dto.getFeishuDocUrl().trim());
-                }
-            }
-            if (arr.isEmpty()) {
-                return null;
-            }
-            return objectMapper.writeValueAsString(root);
-        } catch (Exception e) {
-            return null;
-        }
+        return HostAgendaJsonCodec.toJson(objectMapper, items);
     }
 
     public static void enrichHostAgendaItems(int presetTypeCode, String presetHostAgendaJson,
@@ -100,16 +58,18 @@ public final class PresetAgendaMergeEngine {
             if (item == null) {
                 continue;
             }
-            if (!hostAgendaItemHasFeishu(item)) {
-                HostAgendaItem fromTemplate = itemAtIndex(presetHostAgendaJson, i);
-                if (hostAgendaItemHasFeishu(fromTemplate)) {
-                    copyHostAgendaFeishuFields(fromTemplate, item);
-                } else {
-                    List<AgendaDocBindingSnapshot> cfgs = byAgenda.get(i);
-                    if (cfgs != null && !cfgs.isEmpty()) {
-                        item.setFeishuDocs(bindingsToHostRefs(cfgs));
-                        applyFirstUrlField(item);
-                    }
+            if (hostAgendaItemHasFeishu(item)) {
+                continue;
+            }
+            HostAgendaItem fromTemplate = HostAgendaJsonCodec.parseItemAtIndex(
+                    new ObjectMapper(), presetHostAgendaJson, i);
+            if (fromTemplate != null && hostAgendaItemHasFeishu(fromTemplate)) {
+                copyHostAgendaFields(fromTemplate, item);
+            } else {
+                List<AgendaDocBindingSnapshot> cfgs = byAgenda.get(i);
+                if (cfgs != null && !cfgs.isEmpty()) {
+                    item.setDocs(cfgs.stream().map(HostAgendaJsonCodec::fromSnapshot).toList());
+                    syncLegacyFromDocs(item);
                 }
             }
         }
@@ -121,6 +81,7 @@ public final class PresetAgendaMergeEngine {
                                                               List<AgendaDocBindingSnapshot> agendaBindings,
                                                               int agendaIndex,
                                                               List<HostAgendaFeishuDocRef> runtimeDocs) {
+        ObjectMapper mapper = new ObjectMapper();
         List<FeishuResourceRef> refs = new ArrayList<>();
         if (runtimeDocs != null) {
             for (HostAgendaFeishuDocRef dto : runtimeDocs) {
@@ -128,85 +89,89 @@ public final class PresetAgendaMergeEngine {
             }
         }
         if (meetingHostAgendaJson != null && !meetingHostAgendaJson.isBlank()) {
-            HostAgendaItem fromMeeting = itemAtIndex(meetingHostAgendaJson, agendaIndex);
+            HostAgendaItem fromMeeting = HostAgendaJsonCodec.parseItemAtIndex(mapper, meetingHostAgendaJson, agendaIndex);
             if (hostAgendaItemHasFeishu(fromMeeting)) {
                 addHostAgendaItemFeishuRefs(refs, fromMeeting);
                 return FeishuDocRefs.mergeDistinct(refs);
             }
         }
         if (presetTypeCode != null && presetTypeCode >= 1 && presetTypeCode <= 5) {
-            HostAgendaItem fromTemplate = itemAtIndex(presetHostAgendaJson, agendaIndex);
+            HostAgendaItem fromTemplate = HostAgendaJsonCodec.parseItemAtIndex(mapper, presetHostAgendaJson, agendaIndex);
+            if (fromTemplate != null && fromTemplate.getDocs() != null) {
+                for (HostAgendaDocBinding doc : fromTemplate.getDocs()) {
+                    if (doc != null && AgendaDocRoleRules.isSourceRoleForMerge(
+                            HostAgendaJsonCodec.toSnapshot(doc, presetTypeCode, agendaIndex))) {
+                        FeishuDocRefs.addFromDocBinding(refs, doc);
+                    }
+                }
+                if (!refs.isEmpty()) {
+                    return FeishuDocRefs.mergeDistinct(refs);
+                }
+            }
             if (hostAgendaItemHasFeishu(fromTemplate)) {
                 addHostAgendaItemFeishuRefs(refs, fromTemplate);
                 return FeishuDocRefs.mergeDistinct(refs);
             }
             for (AgendaDocBindingSnapshot cfg : agendaBindings) {
-                if (!AgendaDocRoleRules.isSourceRoleForMerge(cfg)) {
-                    continue;
+                if (AgendaDocRoleRules.isSourceRoleForMerge(cfg)) {
+                    FeishuDocRefs.addFromBinding(refs, cfg);
                 }
-                FeishuDocRefs.addFromBinding(refs, cfg);
             }
         }
         return FeishuDocRefs.mergeDistinct(refs);
     }
 
     public static boolean presetTemplateDefinesFeishuForIndex(String presetHostAgendaJson, int agendaIndex) {
-        return hostAgendaItemHasFeishu(itemAtIndex(presetHostAgendaJson, agendaIndex));
+        return hostAgendaItemHasFeishu(
+                HostAgendaJsonCodec.parseItemAtIndex(new ObjectMapper(), presetHostAgendaJson, agendaIndex));
     }
 
     public static Optional<AgendaReportBinding> findReportBinding(List<AgendaDocBindingSnapshot> allBindings,
                                                                   int presetTypeCode, int agendaIndex) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0 || allBindings == null) {
-            return Optional.empty();
+        if (allBindings != null && !allBindings.isEmpty()) {
+            AgendaDocBindingSnapshot row = allBindings.stream()
+                    .filter(b -> b.getEnabled() != null && b.getEnabled() == 1)
+                    .filter(b -> presetTypeCode == (b.getPresetTypeCode() != null ? b.getPresetTypeCode() : 0))
+                    .filter(b -> agendaIndex == (b.getAgendaIndex() != null ? b.getAgendaIndex() : -1))
+                    .filter(b -> {
+                        String role = b.getConfigRole();
+                        if (role == null) {
+                            return false;
+                        }
+                        role = role.trim().toUpperCase(Locale.ROOT);
+                        return "OUTPUT".equals(role) || "BOTH".equals(role);
+                    })
+                    .max(Comparator.comparingLong(b -> b.getId() != null ? b.getId() : 0L))
+                    .orElse(null);
+            if (row != null) {
+                String outputFeishu = null;
+                if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getConfigRole()))
+                        && row.getFeishuDocUrl() != null && !row.getFeishuDocUrl().isBlank()) {
+                    outputFeishu = row.getFeishuDocUrl().trim();
+                }
+                return Optional.of(new AgendaReportBinding(
+                        row.getGeneratedReportUrl(),
+                        row.getGeneratedReportAt(),
+                        outputFeishu));
+            }
         }
-        AgendaDocBindingSnapshot row = allBindings.stream()
-                .filter(b -> b.getEnabled() != null && b.getEnabled() == 1)
-                .filter(b -> presetTypeCode == (b.getPresetTypeCode() != null ? b.getPresetTypeCode() : 0))
-                .filter(b -> agendaIndex == (b.getAgendaIndex() != null ? b.getAgendaIndex() : -1))
-                .filter(b -> {
-                    String role = b.getConfigRole();
-                    if (role == null) {
-                        return false;
-                    }
-                    role = role.trim().toUpperCase(Locale.ROOT);
-                    return "OUTPUT".equals(role) || "BOTH".equals(role);
-                })
-                .max(Comparator.comparingLong(b -> b.getId() != null ? b.getId() : 0L))
-                .orElse(null);
-        if (row == null) {
-            return Optional.empty();
-        }
-        String outputFeishu = null;
-        if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getConfigRole()))
-                && row.getFeishuDocUrl() != null && !row.getFeishuDocUrl().isBlank()) {
-            outputFeishu = row.getFeishuDocUrl().trim();
-        }
-        return Optional.of(new AgendaReportBinding(
-                row.getGeneratedReportUrl(),
-                row.getGeneratedReportAt(),
-                outputFeishu));
+        return Optional.empty();
+    }
+
+    public static Optional<AgendaReportBinding> findReportBindingInHostAgenda(String presetHostAgendaJson,
+                                                                              int agendaIndex,
+                                                                              ObjectMapper mapper) {
+        return HostAgendaJsonCodec.findReportBinding(presetHostAgendaJson, agendaIndex, mapper);
     }
 
     public static List<HostAgendaItem> parseHostAgendaItems(ObjectMapper objectMapper, String hostAgendaJson) {
-        List<HostAgendaItem> out = new ArrayList<>();
-        if (hostAgendaJson == null || hostAgendaJson.isBlank()) {
-            return out;
-        }
-        try {
-            JsonNode root = objectMapper.readTree(hostAgendaJson);
-            JsonNode items = root.path("items");
-            if (!items.isArray()) {
-                return out;
-            }
-            for (int i = 0; i < items.size(); i++) {
-                HostAgendaItem dto = itemAtIndex(hostAgendaJson, i);
-                if (dto != null) {
-                    out.add(dto);
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return out;
+        return HostAgendaJsonCodec.parseItems(objectMapper, hostAgendaJson);
+    }
+
+    public static List<AgendaDocBindingSnapshot> extractBindingsFromHostAgenda(int presetTypeCode,
+                                                                                 String hostAgendaJson,
+                                                                                 ObjectMapper mapper) {
+        return HostAgendaJsonCodec.extractAllBindings(presetTypeCode, hostAgendaJson, mapper);
     }
 
     public static List<AgendaDocBindingSnapshot> filterSourceBindings(List<AgendaDocBindingSnapshot> bindings) {
@@ -219,6 +184,13 @@ public final class PresetAgendaMergeEngine {
     public static boolean hostAgendaItemHasFeishu(HostAgendaItem item) {
         if (item == null) {
             return false;
+        }
+        if (item.getDocs() != null) {
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc != null && FeishuResourceResolver.isRecognizedFeishuDocUrl(doc.getUrl())) {
+                    return true;
+                }
+            }
         }
         if (item.getFeishuDocs() != null) {
             for (HostAgendaFeishuDocRef d : item.getFeishuDocs()) {
@@ -245,7 +217,10 @@ public final class PresetAgendaMergeEngine {
             if (src.getDetail() != null && !src.getDetail().isBlank()) {
                 dto.setDetail(src.getDetail().trim());
             }
-            if (src.getFeishuDocs() != null && !src.getFeishuDocs().isEmpty()) {
+            if (src.getDocs() != null && !src.getDocs().isEmpty()) {
+                dto.setDocs(new ArrayList<>(src.getDocs()));
+                syncLegacyFromDocs(dto);
+            } else if (src.getFeishuDocs() != null && !src.getFeishuDocs().isEmpty()) {
                 dto.setFeishuDocs(new ArrayList<>(src.getFeishuDocs()));
                 applyFirstUrlField(dto);
             } else if (src.getFeishuDocUrl() != null && !src.getFeishuDocUrl().isBlank()) {
@@ -258,7 +233,7 @@ public final class PresetAgendaMergeEngine {
 
     private static Map<Integer, List<AgendaDocBindingSnapshot>> groupConfigsByAgenda(
             List<AgendaDocBindingSnapshot> configs) {
-        Map<Integer, List<AgendaDocBindingSnapshot>> map = new HashMap<>();
+        java.util.Map<Integer, List<AgendaDocBindingSnapshot>> map = new java.util.HashMap<>();
         if (configs == null) {
             return map;
         }
@@ -268,25 +243,7 @@ public final class PresetAgendaMergeEngine {
             }
             map.computeIfAbsent(c.getAgendaIndex(), k -> new ArrayList<>()).add(c);
         }
-        for (List<AgendaDocBindingSnapshot> list : map.values()) {
-            list.sort(Comparator
-                    .comparingInt((AgendaDocBindingSnapshot c) ->
-                            c.getResourceSlot() != null ? c.getResourceSlot() : 0)
-                    .thenComparingLong(c -> c.getId() != null ? c.getId() : 0L));
-        }
         return map;
-    }
-
-    private static List<HostAgendaFeishuDocRef> bindingsToHostRefs(List<AgendaDocBindingSnapshot> cfgs) {
-        List<HostAgendaFeishuDocRef> out = new ArrayList<>();
-        for (AgendaDocBindingSnapshot cfg : cfgs) {
-            FeishuResourceRef ref = FeishuResourceResolver.resolve(cfg);
-            HostAgendaFeishuDocRef dto = FeishuDocRefs.toHostRef(ref);
-            if (dto != null) {
-                out.add(dto);
-            }
-        }
-        return out;
     }
 
     private static void applyFirstUrlField(HostAgendaItem item) {
@@ -300,6 +257,14 @@ public final class PresetAgendaMergeEngine {
     }
 
     private static void addHostAgendaItemFeishuRefs(List<FeishuResourceRef> refs, HostAgendaItem item) {
+        if (item.getDocs() != null) {
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc != null && AgendaDocRoleRules.isSourceRoleForMerge(
+                        HostAgendaJsonCodec.toSnapshot(doc, 0, 0))) {
+                    FeishuDocRefs.addFromDocBinding(refs, doc);
+                }
+            }
+        }
         if (item.getFeishuDocs() != null) {
             for (HostAgendaFeishuDocRef dto : item.getFeishuDocs()) {
                 FeishuDocRefs.addFromHostRef(refs, dto);
@@ -309,8 +274,11 @@ public final class PresetAgendaMergeEngine {
         }
     }
 
-    private static void copyHostAgendaFeishuFields(HostAgendaItem from, HostAgendaItem to) {
-        if (from.getFeishuDocs() != null && !from.getFeishuDocs().isEmpty()) {
+    private static void copyHostAgendaFields(HostAgendaItem from, HostAgendaItem to) {
+        if (from.getDocs() != null && !from.getDocs().isEmpty()) {
+            to.setDocs(new ArrayList<>(from.getDocs()));
+            syncLegacyFromDocs(to);
+        } else if (from.getFeishuDocs() != null && !from.getFeishuDocs().isEmpty()) {
             to.setFeishuDocs(new ArrayList<>(from.getFeishuDocs()));
             applyFirstUrlField(to);
         } else if (from.getFeishuDocUrl() != null && !from.getFeishuDocUrl().isBlank()) {
@@ -318,88 +286,21 @@ public final class PresetAgendaMergeEngine {
         }
     }
 
-    private static HostAgendaItem itemAtIndex(String hostAgendaJson, int agendaIndex) {
-        if (hostAgendaJson == null || hostAgendaJson.isBlank() || agendaIndex < 0) {
-            return null;
+    private static void syncLegacyFromDocs(HostAgendaItem item) {
+        if (item.getDocs() == null || item.getDocs().isEmpty()) {
+            return;
         }
-        try {
-            ObjectMapper mapper = new ObjectMapper();
-            JsonNode root = mapper.readTree(hostAgendaJson);
-            JsonNode items = root.path("items");
-            if (!items.isArray() || agendaIndex >= items.size()) {
-                return null;
+        List<HostAgendaFeishuDocRef> refs = new ArrayList<>();
+        for (HostAgendaDocBinding doc : item.getDocs()) {
+            if (doc == null || doc.getUrl() == null || doc.getUrl().isBlank()) {
+                continue;
             }
-            JsonNode n = items.get(agendaIndex);
-            String title = n.path("title").asText("").trim();
-            if (title.isEmpty()) {
-                return null;
-            }
-            HostAgendaItem dto = new HostAgendaItem();
-            dto.setTitle(title);
-            dto.setMinutes(n.path("minutes").asInt(10));
-            String detail = n.path("detail").asText("").trim();
-            if (!detail.isEmpty()) {
-                dto.setDetail(detail);
-            }
-            JsonNode docs = n.path("feishuDocs");
-            if (docs.isArray() && !docs.isEmpty()) {
-                List<HostAgendaFeishuDocRef> refList = new ArrayList<>();
-                for (JsonNode d : docs) {
-                    HostAgendaFeishuDocRef ref = parseFeishuDocNode(d);
-                    if (ref != null) {
-                        refList.add(ref);
-                    }
-                }
-                if (!refList.isEmpty()) {
-                    dto.setFeishuDocs(refList);
-                    applyFirstUrlField(dto);
-                    return dto;
-                }
-            }
-            String url = n.path("feishuDocUrl").asText("").trim();
-            if (url.isEmpty()) {
-                String legacyId = n.path("feishuDocToken").asText("").trim();
-                url = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
-                if (url == null) {
-                    url = "";
-                }
-            }
-            if (!url.isEmpty()) {
-                dto.setFeishuDocUrl(url);
-            }
-            return dto;
-        } catch (Exception ignored) {
-            return null;
+            refs.add(HostAgendaFeishuDocRef.builder().url(doc.getUrl().trim()).build());
         }
-    }
-
-    private static HostAgendaFeishuDocRef parseFeishuDocNode(JsonNode d) {
-        if (d == null || d.isNull()) {
-            return null;
+        if (!refs.isEmpty()) {
+            item.setFeishuDocs(refs);
+            item.setFeishuDocUrl(refs.get(0).getUrl());
         }
-        String url = d.path("url").asText("").trim();
-        if (url.isEmpty()) {
-            url = d.path("feishuDocUrl").asText("").trim();
-        }
-        if (url.isEmpty()) {
-            String legacyId = d.path("token").asText("").trim();
-            if (legacyId.isEmpty()) {
-                legacyId = d.path("feishuDocToken").asText("").trim();
-            }
-            url = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
-            if (url == null) {
-                url = "";
-            }
-        }
-        if (url.isEmpty()) {
-            return null;
-        }
-        String kind = d.path("kind").asText("").trim();
-        if (kind.isEmpty()) {
-            FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
-            kind = ref != null ? ref.kind().name() : FeishuResourceKind.UNKNOWN.name();
-        }
-        return HostAgendaFeishuDocRef.builder().kind(kind).url(url).build();
     }
 
     private static String nullToEmpty(String s) {

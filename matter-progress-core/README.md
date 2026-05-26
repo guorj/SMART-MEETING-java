@@ -13,32 +13,44 @@
 ─────────────────────────────────────────────────────────────────────────────
 Quartz / POST …/execute  →  WeeklyMatterComparisonService  →  host_state 只读链接
 WeeklyComparisonScheduleService      ↓ JDBC
-WeeklyMatterComparisonJob            MySQL 共库
+WeeklyMatterComparisonJob            MySQL 共库（preset host_agenda v2）
 ```
 
 详述：[docs/weekly-matter-comparison.md](../docs/weekly-matter-comparison.md) · [meeting USER-MANUAL §1.4](../docs/USER-MANUAL.md) · [Bot USER-MANUAL §12.0](../../feishu-scheduled-bot/docs/USER-MANUAL.md)
+
+## 执行路径（何时走哪条）
+
+生产默认 **MCP 全托管**；MCP 失败时可回退 **Legacy**（Java 拉数 + LLM + 写 Doc）。配置由 Bot 注入，见 `feishu.weekly-comparison.openclaw.*`。
+
+| 条件 | 路径 | 飞书读/写 | 报告生成 |
+|------|------|-----------|----------|
+| `delegate-to-mcp=true`（默认）且 MCP 成功 | **MCP** | Agent + `lark-mcp`（Gateway **须** `tenant_access_token`） | Skill + MCP |
+| 上项失败且 `legacy-fallback-on-mcp-failure=true`（默认） | **Legacy fallback** | `RestFeishuDocClient`（tenant） | `LlmComparisonReportGenerator` |
+| `delegate-to-mcp=false` | **Legacy** | 同上 | 同上 |
+
+**已移除（2026-05）**：Legacy 内的 `OpenClawComparisonReportGenerator`（向 Gateway 传已拉正文的第二条 WS 路径）。OpenClaw 集成仅保留 **MCP Delegate**（`OpenClawMcpWeeklyComparisonDelegate`）。
+
+Gateway 运维清单：[mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md](../mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md)
 
 ## 核心类
 
 | 类 | 职责 |
 | ---- | ---- |
 | `WeeklyMatterComparisonService` | **Facade**：`runJob(id)` 编排整条流水线 |
+| `OpenClawMcpWeeklyComparisonDelegate` | MCP 路径：WS 下发 Skill，不传 Java 预读正文 |
 | `JdbcWeeklyComparisonJobRepository` | 读/写 `int_weekly_matter_comparison_job`、`last_run_*` |
-| `JdbcMatterProgressConfigRepository` | 读 SOURCE/OUTPUT；`writeGeneratedReport` **仅**更新 `generated_report_*` |
+| `JdbcPresetHostAgendaConfigRepository` | 扫描 preset `host_agenda` v2；`writeGeneratedReport` 更新 JSON 内 `generatedReportUrl/At` |
 | `JdbcMeetingMinuteQuery` | `PRESET_LAST_7_DAYS` / `MEETING_IDS` → READY 纪要 |
-| `RestFeishuDocClient` | tenant token；读 docx/wiki/base 正文（多类型分派）；`createAndWriteMarkdown` |
-| `LlmComparisonReportGenerator` | OpenAI 兼容 Chat；Key 空/`test`/失败 → fallback 列表 Markdown |
+| `RestFeishuDocClient` | tenant token；读 docx/wiki/base 正文；`createAndWriteMarkdown`（Legacy） |
+| `LlmComparisonReportGenerator` | OpenAI 兼容 Chat；Key 空/`test`/失败 → fallback 列表 Markdown（Legacy） |
 
 ## `runJob` 流水线
 
 1. 加载 job，`enabled=0` → 失败  
-2. `collectSourceDocs`：`source_config_names` → 拉飞书正文；可选 OUTPUT 的 `feishu_doc_url`  
-3. `resolveMinutes`：按 `minute_query_type` 查 `int_meeting_minute`  
-4. `LlmComparisonReportGenerator.generate`  
-5. **MCP 模式**（`delegate-to-mcp=true`）：`OpenClawMcpWeeklyComparisonDelegate` → WS → Skill+MCP 读/写；Java 仅审计写回  
-   **Legacy**：`FeishuDocClient.createAndWriteMarkdown`  
-6. `configRepository.writeGeneratedReport(outputConfigName, url, now)`  
-7. `jobRepository.updateRunResult(SUCCESS|FAILED)`
+2. **MCP**（`delegate-to-mcp=true`）：`OpenClawMcpWeeklyComparisonDelegate` → WS → Skill + `lark-mcp` + `meeting-mysql`；Java 仅解析 `generatedReportUrl=` 并 JDBC 写回  
+3. **Legacy / fallback**：`collectSourceDocs` → `resolveMinutes` → `LlmComparisonReportGenerator` → `FeishuDocClient.createAndWriteMarkdown`  
+4. `configRepository.writeGeneratedReport(outputConfigName, url, now)`  
+5. `jobRepository.updateRunResult(SUCCESS|FAILED)`
 
 ## 可配置项（本 jar 无配置文件）
 
@@ -48,16 +60,18 @@ WeeklyMatterComparisonJob            MySQL 共库
 
 | Bot 配置 / 环境变量 | 注入目标 | 说明 |
 | ------------------- | -------- | ---- |
-| `feishu.weekly-comparison.read-output-feishu-doc-url` | `WeeklyMatterComparisonService` | 是否读 OUTPUT 行 `feishu_doc_url` |
-| `feishu.weekly-comparison.llm.*` / `MEETING_LLM_*` | `LlmComparisonReportGenerator` | 对比 LLM；`test` → fallback |
-| `feishu.app-id` / `feishu.app-secret` / `feishu.domain` | `RestFeishuDocClient` | 飞书 Doc 读写的应用凭证 |
+| `feishu.weekly-comparison.openclaw.delegate-to-mcp` | `WeeklyMatterComparisonService` | 默认 `true` → MCP |
+| `feishu.weekly-comparison.openclaw.legacy-fallback-on-mcp-failure` | 同上 | 默认 `true` → MCP 失败走 Legacy LLM |
+| `feishu.weekly-comparison.read-output-feishu-doc-url` | 同上 | 是否读 OUTPUT 行 `feishu_doc_url`（Legacy） |
+| `feishu.weekly-comparison.llm.*` / `MEETING_LLM_*` | `LlmComparisonReportGenerator` | Legacy 对比 LLM；`test` → fallback |
+| `feishu.weekly-comparison.app-id` / `app-secret` | `RestFeishuDocClient` | Legacy 飞书 tenant 读写 |
 
 ### 数据库（运维 SQL）
 
-| 表 | 字段 | 说明 |
-| ---- | ---- | ---- |
-| `int_weekly_matter_comparison_job` | `cron_expression`、`source_config_names`、`minute_query_*`、`output_*` | 任务定义 |
-| `int_matter_progress_doc_config` | SOURCE：`feishu_doc_url`；OUTPUT：接收写回 | 与主持页 preset/agenda 绑定 |
+| 表 / 字段 | 说明 |
+| ---- | ---- |
+| `int_weekly_matter_comparison_job` | 任务定义、`source_config_names`、`minute_query_*`、`output_*` |
+| `int_meeting_type_preset.host_agenda` v2 | `items[].docs[]`：`configName`、`feishuDocUrl`、`generatedReportUrl`；**不再使用** `int_matter_progress_doc_config` |
 
 ### 代码内常量（改需发版 jar）
 
@@ -65,7 +79,7 @@ WeeklyMatterComparisonJob            MySQL 共库
 | ---- | ---- |
 | 单份资料/纪要截断 8000 字 | `LlmComparisonReportGenerator` |
 | LLM temperature / max_tokens | 同上 |
-| docx/wiki/base 均已支持 | `RestFeishuDocClient`：wiki 先 get_node 解析 obj_type 再递归；base 用 records/search + WrongTableId 纠正 |
+| docx/wiki/base 均已支持 | `RestFeishuDocClient` |
 
 ## 构建与发布
 
@@ -91,4 +105,4 @@ Bot 侧 `pom.xml` 依赖：
 - **不**发送飞书 IM（不写 PushLog）
 - **不**覆盖 `feishu_doc_url`
 - **不**在会中实时调用
-- **不**使用 OpenClaw Gateway（对比路径为直调 LLM）
+- **MCP 路径**依赖 OpenClaw Gateway + `lark-mcp`；**Legacy** 仅用 Java `tenant_access_token` + LLM

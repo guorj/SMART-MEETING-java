@@ -1,9 +1,9 @@
 package com.smartmeeting.admin.api.controller;
 
 import com.smartmeeting.admin.api.dto.ApiResponse;
+import com.smartmeeting.admin.api.dto.HostAgendaBundleItemDto;
 import com.smartmeeting.admin.api.dto.HostAgendaItemRowDto;
 import com.smartmeeting.admin.service.AgendaConfigService;
-import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 import com.smartmeeting.config.agenda.AgendaPresetSnapshot;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
@@ -35,32 +35,6 @@ public class AgendaConfigAdminController {
         return ApiResponse.ok();
     }
 
-    @GetMapping("/presets/{code}/doc-bindings")
-    public ApiResponse<List<AgendaDocBindingSnapshot>> listBindings(@PathVariable int code) {
-        return ApiResponse.ok(agendaConfigService.listDocBindings(code));
-    }
-
-    @PostMapping("/presets/{code}/doc-bindings")
-    public ApiResponse<Map<String, Long>> createBinding(@PathVariable int code,
-                                                        @RequestBody AgendaDocBindingSnapshot body) {
-        body.setPresetTypeCode(code);
-        long id = agendaConfigService.saveDocBinding(body);
-        return ApiResponse.ok(Map.of("id", id));
-    }
-
-    @PutMapping("/doc-bindings/{id}")
-    public ApiResponse<Void> updateBinding(@PathVariable long id, @RequestBody AgendaDocBindingSnapshot body) {
-        body.setId(id);
-        agendaConfigService.saveDocBinding(body);
-        return ApiResponse.ok();
-    }
-
-    @DeleteMapping("/doc-bindings/{id}")
-    public ApiResponse<Void> deleteBinding(@PathVariable long id) {
-        agendaConfigService.deleteDocBinding(id);
-        return ApiResponse.ok();
-    }
-
     @PostMapping("/presets/{code}/preview")
     public ApiResponse<List<String>> preview(@PathVariable int code) {
         return ApiResponse.ok(agendaConfigService.previewMergeLines(code));
@@ -76,6 +50,18 @@ public class AgendaConfigAdminController {
     public ApiResponse<Void> saveAgendaItems(@PathVariable int code,
                                              @RequestBody List<HostAgendaItemRowDto> items) {
         agendaConfigService.saveAgendaItems(code, items);
+        return ApiResponse.ok();
+    }
+
+    @GetMapping("/presets/{code}/agenda-bundle")
+    public ApiResponse<List<HostAgendaBundleItemDto>> agendaBundle(@PathVariable int code) {
+        return ApiResponse.ok(agendaConfigService.loadAgendaBundle(code));
+    }
+
+    @PutMapping("/presets/{code}/agenda-bundle")
+    public ApiResponse<Void> saveAgendaBundle(@PathVariable int code,
+                                              @RequestBody List<HostAgendaBundleItemDto> items) {
+        agendaConfigService.saveAgendaBundle(code, items);
         return ApiResponse.ok();
     }
 

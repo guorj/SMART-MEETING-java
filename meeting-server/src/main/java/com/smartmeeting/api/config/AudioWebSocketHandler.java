@@ -350,9 +350,8 @@ public class AudioWebSocketHandler implements WebSocketHandler {
      * @return 会议 ID，解析失败时为 null
      */
     private String extractMeetingId(WebSocketSession session) {
-        String path = session.getUri().getPath();
-        String[] parts = path.split("/");
-        return parts.length >= 4 ? parts[3] : null;
+        return WebSocketMeetingIdPaths.meetingIdFromPath(
+                session.getUri() != null ? session.getUri().getPath() : null);
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.smartmeeting.config.feishu;
 
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.agenda.HostAgendaDocBinding;
 
 import java.net.URI;
 import java.net.URLDecoder;
@@ -15,6 +16,22 @@ public final class FeishuResourceResolver {
     private static final Pattern BASE_PATH = Pattern.compile("/base/([^/?#]+)", Pattern.CASE_INSENSITIVE);
 
     private FeishuResourceResolver() {
+    }
+
+    public static FeishuResourceRef resolve(HostAgendaDocBinding doc) {
+        if (doc == null) {
+            return null;
+        }
+        FeishuResourceRef ref = resolve(doc.getUrl());
+        if (ref == null) {
+            return null;
+        }
+        String mode = doc.getBitableDisplayMode();
+        if (mode == null || mode.isBlank()) {
+            return ref;
+        }
+        return new FeishuResourceRef(
+                ref.kind(), ref.primaryToken(), ref.tableId(), ref.viewId(), ref.sourceUrl(), mode.trim());
     }
 
     public static FeishuResourceRef resolve(AgendaDocBindingSnapshot cfg) {

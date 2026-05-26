@@ -22,6 +22,8 @@ schema-upgrade/v0.7-meeting-minute-content-url.sql
 schema-upgrade/v0.8-meeting-preset-type-code.sql
 schema-upgrade/v0.9-weekly-matter-comparison.sql
 schema-upgrade/v0.10-drop-openclaw-briefing.sql
+schema-upgrade/v0.14-host-agenda-docs-merge.sql   # 数据：HostAgendaV2DataMigrate --apply
+schema-upgrade/v0.15-drop-matter-progress-doc-config.sql
 ```
 
 执行工具（meeting-server 目录）：

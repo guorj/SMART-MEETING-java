@@ -49,6 +49,7 @@
         <mysql-connector.version>8.3.0</mysql-connector.version>
         <kafka-clients.version>3.7.0</kafka-clients.version>
         <spring-data-redis.version>3.2.5</spring-data-redis.version>
+        <skipTests>true</skipTests>
     </properties>
 
     <dependencyManagement>

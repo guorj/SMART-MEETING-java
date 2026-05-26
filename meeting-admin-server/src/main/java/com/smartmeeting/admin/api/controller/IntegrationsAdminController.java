@@ -27,7 +27,7 @@ public class IntegrationsAdminController {
         links.put("feishuBot", bot);
         links.put("feishuBotExecute", bot + "/execute");
         links.put("feishuBotDocs", "feishu-scheduled-bot/docs/USER-MANUAL.md");
-        links.put("reverseProxyHint", "生产可用 Nginx 将 /admin、/api/v1/admin 反代到 :8766，/api/v1/meetings 到 :8765");
+        links.put("reverseProxyHint", "生产：OA /api/ → :8081；meeting-server /meeting-server/ → :8765（保留 URI 前缀）");
         return ApiResponse.ok(links);
     }
 }

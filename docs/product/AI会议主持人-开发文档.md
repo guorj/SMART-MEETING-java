@@ -176,8 +176,16 @@ PRD：**会议开始后禁止向飞书群发任何消息/卡片**；结束后恢
 {"type":"host_state","meetingId":"...","topicIndex":1,"topics":[...],"serverNow":1710000000000,"topicEndsAt":1710000900000,"meetingEndsAt":1710003600000}
 ```
 
+**时间类提醒**（议题/会议剩余分钟、议题到时）：不占用 TTS 队列，由主持页右下角 toast 展示 3 秒后自动消失。
+
 ```json
-{"type":"tts_meta","text":"当前议题还剩三分钟","scene":"WARN","utteranceId":"uuid","audioFormat":"pcm_s16le_16000"}
+{"type":"host_toast","text":"会议还剩 10 分钟。","durationMs":3000}
+```
+
+**主持话术 TTS**（开场、切题、检点、加时等）：
+
+```json
+{"type":"tts_meta","text":"现在进入：事项进度通报，预计 7 分钟。","utteranceId":"uuid","encoding":"pcm_s16le_16000"}
 ```
 
 ```json
