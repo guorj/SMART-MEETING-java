@@ -96,7 +96,8 @@ AdminModules.register({
       <div class="panel">
         <div class="panel-head">
           <h2>数据更新 API 参考</h2>
-          <p>列出会写入数据库或触发运行时刷新的管理端 / internal 接口；统一响应包装 ${esc(meta.responseWrapper || '')}</p>
+          <p>${AdminHints.apiReference.moduleIntro}</p>
+          <p class="form-hint">列出会写入数据库或触发运行时刷新的管理端 / internal 接口；统一响应包装 ${esc(meta.responseWrapper || '')}</p>
         </div>
         <div class="api-ref-meta-bar">
           <span>共 <strong>${meta.total}</strong> 个接口</span>

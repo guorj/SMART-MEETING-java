@@ -328,8 +328,12 @@ th {
 }
 tbody tr:last-child td { border-bottom: none; }
 tbody tr:hover td { background: #fafbfc; }
-td.actions { white-space: nowrap; }
-td.actions .btn-group { vertical-align: middle; }
+td.actions { white-space: nowrap; min-width: 14rem; }
+td.actions .btn-group {
+  vertical-align: middle;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
 
 /* —— 标签 / 提示 —— */
 .msg { color: var(--warn); font-size: 0.85rem; }
@@ -741,7 +745,8 @@ pre.panel, #preview-out, #validate-out, #m-detail {
   background: var(--surface-2);
 }
 .form-field { margin-bottom: 1rem; }
-.form-field label {
+.form-field > label,
+.form-field > .form-field-caption {
   display: block;
   margin-bottom: 0.35rem;
   font-size: 0.78rem;
@@ -749,10 +754,36 @@ pre.panel, #preview-out, #validate-out, #m-detail {
   color: var(--text-muted);
   text-transform: none;
 }
-.form-field input,
+.form-field input:not([type="checkbox"]):not([type="radio"]),
 .form-field select,
 .form-field textarea { width: 100%; }
-.form-hint { font-size: 0.75rem; color: var(--text-soft); margin-top: 0.25rem; }
+.form-field input[type="checkbox"],
+.form-field input[type="radio"] {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
+}
+.form-check-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.25rem;
+  align-items: center;
+}
+.form-check-row .check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  cursor: pointer;
+}
+.form-hint { font-size: 0.75rem; color: var(--text-soft); margin-top: 0.25rem; line-height: 1.45; }
+.form-editor { max-width: 42rem; }
+.module-intro { font-size: 0.8125rem; color: var(--text-soft); margin: 0 0 0.75rem; line-height: 1.5; }
+.toolbar-note { font-size: 0.75rem; color: var(--text-soft); margin-left: 0.5rem; }
+.doc-inline-hint-block { font-size: 0.75rem; color: var(--text-soft); margin: 0.25rem 0 0.5rem; line-height: 1.4; }
 
 /* meetings 等模块内联 label */
 .panel > label {

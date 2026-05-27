@@ -7,16 +7,28 @@ AdminModules.register({
       if (!byCat[s.category]) byCat[s.category] = [];
       byCat[s.category].push(s);
     });
-    let html = '<div class="panel"><button class="primary" id="reload-rt">通知 meeting-server 热加载</button> <button id="show-audit">最近审计</button></div><pre id="audit-out" class="panel hidden"></pre>';
+    const extraHint = key => AdminHints.settings[key] || '';
+    let html = '<div class="panel">'
+      + '<p class="module-intro">' + AdminHints.settings.moduleIntro + '</p>'
+      + '<button class="primary" id="reload-rt" title="' + AdminHints.settings.reloadRuntime.replace(/"/g, '&quot;') + '">通知 meeting-server 热加载</button> '
+      + '<button id="show-audit" title="' + AdminHints.settings.audit.replace(/"/g, '&quot;') + '">最近审计</button></div>'
+      + '<pre id="audit-out" class="panel hidden"></pre>';
     for (const cat of Object.keys(byCat).sort()) {
       html += '<h3>' + cat + '</h3>';
       for (const s of byCat[cat]) {
         const val = s.currentValue != null ? s.currentValue : s.defaultValue;
         const parsed = s.type === 'BOOLEAN' ? (val === 'true' || val === true) : val;
+        const hint = extraHint(s.key);
         if (s.type === 'BOOLEAN') {
-          html += '<div class="panel"><label><input type="checkbox" data-key="' + s.key + '" ' + (parsed ? 'checked' : '') + '/> ' + s.description + ' <code>' + s.key + '</code></label> <button data-save="' + s.key + '">保存</button> <button data-reset="' + s.key + '">恢复默认</button></div>';
+          html += '<div class="panel form-field"><label><input type="checkbox" data-key="' + s.key + '" ' + (parsed ? 'checked' : '') + '/> '
+            + s.description + ' <code>' + s.key + '</code></label>'
+            + (hint ? AdminForm.hint(hint) : '')
+            + ' <button data-save="' + s.key + '">保存</button> <button data-reset="' + s.key + '">恢复默认</button></div>';
         } else {
-          html += '<div class="panel"><label>' + s.description + ' <code>' + s.key + '</code><input data-key="' + s.key + '" value="' + String(parsed).replace(/"/g, '&quot;') + '" style="width:100%"/></label> <button data-save="' + s.key + '">保存</button> <button data-reset="' + s.key + '">恢复默认</button></div>';
+          html += '<div class="panel form-field"><label>' + s.description + ' <code>' + s.key + '</code>'
+            + '<input data-key="' + s.key + '" value="' + String(parsed).replace(/"/g, '&quot;') + '" style="width:100%"/></label>'
+            + (hint ? AdminForm.hint(hint) : '')
+            + ' <button data-save="' + s.key + '">保存</button> <button data-reset="' + s.key + '">恢复默认</button></div>';
         }
       }
     }

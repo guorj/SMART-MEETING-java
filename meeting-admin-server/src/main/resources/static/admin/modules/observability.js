@@ -3,11 +3,18 @@ AdminModules.register({
   mount: async function (root) {
     root.innerHTML = `
       <div class="panel">
-        <label>会议 ID <input id="obs-meeting-id" style="width:320px"/></label>
-        <button class="primary" id="obs-load">加载</button>
+        <div class="panel-head"><h2>会议数据查看</h2><p>${AdminHints.observability.moduleIntro}</p></div>
+        <div class="form-field" style="max-width:36rem">
+          <label>会议 ID</label>
+          <div style="display:flex;gap:0.5rem;align-items:center">
+            <input id="obs-meeting-id" type="text" style="flex:1"/>
+            <button class="primary" id="obs-load">加载</button>
+          </div>
+          ${AdminForm.hint(AdminHints.observability.meetingId)}
+        </div>
       </div>
-      <div class="panel"><h3>纪要</h3><pre id="obs-minute"></pre></div>
-      <div class="panel"><h3>转写（final）</h3><pre id="obs-transcript" style="max-height:400px;overflow:auto"></pre></div>`;
+      <div class="panel"><h3>纪要</h3><p class="form-hint">已生成的 Markdown 纪要正文及 generationStatus（GENERATING / READY / FAILED 等）。</p><pre id="obs-minute"></pre></div>
+      <div class="panel"><h3>转写（final）</h3><p class="form-hint">ASR 最终片段，按 startTimeMs 排序；最多加载 300 条。</p><pre id="obs-transcript" style="max-height:400px;overflow:auto"></pre></div>`;
     document.getElementById('obs-load').onclick = async () => {
       const id = document.getElementById('obs-meeting-id').value.trim();
       if (!id) return alert('请输入会议 ID');

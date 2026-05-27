@@ -75,6 +75,19 @@ cd smart-meeting-java
 
 UI：`/admin#/push-bot`（任务 + 日志 Tab）；`/admin#/weekly-jobs`（对比任务 + 立即执行）。
 
+### 推送任务「调度模式」说明（UI 字段注释）
+
+| scheduleMode | 效果 |
+|--------------|------|
+| **EXTERNAL** | **不注册** Quartz Cron，仅由 **POST /api/tasks/{id}/execute** 或管理台「执行」触发。Cron 可留空。 |
+| **INTERNAL** | feishu-scheduled-bot 内 **Quartz 按 Cron 自动推送**。管理台「执行」在 `both` 模式且 `allow-internal-manual-execute=false` 时可能 **409 REJECTED**。 |
+
+**手动「执行」/ `/execute`**：不做当日 DUPLICATE 去重，每次都会尝试真实推送（假日/excludeDates 仍生效）。需 **重新编译并重启 feishu-scheduled-bot** 后生效。
+
+全局 `feishu.schedule.mode`（`internal` / `external` / `both`）在 bot 侧控制两种任务是否并存及 `/execute` 对 INTERNAL 的约束；任务级 `scheduleMode` 决定是否注册 Cron。
+
+前端字段说明集中维护于 `static/admin/admin-form-hints.js`，各模块表单引用 `AdminHints.*`。
+
 ## DDL
 
 执行 `meeting-server/src/main/resources/schema-upgrade/v0.12-meeting-system-config.sql`（幂等）。

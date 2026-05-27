@@ -183,26 +183,29 @@ AdminModules.register({
           <div class="doc-inline-row">
             <label>配置名</label>
             <input class="inl-name" type="text" placeholder="如 preset1-weekly-report-out" value="${esc(d.configName)}"/>
+            <p class="doc-inline-hint-block">${AdminHints.presets.configName}</p>
           </div>
           <div class="doc-inline-row doc-inline-meta">
             <label>角色</label>
-            <select class="inl-role">
+            <select class="inl-role" title="SOURCE/OUTPUT/BOTH">
               <option value="SOURCE" ${role === 'SOURCE' ? 'selected' : ''}>源资料</option>
               <option value="OUTPUT" ${role === 'OUTPUT' ? 'selected' : ''}>产出</option>
               <option value="BOTH" ${role === 'BOTH' ? 'selected' : ''}>双向</option>
             </select>
             <label>槽位</label>
-            <input class="inl-slot" type="number" min="0" value="${d.resourceSlot ?? 0}"/>
+            <input class="inl-slot" type="number" min="0" value="${d.resourceSlot ?? 0}" title="${AdminHints.presets.resourceSlot.replace(/"/g, '&quot;')}"/>
             <label>展示</label>
-            <select class="inl-bdm">
+            <select class="inl-bdm" title="多维表解析方式">
               <option value="" ${!bdm ? 'selected' : ''}>默认</option>
               <option value="RAW" ${bdm === 'RAW' ? 'selected' : ''}>RAW</option>
               <option value="GROUPED" ${bdm === 'GROUPED' ? 'selected' : ''}>GROUPED</option>
             </select>
           </div>
+          <p class="doc-inline-hint-block">角色：${AdminHints.presets.configRole.SOURCE} ${AdminHints.presets.configRole.OUTPUT} ${AdminHints.presets.configRole.BOTH} · 槽位：${AdminHints.presets.resourceSlot} · 展示：${AdminHints.presets.bitableDisplayMode['']} / ${AdminHints.presets.bitableDisplayMode.RAW} / ${AdminHints.presets.bitableDisplayMode.GROUPED}</p>
           <div class="doc-inline-row">
             <label>飞书链接</label>
             <textarea class="inl-url code-area" rows="3" placeholder="粘贴飞书文档 / 多维表链接">${esc(d.feishuDocUrl)}</textarea>
+            <p class="doc-inline-hint-block">${AdminHints.presets.feishuUrl}</p>
           </div>
           <p class="doc-inline-hint muted">点击外侧或按 Tab 离开即自动保存 · Esc 取消</p>
         </div>
@@ -418,9 +421,9 @@ AdminModules.register({
           </div>
           <div class="agenda-body">
             <header class="agenda-card-head">
-              <input class="ag-title field-grow" placeholder="会序标题" value="${esc(row.title)}"/>
+              <input class="ag-title field-grow" placeholder="会序标题" title="${AdminHints.presets.agendaTitle.replace(/"/g, '&quot;')}" value="${esc(row.title)}"/>
               <div class="agenda-meta">
-                <label class="agenda-min-label"><span>时长</span>
+                <label class="agenda-min-label" title="${AdminHints.presets.agendaMinutes.replace(/"/g, '&quot;')}"><span>时长</span>
                   <input class="ag-min" type="number" min="1" max="999" value="${row.minutes || 10}"/><span class="agenda-min-unit">分钟</span>
                 </label>
                 <div class="btn-group btn-group-icon">
@@ -459,10 +462,10 @@ AdminModules.register({
 
     root.innerHTML = `
       <div class="panel">
-        <div class="panel-head"><h2>会务预设</h2><p>点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存</p></div>
+        <div class="panel-head"><h2>会务预设</h2><p>点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存。资料「角色」决定 weekly-jobs 能否引用为源/产出。</p></div>
         <div class="toolbar toolbar-split">
           <div class="toolbar-row">
-            <label class="field-inline">会务类型<select id="preset-code"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+            <label class="field-inline" title="${AdminHints.presets.presetCode.replace(/"/g, '&quot;')}">会务类型<select id="preset-code"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
             <button type="button" class="primary" id="load-preset">加载</button>
             <button type="button" class="secondary" id="validate-preset">校验会序</button>
             <button type="button" class="secondary" id="preview-preset">合并预览</button>
@@ -482,7 +485,7 @@ AdminModules.register({
         </div>
         <div id="agenda-table-panel"><div id="agenda-table-wrap"></div></div>
         <div id="agenda-json-panel" class="hidden">
-          <p class="muted">仅编辑 host_agenda JSON，不会自动调整资料索引。</p>
+          <p class="form-hint">${AdminHints.presets.hostAgendaJson}</p>
           <textarea id="host-agenda-json" class="code-area" rows="14"></textarea>
           <p style="margin-top:0.75rem"><button type="button" class="primary" id="save-json">保存 JSON</button></p>
         </div>
