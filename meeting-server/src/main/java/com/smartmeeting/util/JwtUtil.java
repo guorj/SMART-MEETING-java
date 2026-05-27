@@ -29,6 +29,10 @@ public class JwtUtil {
     public static final String CLAIM_PURPOSE = "purpose";
     /** 飞书 Web 选会页入口令牌用途值 */
     public static final String PURPOSE_FEISHU_WEB_START_MEETING = "feishu_web_start_meeting";
+    /** 飞书 Web 会议前台 Dashboard 入口令牌用途值 */
+    public static final String PURPOSE_FEISHU_WEB_DASHBOARD = "feishu_web_dashboard";
+    /** JWT claim 键：飞书用户姓名（Dashboard 入口用） */
+    public static final String CLAIM_USER_NAME = "user_name";
     /** JWT claim 键：飞书 open_id */
     public static final String CLAIM_OPEN_ID = "open_id";
     /** JWT claim 键：飞书 chat_id */
@@ -60,6 +64,9 @@ public class JwtUtil {
 
     @Value("${meeting.jwt.feishu-web-entry-expire-minutes:30}")
     private int feishuWebEntryExpireMinutes;
+
+    @Value("${meeting.jwt.feishu-web-dashboard-expire-hours:8}")
+    private int feishuWebDashboardExpireHours;
 
     private SecretKey getSigningKey() {
         return Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
@@ -169,6 +176,66 @@ public class JwtUtil {
      * @param chatId 飞书群聊 chat_id
      */
     public record FeishuWebStartMeetingEntry(String openId, String chatId) {}
+
+    /**
+     * 生成飞书会议前台 Dashboard 入口 JWT（含 open_id / chat_id / user_name，8h 有效）。
+     *
+     * @param openId   飞书用户 open_id
+     * @param chatId   飞书群聊 chat_id
+     * @param userName 用户姓名（从飞书 API 或指令参数获取）
+     * @return Dashboard 入口 JWT
+     */
+    public String generateFeishuWebDashboardToken(String openId, String chatId, String userName) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(CLAIM_PURPOSE, PURPOSE_FEISHU_WEB_DASHBOARD);
+        claims.put(CLAIM_OPEN_ID, openId != null ? openId : "");
+        claims.put(CLAIM_CHAT_ID, chatId != null ? chatId : "");
+        claims.put(CLAIM_USER_NAME, userName != null ? userName : "");
+        Date now = new Date();
+        Date expiry = new Date(now.getTime() + (long) feishuWebDashboardExpireHours * 3600_000L);
+        return Jwts.builder()
+                .subject("feishu-web-dashboard")
+                .claims(claims)
+                .issuedAt(now)
+                .expiration(expiry)
+                .signWith(getSigningKey())
+                .compact();
+    }
+
+    /**
+     * 解析并验证飞书 Dashboard 入口 JWT。
+     *
+     * @param token Dashboard 入口 JWT 字符串
+     * @return 包含 openId、chatId 与 userName 的解析结果
+     * @throws BusinessException 令牌无效、过期或缺少必要声明时抛出（HTTP 401）
+     */
+    public FeishuWebDashboardEntry parseAndVerifyFeishuWebDashboardToken(String token) {
+        final Claims c;
+        try {
+            c = parseToken(token);
+        } catch (Exception e) {
+            throw new BusinessException(401, "会议前台链接已失效或无效，请返回飞书重新发送「会议管理」");
+        }
+        if (!PURPOSE_FEISHU_WEB_DASHBOARD.equals(c.get(CLAIM_PURPOSE))) {
+            throw new BusinessException(401, "会议前台链接已失效或无效，请返回飞书重新发送「会议管理」");
+        }
+        String oid = c.get(CLAIM_OPEN_ID, String.class);
+        String cid = c.get(CLAIM_CHAT_ID, String.class);
+        String name = c.get(CLAIM_USER_NAME, String.class);
+        if (oid == null || oid.isBlank()) {
+            throw new BusinessException(401, "会议前台链接已失效或无效，请返回飞书重新发送「会议管理」");
+        }
+        return new FeishuWebDashboardEntry(oid, cid != null ? cid : "", name != null ? name : "");
+    }
+
+    /**
+     * 飞书 Dashboard 入口 JWT 解析结果。
+     *
+     * @param openId   飞书用户 open_id
+     * @param chatId   飞书群聊 chat_id（可为空）
+     * @param userName 用户姓名（可为空）
+     */
+    public record FeishuWebDashboardEntry(String openId, String chatId, String userName) {}
 
     /**
      * 生成会议室操作员令牌：可推流录音/主持（混合会场线下单麦）。

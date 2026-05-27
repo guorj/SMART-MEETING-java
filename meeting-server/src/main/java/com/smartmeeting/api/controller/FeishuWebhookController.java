@@ -223,53 +223,12 @@ public class FeishuWebhookController {
                 Map<String, String> params = result.getParams();
 
                 switch (command) {
-                    case "start_meeting_menu":
-                        CompletableFuture.runAsync(() ->
-                                commandHandler.handleStartMeetingEntryWithOptionalInstructionCard(openId, chatId));
+                    case "open_dashboard":
+                        CompletableFuture.runAsync(() -> commandHandler.handleOpenDashboard(openId, chatId));
                         break;
-                    case "start_meeting_preset":
-                        int typeCode = Integer.parseInt(params.get("type"));
-                        CompletableFuture.runAsync(() ->
-                                commandHandler.handleStartMeetingPreset(openId, chatId, typeCode));
-                        break;
-                    case "start_meeting_other_prompt":
-                        CompletableFuture.runAsync(() ->
-                                commandHandler.handleStartMeetingOtherPrompt(openId, chatId));
-                        break;
-                    case "start_meeting_other_with_title":
-                        CompletableFuture.runAsync(() ->
-                                commandHandler.handleStartMeetingOtherWithTitle(openId, chatId,
-                                        params.get("title")));
-                        break;
-                    case "meeting_type_short":
-                        int n = Integer.parseInt(params.get("num"));
-                        CompletableFuture.runAsync(() ->
-                                commandHandler.handleMeetingTypeShort(openId, chatId, n));
-                        break;
-                    case "start_meeting":
-                        CompletableFuture.runAsync(() -> commandHandler.handleStartMeeting(openId, chatId,
-                                params.get("title"), params.get("participants")));
-                        break;
-                        
                     case "stop_meeting":
-                        commandHandler.handleStopMeeting(openId, chatId, 
-                            params.get("meeting_id"));
+                        commandHandler.handleStopMeeting(openId, chatId, params.get("meeting_id"));
                         break;
-                        
-                    case "list_minutes":
-                        int limit = Integer.parseInt(params.getOrDefault("limit", "5"));
-                        commandHandler.handleListMinutes(openId, chatId, limit);
-                        break;
-                        
-                    case "join_meeting":
-                        commandHandler.handleJoinMeeting(openId, chatId, 
-                            params.get("meeting_id"));
-                        break;
-                        
-                    case "register_voiceprint":
-                        commandHandler.handleRegisterVoiceprint(openId, chatId, params.get("name"));
-                        break;
-                        
                     case "rename_speaker":
                         // TODO: 实现说话人修改
                         log.info("Rename speaker requested: meeting={}, old={}, new={}", 

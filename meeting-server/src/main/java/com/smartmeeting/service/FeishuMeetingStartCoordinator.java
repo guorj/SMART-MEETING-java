@@ -81,7 +81,11 @@ public class FeishuMeetingStartCoordinator {
         meetingMapper.updateById(entity);
 
         String card = cardBuilder.buildMeetingStartedNotifyCard(meetingId, displayTitle, recordingUrl);
-        feishuService.sendInteractiveCard(chatId, card);
+        boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
+        if (!sentToChat) {
+            // chat_id 缺失或群推送失败时，至少给发起人单聊一张直达卡，避免“已创建但无入口”。
+            feishuService.sendInteractiveCardToOpenId(openId, card);
+        }
         pushOnlineParticipantJoinLinks(meetingId, displayTitle);
 
         log.info("会议已创建: meetingId={}, title={}, recordingUrl={}", meetingId, displayTitle, recordingUrl);

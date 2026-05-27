@@ -62,6 +62,21 @@ public class FeishuCommandHandler {
     private String baseUrl;
 
     /**
+     * 处理「会议管理」统一入口：发送 dashboard 链接卡片。
+     */
+    public void handleOpenDashboard(String openId, String chatId) {
+        try {
+            String userName = feishuService.getUserName(openId);
+            String token = jwtUtil.generateFeishuWebDashboardToken(openId, chatId, userName);
+            String entryUrl = baseUrl + "/dashboard?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
+            feishuService.sendInteractiveCard(chatId, cardBuilder.buildDashboardEntryCard(userName, entryUrl));
+        } catch (Exception e) {
+            log.error("发送会议前台入口卡片失败", e);
+            feishuService.sendMessage(chatId, "❌ 无法打开会议前台：" + e.getMessage());
+        }
+    }
+
+    /**
      * 处理「开始会议 主题:… 参会人:…」完全自定义建会指令。
      *
      * @param openId           操作人飞书 open_id
@@ -546,7 +561,7 @@ public class FeishuCommandHandler {
      */
     public void handleUnknown(String chatId) {
         feishuService.sendMessage(chatId,
-                "未识别该消息。可发「开始会议」使用会务，或发「帮助」查看全部指令。");
+                "未识别该消息。请发送「会议管理」打开统一会议前台，或发「帮助」查看说明。");
     }
 
     /**

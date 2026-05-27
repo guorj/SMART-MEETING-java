@@ -49,6 +49,8 @@ cd smart-meeting-java
 | `meetings` | 会议列表/详情/主持与录音链接；详情可跳转 **会议推送日志** |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
 
+> meeting-server 飞书指令体系已切换为统一入口：用户发送 `会议管理`，机器人返回 dashboard 入口卡片；开始会议、声纹注册、纪要查看均在 `dashboard.html` 内完成。
+
 ## 系统参数热加载
 
 1. Admin 写入 `int_meeting_system_config`

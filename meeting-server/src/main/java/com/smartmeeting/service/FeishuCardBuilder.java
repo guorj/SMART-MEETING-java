@@ -56,6 +56,10 @@ public class FeishuCardBuilder {
         addMarkdownElement(elements,
                 "**📱 录音**：发起人已在网页 **会议主页** 拾音（点「开始会议」同时启动录音与主持），**无需在本卡片上点击「开始录音」**。");
         addDividerElement(elements);
+        if (recordingUrl != null && !recordingUrl.isBlank()) {
+            addActionButton(elements, "打开会议主页（直达）", recordingUrl, "primary");
+            addDividerElement(elements);
+        }
 
         ArrayList<String> notes = new ArrayList<>();
         notes.add("📌 请在会议主页点击「结束会议」生成纪要（飞书发「结束会议」仍为备用）");
@@ -165,6 +169,29 @@ public class FeishuCardBuilder {
         addDividerElement(elements);
         addActionButton(elements, "打开会务选会页面", entryUrl, "primary");
 
+        return card.toString();
+    }
+
+    /**
+     * 构建会议前台统一入口卡片。
+     */
+    public String buildDashboardEntryCard(String userName, String dashboardUrl) {
+        ObjectNode card = objectMapper.createObjectNode();
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "智能会议前台");
+        header.put("template", "blue");
+
+        ArrayNode elements = card.putArray("elements");
+        String displayName = (userName == null || userName.isBlank()) ? "同事" : userName;
+        addMarkdownElement(elements, "你好，" + displayName
+                + "。点击下方按钮进入会议前台，可开始会议、注册声纹、查看纪要。");
+        addDividerElement(elements);
+        addActionButton(elements, "打开会议前台", dashboardUrl, "primary");
         return card.toString();
     }
 
@@ -306,7 +333,7 @@ public class FeishuCardBuilder {
         
         // 用户信息
         addMarkdownElement(elements, "**注册姓名**：" + userName);
-        addMarkdownElement(elements, "请在安静环境中朗读3句话完成注册");
+        addMarkdownElement(elements, "请在安静环境中完整朗读3句话（合计约200字）完成注册");
         
         // 分割线
         addDividerElement(elements);

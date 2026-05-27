@@ -216,6 +216,8 @@ meeting:
     expire-hours: 4
     # 飞书卡片「打开 Web 选会」链接中的 JWT 有效期（分钟）
     feishu-web-entry-expire-minutes: ${FEISHU_WEB_ENTRY_EXPIRE_MINUTES:30}
+    # Dashboard 工作台 JWT 有效期（小时）
+    feishu-web-dashboard-expire-hours: ${FEISHU_WEB_DASHBOARD_EXPIRE_HOURS:8}
 
   heartbeat:
     interval: ${HEARTBEAT_INTERVAL:30}

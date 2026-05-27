@@ -2,17 +2,15 @@ package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.asr.XfyunIsvClient;
+import com.smartmeeting.entity.UserMapping;
 import com.smartmeeting.entity.Voiceprint;
+import com.smartmeeting.repository.UserMappingMapper;
 import com.smartmeeting.repository.VoiceprintMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.time.ZoneId;
-import java.time.ZonedDateTime;
-import java.util.Base64;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,6 +31,7 @@ public class VoiceprintRegisterService {
 
     private final XfyunIsvClient isvClient;
     private final VoiceprintMapper voiceprintMapper;
+    private final UserMappingMapper userMappingMapper;
     
     // 注册session存储（内存，重启丢失）
     private final Map<String, RegisterSession> pendingSessions = new ConcurrentHashMap<>();
@@ -132,7 +131,7 @@ public class VoiceprintRegisterService {
         // 写入数据库
         Voiceprint voiceprint = new Voiceprint();
         voiceprint.setId(UUID.randomUUID().toString());
-        voiceprint.setUserId(null); // OA userId未知，暂不填
+        voiceprint.setUserId(null);
         voiceprint.setUserName(userName);
         voiceprint.setFeishuUserId(openId);
         voiceprint.setFeatureId(featureId);
@@ -147,6 +146,13 @@ public class VoiceprintRegisterService {
         if (existing != null) {
             voiceprintMapper.deleteById(existing.getId());
             log.info("旧声纹已删除: openId={}, oldFeatureId={}", openId, existing.getFeatureId());
+        }
+
+        UserMapping mapping = userMappingMapper.selectOne(new LambdaQueryWrapper<UserMapping>()
+                .eq(UserMapping::getFeishuOpenId, openId)
+                .last("LIMIT 1"));
+        if (mapping != null && mapping.getUserId() != null) {
+            voiceprint.setUserId(mapping.getUserId());
         }
         
         voiceprintMapper.insert(voiceprint);
