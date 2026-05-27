@@ -17,7 +17,7 @@ public class Voiceprint {
     /** 声纹记录唯一标识（主键） */
     @TableId
     private String id;
-    /** OA 用户 ID，关联 {@code int_user_mapping.user_id} */
+    /** OA 用户 ID，关联 {@code int_user_mapping_feishu.user_id} */
     private Integer userId;
     /** 用户姓名 */
     private String userName;

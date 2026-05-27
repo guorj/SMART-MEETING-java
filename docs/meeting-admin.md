@@ -45,6 +45,7 @@ cd smart-meeting-java
 | `presets` | 会务预设 `int_meeting_type_preset`（会序+资料一体：`host_agenda` v2 `items[].docs[]`） |
 | `weekly-jobs` | `int_weekly_matter_comparison_job` CRUD；**立即执行**、**同步 Quartz**（经 bot API） |
 | `push-bot` | feishu-scheduled-bot **推送任务 / 日志**（经 `BotBridgeService` 代理 `/api/tasks`、`/api/logs`） |
+| `users` | **用户管理**：按 userId 一行聚合 `int_user_mapping_feishu` + `int_voiceprint`；`GET/PUT /api/v1/admin/users` |
 | `meetings` | 会议列表/详情/主持与录音链接；详情可跳转 **会议推送日志** |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
 

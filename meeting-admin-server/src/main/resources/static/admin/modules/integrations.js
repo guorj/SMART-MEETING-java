@@ -17,6 +17,7 @@ AdminModules.register({
       <div class="panel"><h3>运维快捷</h3>
         <ul>
           <li>推送调度模块：<a href="#/push-bot">#/push-bot</a> — 配置 INTERNAL/EXTERNAL 推送任务</li>
+          <li>用户管理：<a href="#/users">#/users</a> — OA↔飞书映射与声纹</li>
           <li>对比任务模块：<a href="#/weekly-jobs">#/weekly-jobs</a> — 周报事项对比 Cron</li>
           <li>主持页示例：<code>${links.meetingHostExample}</code></li>
         </ul>

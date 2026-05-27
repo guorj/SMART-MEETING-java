@@ -105,5 +105,20 @@ window.AdminHints = {
   },
   apiReference: {
     moduleIntro: '数据更新与运维 API 目录（Admin Token 鉴权）；可筛选分类、搜索路径，复制 cURL 做联调。'
+  },
+  users: {
+    moduleIntro: '按 OA userId 统一管理用户档案：一行聚合 int_user_mapping_feishu（飞书映射）与 int_voiceprint（声纹）。后续新增用户相关表可在此模块扩展。',
+    editorIntro: '保存时同时写入映射表与声纹表；列表一行即该用户的完整运维视图。',
+    userId: 'OA 系统用户 ID（主键）；与参会人、待办责任人等业务侧 user_id 一致。新建后不可修改。',
+    userName: '用户姓名，列表展示与纪要人名匹配用；必填。',
+    feishuUserId: '飞书企业内 user_id；推送个人消息、待办 @ 责任人时使用。',
+    feishuUnionId: '飞书 union_id（跨应用唯一）；可留空。',
+    feishuOpenId: '飞书 open_id（应用内唯一）；声纹注册与 USER 推送常用。',
+    featureIdOptional: '讯飞声纹 featureId；留空则只维护映射、不创建/更新声纹。',
+    groupId: '讯飞声纹组 ID；可留空。',
+    registeredAt: '声纹注册时间；留空则默认当前时间。',
+    expiresAt: '声纹过期时间；留空则默认注册时间 + 10 年。',
+    expiryFilter: '按主声纹（同 userId 最新一条）的过期状态筛选列表。',
+    clearVoiceprint: '勾选后保存将删除该用户全部声纹记录（映射保留）。'
   }
 };

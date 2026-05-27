@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS int_voiceprint (
     INDEX idx_voiceprint_feishu_user (feishu_user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='声纹表';
 
-CREATE TABLE IF NOT EXISTS int_user_mapping (
+CREATE TABLE IF NOT EXISTS int_user_mapping_feishu (
     user_id         INT          NOT NULL PRIMARY KEY COMMENT 'OA用户ID',
     user_name       VARCHAR(100) NOT NULL COMMENT '用户姓名',
     feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书user_id',

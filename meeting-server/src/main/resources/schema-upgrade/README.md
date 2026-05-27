@@ -11,5 +11,6 @@
 | v0.9-weekly-matter-comparison.sql | `config_role` / `generated_report_*` + job 表 |
 | v0.10-drop-openclaw-briefing.sql | DROP `openclaw_briefing` |
 | v0.11-bitable-display-mode.sql | `bitable_display_mode`（RAW / GROUPED） |
+| v0.16-rename-user-mapping-feishu.sql | `int_user_mapping` → `int_user_mapping_feishu`（RENAME，幂等） |
 
 新环境请直接用 [`../schema.sql`](../schema.sql)，无需执行本目录。

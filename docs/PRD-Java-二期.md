@@ -515,7 +515,7 @@ smart-meeting-java/
 
 > **设计原则**：每个字段均有 JavaDoc + @Column(columnDefinition) 注释，确保代码自文档化。
 > **命名规范**：数据库字段用 snake_case，Java属性用 camelCase，MyBatis-Plus自动映射。
-> **ID体系统一**：所有用户标识使用 `user_id`（飞书企业内唯一ID，通过 `int_user_mapping` 表与OA系统关联）。
+> **ID体系统一**：所有用户标识使用 `user_id`（飞书企业内唯一ID，通过 `int_user_mapping_feishu` 表与OA系统关联）。
 
 ### 5.1 会议实体
 
@@ -962,7 +962,7 @@ public class MeetingTodo {
  * - 关联讯飞ISV声纹组的 feature_id
  * - 管理声纹生命周期（注册/过期/续期提醒）
  * - 为会后说话人识别提供 identity → name 的映射
- * - 通过 user_id 关联 OA 系统用户（int_user_mapping）
+ * - 通过 user_id 关联 OA 系统用户（int_user_mapping_feishu）
  */
 @Data
 @Table(name = "int_voiceprint", comment = "声纹表，存储用户注册的声纹特征信息")
@@ -977,7 +977,7 @@ public class Voiceprint {
      * OA系统用户ID（关联 system_users 表），唯一索引。
      * 一个用户只能注册一个声纹（如重新注册，覆盖旧记录）。
      */
-    @Column(nullable = false, unique = true, columnDefinition = "INT NOT NULL UNIQUE COMMENT 'OA系统用户ID，通过int_user_mapping关联飞书user_id'")
+    @Column(nullable = false, unique = true, columnDefinition = "INT NOT NULL UNIQUE COMMENT 'OA系统用户ID，通过int_user_mapping_feishu关联飞书user_id'")
     private Integer userId;
 
     /** 用户姓名，注册时填写，用于说话人识别后的名称标注 */
@@ -986,9 +986,9 @@ public class Voiceprint {
 
     /**
      * 飞书 user_id。
-     * 注册声纹时可不填写，后续从 int_user_mapping 表中根据 userId 映射获取。
+     * 注册声纹时可不填写，后续从 int_user_mapping_feishu 表中根据 userId 映射获取。
      */
-    @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '飞书用户user_id，可从int_user_mapping表映射获取'")
+    @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '飞书用户user_id，可从int_user_mapping_feishu表映射获取'")
     private String feishuUserId;
 
     /**
@@ -1031,7 +1031,7 @@ public class Voiceprint {
  * - 确保数据一致性和去重（userId 唯一）
  */
 @Data
-@Table(name = "int_user_mapping", comment = "OA系统用户ID与飞书ID映射表")
+@Table(name = "int_user_mapping_feishu", comment = "OA系统用户ID与飞书ID映射表")
 public class UserMapping {
 
     /**
@@ -1235,7 +1235,7 @@ public enum MeetingStatus {
 |------|------|------|------------|------|
 | 注册声纹 | POST | `/api/v1/voiceprint/register` | `{userId, audioBase64}` | 提交用户朗读音频，调用讯飞ISV API注册；返回 featureId |
 | 查询声纹状态 | GET | `/api/v1/voiceprint/status/{userId}` | — | 返回 `{registered, expiresAt, remaining}`，判断声纹是否就绪 |
-| 批量预加载 | POST | `/api/v1/meetings/{id}/voiceprint/preload` | 无请求体 | 会前检查所有参会人声纹状态，通过 int_user_mapping 查找飞书ID推送过期提醒 |
+| 批量预加载 | POST | `/api/v1/meetings/{id}/voiceprint/preload` | 无请求体 | 会前检查所有参会人声纹状态，通过 int_user_mapping_feishu 查找飞书ID推送过期提醒 |
 
 ### 6.5 用户映射API
 
@@ -1367,7 +1367,7 @@ public class TodoRemindMessage {
 | **checkTodoNearDeadline** | 每小时（Cron: `0 0 * * * ?`） | XXL-Job | 扫描截止时间<24h的待办（status=PENDING/IN_PROGRESS），写入Redis ZSet提醒消息 |
 | **dailyTodoRemind** | 每天 8:30（Cron: `0 30 8 * * ?`） | XXL-Job | 扫描所有未完成待办（status=PENDING/IN_PROGRESS），批量写入每日提醒到Redis ZSet |
 | **autoMarkDelayed** | 每天 9:00（Cron: `0 0 9 * * ?`） | XXL-Job | 扫描超过截止时间仍未完成的待办，自动标记为 DELAYED；推送通知给发起人 |
-| **checkVoiceprintExpiry** | 每天 8:00（Cron: `0 0 8 * * ?`） | XXL-Job | 扫描声纹即将过期（距 expiresAt < 2h）的用户，通过 int_user_mapping 查飞书ID推送续期提醒 |
+| **checkVoiceprintExpiry** | 每天 8:00（Cron: `0 0 8 * * ?`） | XXL-Job | 扫描声纹即将过期（距 expiresAt < 2h）的用户，通过 int_user_mapping_feishu 查飞书ID推送续期提醒 |
 | **scanRemindZSet** | 每分钟（Cron: `0 * * * * ?`） | XXL-Job | 扫描Redis ZSet中已到期的待办提醒（ZRANGEBYSCORE 0 now），发送飞书卡片提醒后ZREM移除 |
 | **checkRecordingTimeout** | 每 10 分钟（Cron: `0 */10 * * * ?`） | XXL-Job | 扫描状态为 RECORDING/PAUSED 的会议：录制超4h→自动停止；静音超30min→自动暂停+提醒 |
 | **cleanAudioCache** | 每天 3:00（Cron: `0 0 3 * * ?`） | XXL-Job | 清理超过168h（7天）的音频缓存文件，删除对应目录，记录清理日志 |
@@ -1580,7 +1580,7 @@ public class TodoRemindMessage {
 |------|------|------|--------|
 | **P0-MVP** | 第1-5天 | 会中核心（录音+ASR+纪要+文档） | Spring Boot骨架+WebSocket音频桥接+讯飞ASR对接+纪要生成+飞书文档创建 |
 | **P1-闭环** | 第6-10天 | 会前筹备+会后跟踪闭环 | 议题收集+参会人管理+参会确认+邀约；待办拆解+飞书任务同步+进度提醒+上次会议通报 |
-| **P2-声纹** | 第11-13天 | 声纹注册+说话人识别+用户映射 | 声纹注册页面+讯飞ISV对接+int_user_mapping映射+纪要人名标注 |
+| **P2-声纹** | 第11-13天 | 声纹注册+说话人识别+用户映射 | 声纹注册页面+讯飞ISV对接+int_user_mapping_feishu映射+纪要人名标注 |
 | **P3-增强** | 第14-18天 | 离线模式+看板+体验优化 | 离线录音上传+待办看板+前端体验优化 |
 
 ### 12.2 P0-MVP 详细计划
@@ -1616,11 +1616,11 @@ public class TodoRemindMessage {
 
 | 维度 | v1.1-java | v2.0-java | v2.1-java（本版） |
 |------|-----------|-----------|-------------------|
-| **用户标识** | open_id（应用内唯一） | user_id（企业内唯一），辅以 int_user_mapping 表建立OA↔飞书双射 | 不变 |
+| **用户标识** | open_id（应用内唯一） | user_id（企业内唯一），辅以 int_user_mapping_feishu 表建立OA↔飞书双射 | 不变 |
 | **表名前缀** | meeting / meeting_participant / meeting_todo | int_meeting / int_meeting_participant / int_meeting_todo | 不变 |
 | **meeting表结构** | 无company/department/group字段 | 新增company(集团)、department(部门)、groupName(会议组) | 不变 |
 | **voiceprint表** | 以open_id为主键关联用户 | 以userId(int)关联OA系统用户，feishuUserId通过mapping映射获取 | 新增feishu_user_id索引 |
-| **新增表** | — | int_user_mapping（OA用户ID↔飞书三种ID映射） | 不变 |
+| **新增表** | — | int_user_mapping_feishu（OA用户ID↔飞书三种ID映射） | 不变 |
 | **消息队列** | RabbitMQ（延时队列+死信） | Kafka（高吞吐+分区有序+DLQ Topic） | todo.extract独立Topic；todo.reminders→Redis ZSet |
 | **声纹注册API** | 参数为openId | 参数为userId(int) | 不变 |
 | **参与人/待办责任人** | openId | userId（飞书user_id） | 不变 |
@@ -1838,7 +1838,7 @@ CREATE TABLE int_meeting_todo (
 -- ============================================================
 -- 5. 声纹表
 -- 存储用户注册的讯飞ISV声纹特征信息
--- 通过 user_id 关联 OA 系统用户，feishu_user_id 从 int_user_mapping 映射获取
+-- 通过 user_id 关联 OA 系统用户，feishu_user_id 从 int_user_mapping_feishu 映射获取
 -- 声纹默认24h有效，定时任务提前2h检查并推送续期提醒
 -- ============================================================
 CREATE TABLE int_voiceprint (
@@ -1848,7 +1848,7 @@ CREATE TABLE int_voiceprint (
     -- 用户信息
     user_id         INT          NOT NULL UNIQUE COMMENT 'OA系统用户ID（关联system_users表），唯一约束：一个用户只能有一条活跃声纹记录',
     user_name       VARCHAR(100) NOT NULL COMMENT '用户姓名，注册时填写',
-    feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书user_id，注册声纹时可不填写，后续从int_user_mapping表中根据user_id映射获取',
+    feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书user_id，注册声纹时可不填写，后续从int_user_mapping_feishu表中根据user_id映射获取',
 
     -- 声纹特征
     feature_id      VARCHAR(100) NOT NULL COMMENT '讯飞ISV声纹特征ID，由声纹注册API返回',
@@ -1870,7 +1870,7 @@ CREATE TABLE int_voiceprint (
 -- 建立 OA 系统（system_users.id）与飞书三种ID的双向映射
 -- 支持通过 userId 查飞书信息，或通过飞书ID反查OA用户
 -- ============================================================
-CREATE TABLE int_user_mapping (
+CREATE TABLE int_user_mapping_feishu (
     -- 用户信息
     user_id         INT          NOT NULL PRIMARY KEY COMMENT 'OA系统用户ID（关联system_users表），主键',
     user_name       VARCHAR(100) NOT NULL COMMENT '用户姓名',
@@ -2044,4 +2044,4 @@ logging:
 
 *文档结束 - v2.1-java - 2026-05-08*  
 *变更记录：*
-- *v2.0→v2.1: 15项查缺补漏修复——①int_user_mapping增加PRIMARY KEY ②int_meeting_participant增加联合唯一约束 ③状态机TRACKING歧义合并 ④补全ConfirmStatus/TodoStatus/Priority枚举 ⑤纪要→待办串行依赖设计 ⑥延时提醒改为Redis ZSet ⑦状态机流转规则表+previousMeetingId自动关联 ⑧待办责任人匹配逻辑+手动分配API ⑨音频存储格式规范 ⑩WebSocket断线重连机制+风险项 ⑪voiceprint增加feishu_user_id索引 ⑫(已完成) ⑬录音按钮飞书卡片 ⑭Voiceprint实体空行 ⑮飞书卡片回调API*
+- *v2.0→v2.1: 15项查缺补漏修复——①int_user_mapping_feishu增加PRIMARY KEY ②int_meeting_participant增加联合唯一约束 ③状态机TRACKING歧义合并 ④补全ConfirmStatus/TodoStatus/Priority枚举 ⑤纪要→待办串行依赖设计 ⑥延时提醒改为Redis ZSet ⑦状态机流转规则表+previousMeetingId自动关联 ⑧待办责任人匹配逻辑+手动分配API ⑨音频存储格式规范 ⑩WebSocket断线重连机制+风险项 ⑪voiceprint增加feishu_user_id索引 ⑫(已完成) ⑬录音按钮飞书卡片 ⑭Voiceprint实体空行 ⑮飞书卡片回调API*

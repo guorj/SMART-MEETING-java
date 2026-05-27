@@ -36,6 +36,7 @@ meeting:
       - presets
       - weekly-jobs
       - push-bot
+      - users
       - meetings
       - settings
       - observability

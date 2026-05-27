@@ -29,7 +29,7 @@
 | int_meeting_todo | ✅ 一致 | schema.sql + MeetingTodo | 对齐 |
 | int_meeting_minute | ✅ 一致 | schema.sql | 对齐 |
 | int_voiceprint | ✅ 一致 | schema.sql + Voiceprint | 对齐 |
-| int_user_mapping | ✅ 一致 | schema.sql + UserMapping | 对齐 |
+| int_user_mapping_feishu | ✅ 一致 | schema.sql + UserMapping | 对齐 |
 | int_matter_progress_doc_config | ⚠️ **v0.9 列** | schema.sql (v0.10) | 老库执行 schema-upgrade/v0.9 |
 | int_weekly_matter_comparison_job | ⚠️ **新表** | v0.9 DDL + feishu V5 | bot 定时对比任务配置 |
 | int_scheduled_push_log | ⚠️ **缺 V2–V4 列** | feishu V2/V3/V4 + PushLog | **需执行迁移** |

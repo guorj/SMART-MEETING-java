@@ -23,6 +23,7 @@ public class AdminDataApiCatalogService {
         addMeetings(list);
         addSystemConfig(list);
         addWeeklyJobs(list);
+        addUsers(list);
         addMeetingServerInternal(list);
         return list;
     }
@@ -253,6 +254,83 @@ public class AdminDataApiCatalogService {
                 "{ \"code\": 0, \"data\": null }",
                 curlAdmin("DELETE", "/api/v1/admin/weekly-jobs/12", null),
                 null));
+    }
+
+    private void addUsers(List<AdminApiReferenceEntryDto> list) {
+        String cat = "用户管理 · users";
+        list.add(entry("user-mapping-post", cat, "POST",
+                "/api/v1/admin/users/mappings",
+                "新建 OA↔飞书用户映射",
+                "写入 int_user_mapping_feishu；userId 为主键不可重复。",
+                "meeting-admin-server :8766",
+                adminAuth(),
+                jsonContent(),
+                """
+                {
+                  "userId": 1001,
+                  "userName": "张三",
+                  "feishuUserId": "ou_xxx",
+                  "feishuUnionId": null,
+                  "feishuOpenId": "ou_xxx"
+                }
+                """.trim(),
+                "{ \"code\": 0, \"data\": { \"userId\": 1001 } }",
+                curlAdmin("POST", "/api/v1/admin/users/mappings", """
+                {"userId":1001,"userName":"张三","feishuOpenId":"ou_xxx"}
+                """),
+                null));
+
+        list.add(entry("voiceprint-put", cat, "PUT",
+                "/api/v1/admin/users/voiceprints/{id}",
+                "更新声纹记录",
+                "运维补录或修正 featureId / 过期时间等；正常注册流程由 meeting-server 写入。",
+                "meeting-admin-server :8766",
+                adminAuth(),
+                jsonContent(),
+                """
+                {
+                  "userId": 1001,
+                  "userName": "张三",
+                  "featureId": "xf-feature-id",
+                  "expiresAt": "2036-05-27T10:00:00"
+                }
+                """.trim(),
+                "{ \"code\": 0, \"data\": null }",
+                curlAdmin("PUT", "/api/v1/admin/users/voiceprints/uuid-here", """
+                {"userId":1001,"userName":"张三","featureId":"xf-feature-id"}
+                """),
+                List.of("列表支持 expiryFilter=VALID|EXPIRING|EXPIRED|ALL")));
+
+        list.add(entry("user-profile-put", cat, "PUT",
+                "/api/v1/admin/users/{userId}",
+                "保存用户完整档案（映射 + 声纹）",
+                "一次请求更新 int_user_mapping_feishu 与主声纹；clearVoiceprint=true 时删除全部声纹。",
+                "meeting-admin-server :8766",
+                adminAuth(),
+                jsonContent(),
+                """
+                {
+                  "mapping": {
+                    "userId": 1,
+                    "userName": "付靖怡",
+                    "feishuUserId": "116afd4c",
+                    "feishuUnionId": "on_...",
+                    "feishuOpenId": "ou_..."
+                  },
+                  "voiceprint": {
+                    "featureId": "xf-xxx",
+                    "groupId": null,
+                    "registeredAt": null,
+                    "expiresAt": null
+                  },
+                  "clearVoiceprint": false
+                }
+                """.trim(),
+                "{ \"code\": 0, \"data\": null }",
+                curlAdmin("PUT", "/api/v1/admin/users/1", """
+                {"mapping":{"userId":1,"userName":"付靖怡"},"voiceprint":{"featureId":"xf-1"}}
+                """),
+                List.of("推荐管理 UI 使用本接口；列表 GET /api/v1/admin/users")));
     }
 
     private void addMeetingServerInternal(List<AdminApiReferenceEntryDto> list) {

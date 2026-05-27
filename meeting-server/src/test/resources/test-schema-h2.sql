@@ -8,7 +8,7 @@ DROP TABLE IF EXISTS int_meeting_participant;
 DROP TABLE IF EXISTS int_meeting;
 DROP TABLE IF EXISTS int_meeting_type_preset;
 DROP TABLE IF EXISTS int_voiceprint;
-DROP TABLE IF EXISTS int_user_mapping;
+DROP TABLE IF EXISTS int_user_mapping_feishu;
 
 CREATE TABLE int_meeting (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY,
@@ -131,7 +131,7 @@ CREATE TABLE int_voiceprint (
     expires_at      TIMESTAMP    NOT NULL
 );
 
-CREATE TABLE int_user_mapping (
+CREATE TABLE int_user_mapping_feishu (
     user_id         INT          NOT NULL PRIMARY KEY,
     user_name       VARCHAR(100) NOT NULL,
     feishu_user_id  VARCHAR(100) NULL,
