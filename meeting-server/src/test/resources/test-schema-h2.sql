@@ -9,6 +9,14 @@ DROP TABLE IF EXISTS int_meeting;
 DROP TABLE IF EXISTS int_meeting_type_preset;
 DROP TABLE IF EXISTS int_voiceprint;
 DROP TABLE IF EXISTS int_user_mapping_feishu;
+DROP TABLE IF EXISTS int_weekly_matter_comparison_job;
+DROP TABLE IF EXISTS int_meeting_system_config;
+DROP TABLE IF EXISTS int_meeting_system_config_audit;
+DROP TABLE IF EXISTS int_event_outbox;
+DROP TABLE IF EXISTS int_pipeline_step_execution;
+DROP TABLE IF EXISTS int_pipeline_step;
+DROP TABLE IF EXISTS int_pipeline_template;
+DROP TABLE IF EXISTS int_processed_command;
 
 CREATE TABLE int_meeting (
     id              VARCHAR(36)  NOT NULL PRIMARY KEY,
@@ -23,6 +31,8 @@ CREATE TABLE int_meeting (
     creator_id      VARCHAR(64)  NOT NULL,
     chat_id         VARCHAR(100) NULL,
     room_id         VARCHAR(64)  NULL,
+    meeting_scenario VARCHAR(20) NOT NULL DEFAULT 'OFFLINE',
+    source_audio_url VARCHAR(1000) NULL,
     previous_meeting_id VARCHAR(36) NULL,
     scheduled_time  TIMESTAMP    NULL,
     actual_start_time TIMESTAMP    NULL,
@@ -134,12 +144,10 @@ CREATE TABLE int_voiceprint (
 CREATE TABLE int_user_mapping_feishu (
     user_id         INT          NOT NULL PRIMARY KEY,
     user_name       VARCHAR(100) NOT NULL,
-    feishu_user_id  VARCHAR(100) NULL,
-    feishu_union_id VARCHAR(100) NULL,
-    feishu_open_id  VARCHAR(100) NULL
+    feishu_user_id  VARCHAR(100) NULL
 );
 
-CREATE TABLE int_weekly_matter_comparison_job (
+CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
     id                    BIGINT       NOT NULL AUTO_INCREMENT PRIMARY KEY,
     job_name              VARCHAR(64)  NOT NULL,
     enabled               INT          NOT NULL DEFAULT 1,
@@ -157,5 +165,14 @@ CREATE TABLE int_weekly_matter_comparison_job (
     created_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE (job_name)
+);
+
+CREATE TABLE IF NOT EXISTS int_meeting_system_config (
+    id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    config_key VARCHAR(128) NOT NULL,
+    category VARCHAR(32) NOT NULL DEFAULT 'host',
+    value_json VARCHAR(4000) NOT NULL,
+    description VARCHAR(500) NULL,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 

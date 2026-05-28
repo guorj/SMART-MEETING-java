@@ -1049,14 +1049,6 @@ public class UserMapping {
     /** 飞书用户企业内唯一标识（user_id） */
     @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '飞书用户企业内唯一标识(user_id)'")
     private String feishuUserId;
-
-    /** 飞书用户应用间唯一标识（union_id） */
-    @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '飞书用户应用间唯一标识(union_id)'")
-    private String feishuUnionId;
-
-    /** 飞书用户应用内唯一标识（open_id） */
-    @Column(length = 100, columnDefinition = "VARCHAR(100) COMMENT '飞书用户应用内唯一标识(open_id)'")
-    private String feishuOpenId;
 }
 ```
 
@@ -1241,9 +1233,9 @@ public enum MeetingStatus {
 
 | 接口 | 方法 | 路径 | 请求体/参数 | 说明 |
 |------|------|------|------------|------|
-| 查询飞书ID | GET | `/api/v1/user-mapping/{userId}` | — | 通过OA userId查询飞书 user_id/union_id/open_id |
-| 批量查询 | POST | `/api/v1/user-mapping/batch` | `{userIds: [1,2,3]}` | 批量查询OA用户对应的飞书ID |
-| 更新映射 | PUT | `/api/v1/user-mapping/{userId}` | `{feishuUserId, feishuUnionId, feishuOpenId}` | 更新/补全用户飞书ID映射信息 |
+| 查询飞书ID | GET | `/api/v1/user-mapping/{userId}` | — | 通过OA userId查询飞书 user_id |
+| 批量查询 | POST | `/api/v1/user-mapping/batch` | `{userIds: [1,2,3]}` | 批量查询OA用户对应的飞书 user_id |
+| 更新映射 | PUT | `/api/v1/user-mapping/{userId}` | `{feishuUserId}` | 更新/补全用户飞书 user_id 映射 |
 
 ### 6.6 飞书卡片回调API
 
@@ -1867,21 +1859,18 @@ CREATE TABLE int_voiceprint (
 
 -- ============================================================
 -- 6. OA系统用户与飞书ID映射表
--- 建立 OA 系统（system_users.id）与飞书三种ID的双向映射
--- 支持通过 userId 查飞书信息，或通过飞书ID反查OA用户
+-- 建立 OA 系统（system_users.id）与飞书 user_id 的双向映射
+-- 支持通过 userId 查飞书 user_id，或通过飞书 user_id 反查 OA 用户
 -- ============================================================
 CREATE TABLE int_user_mapping_feishu (
     -- 用户信息
     user_id         INT          NOT NULL PRIMARY KEY COMMENT 'OA系统用户ID（关联system_users表），主键',
     user_name       VARCHAR(100) NOT NULL COMMENT '用户姓名',
     feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书用户企业内唯一标识(user_id)',
-    feishu_union_id VARCHAR(100) NULL     COMMENT '飞书用户应用间唯一标识(union_id)',
-    feishu_open_id  VARCHAR(100) NULL     COMMENT '飞书用户应用内唯一标识(open_id)',
 
     INDEX idx_feishu_user_id (feishu_user_id) COMMENT '按飞书user_id反查OA用户',
-    INDEX idx_feishu_open_id (feishu_open_id) COMMENT '按飞书open_id反查OA用户',
 
-    COMMENT = 'OA系统用户ID与飞书ID映射表，支持双向查询。'
+    COMMENT = 'OA系统用户ID与飞书 user_id 映射表，支持双向查询。'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 ```
 

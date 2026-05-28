@@ -37,13 +37,13 @@ public class DashboardController {
     @GetMapping("/me")
     public ApiResponse<DashboardService.UserInfo> me(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        return ApiResponse.ok(dashboardService.getUserInfo(entry.openId()));
+        return ApiResponse.ok(dashboardService.getUserInfo(entry.feishuUserId(), entry.userName()));
     }
 
     @GetMapping("/voiceprint-status")
     public ApiResponse<DashboardService.VoiceprintStatusResult> voiceprintStatus(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        return ApiResponse.ok(dashboardService.getVoiceprintStatus(entry.openId()));
+        return ApiResponse.ok(dashboardService.getVoiceprintStatus(entry.feishuUserId()));
     }
 
     @GetMapping("/recent-meetings")
@@ -52,7 +52,25 @@ public class DashboardController {
             @RequestParam(defaultValue = "10") int limit) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
         int safeLimit = Math.max(1, Math.min(limit, 30));
-        return ApiResponse.ok(dashboardService.getRecentMeetings(entry.openId(), safeLimit));
+        return ApiResponse.ok(dashboardService.getRecentMeetings(entry.feishuUserId(), safeLimit));
+    }
+
+    @GetMapping("/active-meeting")
+    public ApiResponse<DashboardService.ActiveMeetingResult> activeMeeting(@RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        return ApiResponse.ok(dashboardService.getActiveMeeting(entry.feishuUserId()));
+    }
+
+    @PostMapping("/active-meeting/end")
+    public ApiResponse<MeetingResponse> endActiveMeeting(@RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        return ApiResponse.ok(dashboardService.endActiveMeeting(entry.feishuUserId()));
+    }
+
+    @PostMapping("/active-meeting/recover")
+    public ApiResponse<DashboardService.ActiveMeetingResult> recoverActiveMeeting(@RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        return ApiResponse.ok(dashboardService.recoverActiveMeeting(entry.feishuUserId()));
     }
 
     @GetMapping("/meeting-presets")
@@ -66,13 +84,13 @@ public class DashboardController {
             @RequestParam("token") String token,
             @RequestBody MeetingCreateRequest request) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        return ApiResponse.ok(dashboardService.createMeeting(entry.openId(), entry.chatId(), request));
+        return ApiResponse.ok(dashboardService.createMeeting(entry.feishuUserId(), entry.chatId(), request));
     }
 
     @GetMapping("/voiceprint-register-url")
     public ApiResponse<Map<String, String>> voiceprintRegisterUrl(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        String regToken = dashboardService.createVoiceprintSession(entry.openId(), entry.userName());
+        String regToken = dashboardService.createVoiceprintSession(entry.feishuUserId(), entry.userName());
         String encoded = URLEncoder.encode(regToken, StandardCharsets.UTF_8);
         return ApiResponse.ok(Map.of("registerUrl", baseUrl + "/voiceprint?token=" + encoded));
     }

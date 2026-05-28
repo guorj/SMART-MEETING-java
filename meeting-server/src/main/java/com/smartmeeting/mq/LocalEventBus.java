@@ -64,9 +64,6 @@ public class LocalEventBus {
             
             log.info("[LocalEventBus] Minute generation completed: meetingId={}", message.getMeetingId());
             
-            // 触发待办提取（替代 todo.extract Topic）
-            todoExtractionService.extractTodos(message.getMeetingId());
-            
         } catch (Exception e) {
             log.error("[LocalEventBus] Failed to process meeting event: meetingId={}", 
                     message.getMeetingId(), e);

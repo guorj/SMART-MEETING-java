@@ -9,6 +9,7 @@ import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.UserMappingMapper;
 import com.smartmeeting.repository.VoiceprintMapper;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
+import com.smartmeeting.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,6 +37,9 @@ class DashboardServiceTest {
     @Mock private FeishuStartMeetingPendingStore pendingStore;
     @Mock private FeishuService feishuService;
     @Mock private VoiceprintRegisterService voiceprintRegisterService;
+    @Mock private MeetingService meetingService;
+    @Mock private JwtUtil jwtUtil;
+    @Mock private com.smartmeeting.util.MeetingWebPageUrls meetingWebPageUrls;
 
     private DashboardService dashboardService;
 
@@ -50,7 +54,10 @@ class DashboardServiceTest {
                 coordinator,
                 pendingStore,
                 feishuService,
-                voiceprintRegisterService
+                voiceprintRegisterService,
+                meetingService,
+                jwtUtil,
+                meetingWebPageUrls
         );
     }
 
@@ -59,8 +66,7 @@ class DashboardServiceTest {
         UserMapping mapping = new UserMapping();
         mapping.setUserId(7);
         mapping.setUserName("Alice");
-        mapping.setFeishuOpenId("ou_1");
-        mapping.setFeishuUserId("ou_1");
+        mapping.setFeishuUserId("116afd4c");
         when(userMappingMapper.selectOne(any())).thenReturn(mapping);
 
         Voiceprint vp = new Voiceprint();
@@ -68,7 +74,7 @@ class DashboardServiceTest {
         vp.setExpiresAt(LocalDateTime.now().plusDays(10));
         when(voiceprintMapper.selectOne(any())).thenReturn(vp);
 
-        DashboardService.UserInfo info = dashboardService.getUserInfo("ou_1");
+        DashboardService.UserInfo info = dashboardService.getUserInfo("116afd4c", null);
         assertTrue(info.isMappingExists());
         assertTrue(info.isVoiceprintRegistered());
         assertEquals("Alice", info.getUserName());
@@ -78,7 +84,7 @@ class DashboardServiceTest {
     @Test
     void getVoiceprintStatus_shouldReturnUnregisteredWhenMissing() {
         when(voiceprintMapper.selectOne(any())).thenReturn(null);
-        DashboardService.VoiceprintStatusResult result = dashboardService.getVoiceprintStatus("ou_2");
+        DashboardService.VoiceprintStatusResult result = dashboardService.getVoiceprintStatus("uid_2");
         assertFalse(result.isRegistered());
         assertEquals("NONE", result.getExpiryStatus());
     }

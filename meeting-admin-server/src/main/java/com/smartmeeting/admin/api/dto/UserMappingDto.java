@@ -7,6 +7,4 @@ public class UserMappingDto {
     private Integer userId;
     private String userName;
     private String feishuUserId;
-    private String feishuUnionId;
-    private String feishuOpenId;
 }

@@ -161,13 +161,10 @@ CREATE TABLE IF NOT EXISTS int_voiceprint (
 CREATE TABLE IF NOT EXISTS int_user_mapping_feishu (
     user_id         INT          NOT NULL PRIMARY KEY COMMENT 'OA用户ID',
     user_name       VARCHAR(100) NOT NULL COMMENT '用户姓名',
-    feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书user_id',
-    feishu_union_id VARCHAR(100) NULL     COMMENT '飞书union_id',
-    feishu_open_id  VARCHAR(100) NULL     COMMENT '飞书open_id',
+    feishu_user_id  VARCHAR(100) NULL     COMMENT '飞书user_id（企业内唯一，业务主键）',
 
-    INDEX idx_feishu_user_id (feishu_user_id),
-    INDEX idx_feishu_open_id (feishu_open_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书ID映射表';
+    INDEX idx_feishu_user_id (feishu_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书user_id映射表';
 
 CREATE TABLE IF NOT EXISTS int_matter_progress_doc_config (
     id                   BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',

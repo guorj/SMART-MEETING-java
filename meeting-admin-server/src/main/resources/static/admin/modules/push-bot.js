@@ -79,7 +79,7 @@ AdminModules.register({
           <div class="panel"><button class="primary" id="pb-new">新建任务</button></div>
           <div class="panel table-wrap"><table><thead><tr>
             <th title="任务显示名">名称</th><th title="关闭后不参与 Cron">启用</th><th title="Quartz Cron，INTERNAL 自动触发">Cron</th>
-            <th title="INTERNAL=服务端定时；EXTERNAL=仅外部/手动触发">模式</th><th title="USER/GROUP + open_id 或 chat_id">目标</th><th>操作</th>
+            <th title="INTERNAL=服务端定时；EXTERNAL=仅外部/手动触发">模式</th><th title="USER=user_id；GROUP=chat_id">目标</th><th>操作</th>
           </tr></thead><tbody id="pb-task-tbody"></tbody></table></div>
           <div class="panel hidden form-editor" id="pb-editor">
             <h3 id="pb-editor-title">编辑任务</h3>

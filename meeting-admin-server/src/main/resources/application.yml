@@ -38,6 +38,7 @@ meeting:
       - push-bot
       - users
       - meetings
+      - pipeline
       - settings
       - observability
       - integrations

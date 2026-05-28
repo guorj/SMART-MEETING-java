@@ -9,15 +9,17 @@ import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
+import com.smartmeeting.event.DomainEventPublisher;
+import com.smartmeeting.event.MeetingEndedEvent;
+import com.smartmeeting.enums.MeetingScenario;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
-import com.smartmeeting.mq.KafkaProducer;
-import com.smartmeeting.mq.LocalEventBus;
 import com.smartmeeting.service.FeishuService;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
-import com.smartmeeting.model.MinuteGenerateMessage;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.statemachine.MeetingEvent;
+import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +38,7 @@ import java.util.stream.Collectors;
  * {@link FeishuService}、{@link MeetingFeishuNotifier} 推送飞书通知；
  * {@link MeetingTypePresetService}、{@link PresetAgendaDocService} 处理预设会序与资料；
  * {@link MeetingMinuteService} 判断纪要是否存在；
- * {@link LocalEventBus} / {@link KafkaProducer} 触发纪要生成链路。
+ * {@link DomainEventPublisher} + Outbox 触发纪要生成链路。
  *
  * <p>会前进度已迁至 feishu-scheduled-bot + matter-progress-core（会前事项对比通报），
  * 建会时不再推送「上次待办进度」飞书卡片。
@@ -48,18 +50,16 @@ public class MeetingService {
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
     private final FeishuService feishuService;
-    private final LocalEventBus localEventBus;
     private final MeetingTypePresetService meetingTypePresetService;
     private final AiAgentService aiAgentService;
     private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingMinuteService meetingMinuteService;
     private final MeetingPresetTypeResolver presetTypeResolver;
     private final MeetingFeishuNotifier meetingFeishuNotifier;
+    private final MeetingStateMachineService meetingStateMachineService;
+    private final DomainEventPublisher domainEventPublisher;
+    private final MeetingScenarioResolver meetingScenarioResolver;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    // Kafka 生产者（生产环境，开发环境可选）
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private KafkaProducer kafkaProducer;
 
     /**
      * 构造会议服务，注入持久层、飞书、AI 增强、纪要及消息总线依赖。
@@ -67,7 +67,6 @@ public class MeetingService {
      * @param meetingMapper            会议表 Mapper
      * @param participantMapper        参会人 Mapper
      * @param feishuService            飞书 API 封装
-     * @param localEventBus            本地事件总线（Kafka 关闭时使用）
      * @param meetingTypePresetService 会务类型预设服务
      * @param aiAgentService           AI Agent 调用
      * @param presetAgendaDocService   预设会序飞书资料
@@ -77,23 +76,27 @@ public class MeetingService {
      */
     public MeetingService(MeetingMapper meetingMapper, ParticipantMapper participantMapper,
                           FeishuService feishuService,
-                          LocalEventBus localEventBus,
                           MeetingTypePresetService meetingTypePresetService,
                           AiAgentService aiAgentService,
                           PresetAgendaDocService presetAgendaDocService,
                           MeetingMinuteService meetingMinuteService,
                           MeetingPresetTypeResolver presetTypeResolver,
-                          MeetingFeishuNotifier meetingFeishuNotifier) {
+                          MeetingFeishuNotifier meetingFeishuNotifier,
+                          MeetingStateMachineService meetingStateMachineService,
+                          DomainEventPublisher domainEventPublisher,
+                          MeetingScenarioResolver meetingScenarioResolver) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.feishuService = feishuService;
-        this.localEventBus = localEventBus;
         this.meetingTypePresetService = meetingTypePresetService;
         this.aiAgentService = aiAgentService;
         this.presetAgendaDocService = presetAgendaDocService;
         this.meetingMinuteService = meetingMinuteService;
         this.presetTypeResolver = presetTypeResolver;
         this.meetingFeishuNotifier = meetingFeishuNotifier;
+        this.meetingStateMachineService = meetingStateMachineService;
+        this.domainEventPublisher = domainEventPublisher;
+        this.meetingScenarioResolver = meetingScenarioResolver;
     }
 
     /**
@@ -127,6 +130,9 @@ public class MeetingService {
         meeting.setStatus(MeetingStatus.ISSUE_COLLECTING.name());
         meeting.setCreatorId(request.getCreatorId() != null ? request.getCreatorId() : "system");
         meeting.setRoomId(request.getRoomId());
+        MeetingScenario scenario = meetingScenarioResolver.resolve(request.getMeetingScenario(), request.getParticipants());
+        meeting.setMeetingScenario(scenario.name());
+        meeting.setSourceAudioUrl(request.getSourceAudioUrl());
         meeting.setPreviousMeetingId(request.getPreviousMeetingId());
         meeting.setChatId(request.getChatId());
         meeting.setScheduledTime(request.getScheduledTime());
@@ -176,6 +182,9 @@ public class MeetingService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
 
+        MeetingEvent event = MeetingStatus.INVITED.name().equals(meeting.getStatus())
+                ? MeetingEvent.START_MEETING : MeetingEvent.FAST_START;
+        meetingStateMachineService.apply(meetingId, event);
         meeting.setStatus(MeetingStatus.STARTED.name());
         meeting.setActualStartTime(LocalDateTime.now());
         meetingMapper.updateById(meeting);
@@ -206,6 +215,7 @@ public class MeetingService {
             throw new BusinessException(400, "会议状态不允许结束: " + currentStatus);
         }
 
+        meetingStateMachineService.apply(meetingId, MeetingEvent.END_MEETING);
         meeting.setStatus(MeetingStatus.PROCESSING.name());
         meeting.setActualEndTime(LocalDateTime.now());
         if (meeting.getActualStartTime() != null) {
@@ -217,24 +227,15 @@ public class MeetingService {
         }
         meetingMapper.updateById(meeting);
 
-        // 触发纪要生成链（Kafka 或 LocalEventBus 降级）
-        MinuteGenerateMessage message = MinuteGenerateMessage.builder()
-                .meetingId(meetingId)
-                .audioPath(meeting.getAudioPath())
-                .sentAt(System.currentTimeMillis())
-                .build();
-
-        if (kafkaProducer != null) {
-            try {
-                kafkaProducer.sendMinuteGenerate("meeting.events", message);
-                log.info("Kafka message sent for minute generation: meetingId={}", meetingId);
-            } catch (Exception e) {
-                log.warn("Kafka send failed, fallback to LocalEventBus: {}", e.getMessage());
-                localEventBus.publishMeetingEvent(message);
-            }
-        } else {
-            localEventBus.publishMeetingEvent(message);
-        }
+        String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
+                ? meeting.getAudioPath()
+                : meeting.getSourceAudioUrl();
+        domainEventPublisher.publish(new MeetingEndedEvent(
+                meetingId,
+                eventAudioSource,
+                List.of(),
+                null,
+                System.currentTimeMillis()));
 
         log.info("Meeting ended: id={}, duration={}s", meetingId, meeting.getDurationSeconds());
         return toResponse(meeting);
@@ -286,10 +287,7 @@ public class MeetingService {
      * @param status    目标状态
      */
     public void updateStatus(String meetingId, MeetingStatus status) {
-        Meeting meeting = new Meeting();
-        meeting.setId(meetingId);
-        meeting.setStatus(status.name());
-        meetingMapper.updateById(meeting);
+        meetingStateMachineService.forceStatus(meetingId, status);
         log.info("Meeting status updated: id={}, status={}", meetingId, status);
     }
 
@@ -325,6 +323,8 @@ public class MeetingService {
         resp.setCreatorId(meeting.getCreatorId());
         resp.setChatId(meeting.getChatId());
         resp.setRoomId(meeting.getRoomId());
+        resp.setMeetingScenario(meeting.getMeetingScenario());
+        resp.setSourceAudioUrl(meeting.getSourceAudioUrl());
         resp.setPreviousMeetingId(meeting.getPreviousMeetingId());
         resp.setScheduledTime(meeting.getScheduledTime());
         resp.setActualStartTime(meeting.getActualStartTime());

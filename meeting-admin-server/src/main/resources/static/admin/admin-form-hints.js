@@ -34,10 +34,10 @@ window.AdminHints = {
       EXTERNAL: 'EXTERNAL — 不注册 Quartz Cron，仅由外部系统或本页「执行」、POST /api/tasks/{id}/execute 触发。每次手动执行都会真实推送（无 DUPLICATE 去重）。'
     },
     targetType: {
-      USER: 'USER — 推送给单个飞书用户，目标 ID 填 open_id（ou_…）或 user_id。',
+      USER: 'USER — 推送给单个飞书用户，目标 ID 填飞书 user_id（企业内用户 ID）。',
       GROUP: 'GROUP — 推送到群聊，目标 ID 填 chat_id（oc_…）。'
     },
-    targetId: '飞书 open_id / chat_id，须与「目标类型」一致；可在飞书开放平台或群设置中查看。',
+    targetId: '飞书 user_id（单聊）或 chat_id（群聊），须与「目标类型」一致。',
     message: '推送正文（纯文本或卡片 JSON，依 bot 配置）；必填。',
     skipHolidays: '启用后，法定节假日当天 Cron 触发会跳过（仍可通过「执行」手动试发，受日期过滤规则约束）。',
     enabled: '关闭后任务不参与 Quartz 调度，也不会被 Cron 自动触发；EXTERNAL 任务仍可手动「执行」。',
@@ -111,9 +111,7 @@ window.AdminHints = {
     editorIntro: '保存时同时写入映射表与声纹表；列表一行即该用户的完整运维视图。',
     userId: 'OA 系统用户 ID（主键）；与参会人、待办责任人等业务侧 user_id 一致。新建后不可修改。',
     userName: '用户姓名，列表展示与纪要人名匹配用；必填。',
-    feishuUserId: '飞书企业内 user_id；推送个人消息、待办 @ 责任人时使用。',
-    feishuUnionId: '飞书 union_id（跨应用唯一）；可留空。',
-    feishuOpenId: '飞书 open_id（应用内唯一）；声纹注册与 USER 推送常用。',
+    feishuUserId: '飞书企业内 user_id（唯一身份）；推送个人消息、待办 @、声纹注册均使用此字段。',
     featureIdOptional: '讯飞声纹 featureId；留空则只维护映射、不创建/更新声纹。',
     groupId: '讯飞声纹组 ID；可留空。',
     registeredAt: '声纹注册时间；留空则默认当前时间。',

@@ -1,9 +1,7 @@
 package com.smartmeeting.mq;
 
 import com.smartmeeting.model.MinuteGenerateMessage;
-import com.smartmeeting.model.TodoExtractMessage;
 import com.smartmeeting.service.MinuteGenerationService;
-import com.smartmeeting.service.TodoExtractionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -35,8 +33,6 @@ import org.springframework.stereotype.Component;
 public class MinuteGenerateConsumer {
 
     private final MinuteGenerationService minuteGenerationService;
-    private final TodoExtractionService todoExtractionService;
-    private final KafkaProducer kafkaProducer;
 
     /**
      * 消费会议纪要生成事件并触发后续待办提取投递。
@@ -51,17 +47,10 @@ public class MinuteGenerateConsumer {
 
         try {
             minuteGenerationService.generateMinute(message.getMeetingId(), message.getAudioPath());
-
-            TodoExtractMessage todoMsg = TodoExtractMessage.builder()
-                    .meetingId(message.getMeetingId())
-                    .sentAt(System.currentTimeMillis())
-                    .build();
-            kafkaProducer.sendTodoExtract("todo.extract", todoMsg);
-
             ack.acknowledge();
         } catch (Exception e) {
             log.error("Failed to generate minute: meetingId={}", message.getMeetingId(), e);
-            ack.acknowledge();
+            throw new IllegalStateException("minute generate failed: " + message.getMeetingId(), e);
         }
     }
 }

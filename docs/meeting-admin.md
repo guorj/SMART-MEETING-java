@@ -45,8 +45,9 @@ cd smart-meeting-java
 | `presets` | 会务预设 `int_meeting_type_preset`（会序+资料一体：`host_agenda` v2 `items[].docs[]`） |
 | `weekly-jobs` | `int_weekly_matter_comparison_job` CRUD；**立即执行**、**同步 Quartz**（经 bot API） |
 | `push-bot` | feishu-scheduled-bot **推送任务 / 日志**（经 `BotBridgeService` 代理 `/api/tasks`、`/api/logs`） |
-| `users` | **用户管理**：按 userId 一行聚合 `int_user_mapping_feishu` + `int_voiceprint`；`GET/PUT /api/v1/admin/users` |
+| `users` | **用户管理**：按 userId 一行聚合 `int_user_mapping_feishu`（仅 `feishu_user_id`）+ `int_voiceprint`；`GET/PUT /api/v1/admin/users` |
 | `meetings` | 会议列表/详情/主持与录音链接；详情可跳转 **会议推送日志** |
+| `pipeline` | **流水线编排**：模板/步骤/执行记录管理；触发 `meeting-server` 内部 pipeline 执行 |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
 
 > meeting-server 飞书指令体系已切换为统一入口：用户发送 `会议管理`，机器人返回 dashboard 入口卡片；开始会议、声纹注册、纪要查看均在 `dashboard.html` 内完成。
@@ -94,6 +95,32 @@ UI：`/admin#/push-bot`（任务 + 日志 Tab）；`/admin#/weekly-jobs`（对�
 ## DDL
 
 执行 `meeting-server/src/main/resources/schema-upgrade/v0.12-meeting-system-config.sql`（幂等）。
+
+### 二期流水线/事件驱动升级（v0.17）
+
+执行 `meeting-server/src/main/resources/schema-upgrade/v0.17-pipeline-outbox-statemachine.sql`（幂等），新增：
+
+- `int_event_outbox`：事务外盒事件表（可靠投递）
+- `int_pipeline_template` / `int_pipeline_step`：pipeline 模板与步骤配置
+- `int_pipeline_step_execution`：pipeline 运行时执行记录（含 timeout/retry）
+- `int_processed_command`：命令幂等处理记录
+
+管理端新增 API（`/api/v1/admin/pipeline/*`）与页面（`/admin#/pipeline`）用于模板、步骤和执行触发管理。
+
+### 三场景音频链路升级（v0.18）
+
+执行 `meeting-server/src/main/resources/schema-upgrade/v0.18-meeting-scenario-audio-fallback.sql`（幂等），新增：
+
+- `int_meeting.meeting_scenario`：会议场景（`OFFLINE|HYBRID|ONLINE`）
+- `int_meeting.source_audio_url`：云端录音文件 URL（混合/纯线上兜底）
+
+落地行为：
+
+- 创建会议时若未显式指定场景，服务端按参会人 `attendanceMode` 自动推导：
+  - 全 `OFFLINE` → `OFFLINE`
+  - 全 `ONLINE` → `ONLINE`
+  - 混合 → `HYBRID`
+- 会后纪要链路在没有可用本地音频时，允许下载 `source_audio_url` 到本地缓存目录，再复用既有离线 ASR + 纪要生成流程。
 
 ## P1 能力（当前）
 

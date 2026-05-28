@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
+import com.smartmeeting.event.DomainEventPublisher;
+import com.smartmeeting.event.MinuteGeneratedEvent;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.enums.MinuteGenerationStatus;
 import com.smartmeeting.repository.MeetingMapper;
@@ -13,6 +15,8 @@ import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.entity.TranscriptSegment;
 import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
+import com.smartmeeting.statemachine.MeetingEvent;
+import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -48,6 +52,9 @@ public class MinuteGenerationService {
     private final MinuteAIEnhancer minuteAIEnhancer;
     private final MeetingMinuteService meetingMinuteService;
     private final MeetingMinuteProperties minuteProperties;
+    private final MeetingStateMachineService meetingStateMachineService;
+    private final DomainEventPublisher domainEventPublisher;
+    private final MeetingAudioMaterializerService meetingAudioMaterializerService;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -112,8 +119,13 @@ public class MinuteGenerationService {
                 log.info("Step 2: Using realtime transcript, {} segments, length={}", segments.size(), correctedText.length());
             } else {
                 // 降级：调用离线ASR校正
+                String effectiveAudioPath = meetingAudioMaterializerService.materialize(
+                        meetingId,
+                        audioPath,
+                        meeting.getSourceAudioUrl());
+                log.info("Step 2: effective audio source resolved, meetingId={}, path={}", meetingId, effectiveAudioPath);
                 log.info("Step 2: No realtime transcript, calling offline ASR...");
-                correctedText = correctionService.correct(meetingId, audioPath);
+                correctedText = correctionService.correct(meetingId, effectiveAudioPath);
                 log.info("Step 2: Offline correction completed, text length={}", correctedText.length());
             }
 
@@ -184,6 +196,7 @@ public class MinuteGenerationService {
             }
 
             // 7. 更新会议记录 → COMPLETED
+            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
             meeting.setDocToken(docToken);
             meeting.setDocUrl(docUrl);
             meeting.setStatus(MeetingStatus.COMPLETED.name());
@@ -191,6 +204,7 @@ public class MinuteGenerationService {
             if (!minuteText.isEmpty()) {
                 meetingMinuteService.updateContentUrl(meetingId, docUrl);
             }
+            domainEventPublisher.publish(new MinuteGeneratedEvent(meetingId, System.currentTimeMillis()));
 
             log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);
@@ -210,6 +224,7 @@ public class MinuteGenerationService {
             if (meeting.getStatus() == null || !meeting.getStatus().equals(MeetingStatus.COMPLETED.name())) {
                 String fallbackUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
                 meeting.setDocUrl(fallbackUrl);
+                meetingStateMachineService.forceStatus(meetingId, MeetingStatus.COMPLETED);
                 meeting.setStatus(MeetingStatus.COMPLETED.name());
                 meetingMapper.updateById(meeting);
                 meetingMinuteService.updateContentUrl(meetingId, fallbackUrl);

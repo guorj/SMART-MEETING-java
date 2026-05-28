@@ -27,6 +27,8 @@ public class MeetingResponse {
     private String creatorId;
     private String chatId;
     private String roomId;
+    private String meetingScenario;
+    private String sourceAudioUrl;
     private String previousMeetingId;
     private LocalDateTime scheduledTime;
     private LocalDateTime actualStartTime;

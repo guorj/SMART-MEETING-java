@@ -73,7 +73,7 @@ public class MeetingController {
             @Valid @RequestBody MeetingCreateRequest request) {
         JwtUtil.FeishuWebStartMeetingEntry entry = jwtUtil.parseAndVerifyFeishuWebStartMeetingEntry(webEntryToken.trim());
         MeetingResponse out = feishuMeetingStartCoordinator.createMeetingStartAndNotifyFeishu(
-                entry.openId(), entry.chatId(), request);
+                entry.feishuUserId(), entry.chatId(), request);
         return ApiResponse.ok(out);
     }
 

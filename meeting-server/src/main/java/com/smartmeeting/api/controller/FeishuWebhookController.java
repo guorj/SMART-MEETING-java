@@ -185,11 +185,11 @@ public class FeishuWebhookController {
             String msgType = message.path("message_type").asText();
             String msgContent = message.path("content").asText();
             String chatId = message.path("chat_id").asText();
-            String openId = sender.path("sender_id").path("open_id").asText();
+            String userId = resolvePrincipalUserId(sender.path("sender_id"));
 
-            log.info("Feishu message received: type={}, chat={}, sender={}", msgType, chatId, openId);
+            log.info("Feishu message received: type={}, chat={}, sender={}", msgType, chatId, userId);
             // 供「菜单 - 推送事件」无 chat_id 时回退到用户最近活跃会话（群或单聊）
-            feishuUserLastGroupChatStore.record(openId, chatId);
+            feishuUserLastGroupChatStore.record(userId, chatId);
 
             if ("text".equals(msgType)) {
                 // 解析消息内容
@@ -198,36 +198,43 @@ public class FeishuWebhookController {
                 log.info("Feishu text message: {}", text);
 
                 FeishuCommandRouter.CommandResult result = commandRouter.parse(text);
-                Kind pendingKind = (openId != null && !openId.isEmpty())
-                        ? startMeetingPendingStore.getKind(openId, chatId)
+                Kind pendingKind = (userId != null && !userId.isEmpty())
+                        ? startMeetingPendingStore.getKind(userId, chatId)
                         : null;
                 if (pendingKind != null) {
                     if (pendingKind == Kind.TYPE6_THEME_PENDING) {
                         if ("unknown".equals(result.getCommand())) {
                             CompletableFuture.runAsync(() ->
-                                    commandHandler.handlePendingOtherMeetingTitle(openId, chatId, text));
+                                    commandHandler.handlePendingOtherMeetingTitle(userId, chatId, text));
                             return;
                         }
-                        startMeetingPendingStore.clear(openId, chatId);
+                        startMeetingPendingStore.clear(userId, chatId);
                     } else if (pendingKind == Kind.POST_MENU_CHOICE) {
                         if ("unknown".equals(result.getCommand())) {
                             CompletableFuture.runAsync(() ->
-                                    commandHandler.handlePostMenuChoice(openId, chatId, text));
+                                    commandHandler.handlePostMenuChoice(userId, chatId, text));
                             return;
                         }
-                        startMeetingPendingStore.clear(openId, chatId);
+                        startMeetingPendingStore.clear(userId, chatId);
                     }
                 }
 
                 String command = result.getCommand();
                 Map<String, String> params = result.getParams();
 
+                if ("open_dashboard".equals(command) && (userId == null || userId.isBlank())) {
+                    log.warn("open_dashboard ignored because sender user_id is empty, sender={}, message={}",
+                            sender.path("sender_id"), message);
+                    commandHandler.handleUnknown(chatId);
+                    return;
+                }
+
                 switch (command) {
                     case "open_dashboard":
-                        CompletableFuture.runAsync(() -> commandHandler.handleOpenDashboard(openId, chatId));
+                        CompletableFuture.runAsync(() -> commandHandler.handleOpenDashboard(userId, chatId));
                         break;
                     case "stop_meeting":
-                        commandHandler.handleStopMeeting(openId, chatId, params.get("meeting_id"));
+                        commandHandler.handleStopMeeting(userId, chatId, params.get("meeting_id"));
                         break;
                     case "rename_speaker":
                         // TODO: 实现说话人修改
@@ -266,11 +273,11 @@ public class FeishuWebhookController {
             if (chatId.isEmpty()) {
                 chatId = event.path("chat").path("chat_id").asText("").trim();
             }
-            String operatorOpenId = event.path("operator_id").path("open_id").asText("").trim();
-            if (operatorOpenId.isEmpty()) {
-                operatorOpenId = event.path("operator").path("operator_id").path("open_id").asText("").trim();
+            String operatorUserId = resolvePrincipalUserId(event.path("operator_id"));
+            if (operatorUserId.isEmpty()) {
+                operatorUserId = resolvePrincipalUserId(event.path("operator").path("operator_id"));
             }
-            commandHandler.handleBotJoinedChat(chatId, operatorOpenId);
+            commandHandler.handleBotJoinedChat(chatId, operatorUserId);
         } catch (Exception e) {
             log.error("Failed to handle bot added to chat", e);
         }
@@ -357,12 +364,12 @@ public class FeishuWebhookController {
             return ResponseEntity.ok(Map.of(
                     "toast", Map.of("type", "error", "content", "无效回调")));
         }
-        String openId = event.path("operator").path("open_id").asText("").trim();
+        String openId = resolvePrincipalUserId(event.path("operator"));
         if (openId.isEmpty()) {
-            openId = event.path("operator").path("operator_id").path("open_id").asText("").trim();
+            openId = resolvePrincipalUserId(event.path("operator").path("operator_id"));
         }
         if (openId.isEmpty()) {
-            openId = event.path("operator_id").path("open_id").asText("").trim();
+            openId = resolvePrincipalUserId(event.path("operator_id"));
         }
         String chatId = event.path("context").path("open_chat_id").asText("").trim();
         if (chatId.isEmpty()) {
@@ -422,7 +429,7 @@ public class FeishuWebhookController {
      * @return 含 toast 的 HTTP 200 响应
      */
     private ResponseEntity<Map<String, Object>> handleCardActionTriggerV1(JsonNode body, String traceId) {
-        String openId = body.path("open_id").asText("").trim();
+        String openId = body.path("user_id").asText("").trim();
         String chatId = body.path("open_chat_id").asText("").trim();
         if (chatId.isEmpty()) {
             chatId = feishuUserLastGroupChatStore.getLastChatId(openId);
@@ -431,7 +438,7 @@ public class FeishuWebhookController {
         log.info("[traceId={}] Feishu card.action.trigger_v1 openId={}, chatId={}, value={}",
                 traceId, openId, chatId, value);
         if (openId.isEmpty() || chatId.isEmpty()) {
-            log.warn("[traceId={}] trigger_v1 缺少 open_id 或可推断的 chat_id", traceId);
+            log.warn("[traceId={}] trigger_v1 缺少 user_id/open_id 或可推断的 chat_id", traceId);
             return ResponseEntity.ok(Map.of(
                     "toast", Map.of("type", "error", "content", "无法识别会话，请先在目标群内发一条消息后再点按钮")));
         }
@@ -455,21 +462,21 @@ public class FeishuWebhookController {
         try {
             JsonNode event = body.path("event");
             String chatId = event.path("chat_id").asText("").trim();
-            String openId = event.path("operator_id").path("open_id").asText("").trim();
+            String openId = resolvePrincipalUserId(event.path("operator_id"));
             if (openId.isEmpty()) {
-                openId = event.path("operator").path("operator_id").path("open_id").asText("").trim();
+                openId = resolvePrincipalUserId(event.path("operator").path("operator_id"));
             }
             if (openId.isEmpty()) {
-                openId = event.path("user").path("open_id").asText("").trim();
+                openId = resolvePrincipalUserId(event.path("user"));
             }
             if (openId.isEmpty()) {
-                openId = event.path("user_id").path("open_id").asText("").trim();
+                openId = event.path("user_id").asText("").trim();
             }
             if (!chatId.isEmpty() && !openId.isEmpty()) {
                 feishuUserLastGroupChatStore.record(openId, chatId);
                 log.info("bot_p2p_chat_entered: 已记录单聊会话 openId={}, chatId={}", openId, chatId);
             } else {
-                log.debug("bot_p2p_chat_entered: 缺少 chat_id 或 open_id，event={}", event);
+                log.debug("bot_p2p_chat_entered: 缺少 chat_id 或 user_id/open_id，event={}", event);
             }
         } catch (Exception e) {
             log.error("Failed to handle im.chat.access_event.bot_p2p_chat_entered_v1", e);
@@ -609,7 +616,7 @@ public class FeishuWebhookController {
                 JsonNode valueNode = event.path("action").path("value");
                 if (valueNode.isTextual()) {
                     String actionName = valueNode.asText();
-                    String userId = event.path("operator").path("open_id").asText("");
+                    String userId = resolvePrincipalUserId(event.path("operator"));
                     log.info("[traceId={}] Feishu legacy card callback: action={}, userId={}",
                             traceId, actionName, userId);
                     switch (actionName) {
@@ -689,5 +696,22 @@ public class FeishuWebhookController {
                 body.has("action"),
                 body.path("event").has("action"),
                 body.has("open_message_id"));
+    }
+
+    /**
+     * 从飞书身份节点解析主身份：仅 user_id。
+     */
+    private String resolvePrincipalUserId(JsonNode idNode) {
+        if (idNode == null || idNode.isMissingNode() || idNode.isNull()) {
+            return "";
+        }
+        if (idNode.isTextual()) {
+            return idNode.asText("").trim();
+        }
+        String direct = idNode.asText("").trim();
+        if (!direct.isEmpty() && !idNode.isObject()) {
+            return direct;
+        }
+        return idNode.path("user_id").asText("").trim();
     }
 }

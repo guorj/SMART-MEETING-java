@@ -209,9 +209,7 @@ public class UserAdminService {
             Integer uid = tryParseUserId(kw);
             q.and(w -> {
                 w.like(UserMapping::getUserName, kw)
-                        .or().like(UserMapping::getFeishuUserId, kw)
-                        .or().like(UserMapping::getFeishuUnionId, kw)
-                        .or().like(UserMapping::getFeishuOpenId, kw);
+                        .or().like(UserMapping::getFeishuUserId, kw);
                 if (uid != null) {
                     w.or().eq(UserMapping::getUserId, uid);
                 }
@@ -308,8 +306,6 @@ public class UserAdminService {
         dto.setUserId(mapping.getUserId());
         dto.setUserName(mapping.getUserName());
         dto.setFeishuUserId(mapping.getFeishuUserId());
-        dto.setFeishuUnionId(mapping.getFeishuUnionId());
-        dto.setFeishuOpenId(mapping.getFeishuOpenId());
         dto.setVoiceprintCount(voiceprints.size());
         if (voiceprints.isEmpty()) {
             dto.setHasVoiceprint(false);
@@ -352,9 +348,7 @@ public class UserAdminService {
         Integer uid = tryParseUserId(kw);
         q.and(w -> {
             w.like(UserMapping::getUserName, kw)
-                    .or().like(UserMapping::getFeishuUserId, kw)
-                    .or().like(UserMapping::getFeishuUnionId, kw)
-                    .or().like(UserMapping::getFeishuOpenId, kw);
+                    .or().like(UserMapping::getFeishuUserId, kw);
             if (uid != null) {
                 w.or().eq(UserMapping::getUserId, uid);
             }
@@ -439,8 +433,6 @@ public class UserAdminService {
         dto.setUserId(row.getUserId());
         dto.setUserName(row.getUserName());
         dto.setFeishuUserId(row.getFeishuUserId());
-        dto.setFeishuUnionId(row.getFeishuUnionId());
-        dto.setFeishuOpenId(row.getFeishuOpenId());
         return dto;
     }
 
@@ -449,8 +441,6 @@ public class UserAdminService {
         row.setUserId(dto.getUserId());
         row.setUserName(dto.getUserName().trim());
         row.setFeishuUserId(trimToNull(dto.getFeishuUserId()));
-        row.setFeishuUnionId(trimToNull(dto.getFeishuUnionId()));
-        row.setFeishuOpenId(trimToNull(dto.getFeishuOpenId()));
         return row;
     }
 

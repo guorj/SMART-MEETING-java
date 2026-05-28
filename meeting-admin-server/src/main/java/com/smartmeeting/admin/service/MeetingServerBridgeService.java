@@ -60,6 +60,17 @@ public class MeetingServerBridgeService {
         postInternal(path, null);
     }
 
+    public void executePipeline(String meetingId, String stage, String templateCode) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("meetingId", meetingId);
+        body.put("stage", stage);
+        body.put("templateCode", templateCode);
+        JsonNode data = postInternal("/api/v1/internal/pipeline/execute", body);
+        if (data == null) {
+            throw new BusinessException("execute pipeline failed");
+        }
+    }
+
     private JsonNode postInternal(String path, Object body) {
         String base = bridgeProperties.getMeetingServerBaseUrl();
         String token = bridgeProperties.getInternalReloadToken();

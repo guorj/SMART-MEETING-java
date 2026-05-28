@@ -12,6 +12,8 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
+import com.smartmeeting.statemachine.MeetingEvent;
+import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +51,8 @@ public class TodoExtractionService {
     private final FeishuService feishuService;
     private final MeetingFeishuNotifier meetingFeishuNotifier;
     private final MeetingMinuteService meetingMinuteService;
+    private final MeetingStateMachineService meetingStateMachineService;
+    private final FeishuTaskService feishuTaskService;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -147,12 +151,14 @@ public class TodoExtractionService {
         }
 
         // 更新会议状态
+        meetingStateMachineService.apply(meetingId, MeetingEvent.TODO_SYNCED);
         meeting.setStatus("TODO_TRACKING");
         meetingMapper.updateById(meeting);
 
         // 发送飞书待办通知
         if (!savedTodos.isEmpty() && meeting.getCreatorId() != null) {
             sendTodoNotification(meeting, savedTodos);
+            feishuTaskService.syncTodosToFeishu(meetingId, savedTodos);
         }
 
         return savedTodos;

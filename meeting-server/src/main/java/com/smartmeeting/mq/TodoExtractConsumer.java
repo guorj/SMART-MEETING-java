@@ -52,7 +52,7 @@ public class TodoExtractConsumer {
             ack.acknowledge();
         } catch (Exception e) {
             log.error("Failed to extract todos: meetingId={}", message.getMeetingId(), e);
-            ack.acknowledge();
+            throw new IllegalStateException("todo extract failed: " + message.getMeetingId(), e);
         }
     }
 }

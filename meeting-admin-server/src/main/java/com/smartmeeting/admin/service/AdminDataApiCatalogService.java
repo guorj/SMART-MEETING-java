@@ -269,14 +269,12 @@ public class AdminDataApiCatalogService {
                 {
                   "userId": 1001,
                   "userName": "张三",
-                  "feishuUserId": "ou_xxx",
-                  "feishuUnionId": null,
-                  "feishuOpenId": "ou_xxx"
+                  "feishuUserId": "116afd4c"
                 }
                 """.trim(),
                 "{ \"code\": 0, \"data\": { \"userId\": 1001 } }",
                 curlAdmin("POST", "/api/v1/admin/users/mappings", """
-                {"userId":1001,"userName":"张三","feishuOpenId":"ou_xxx"}
+                {"userId":1001,"userName":"张三","feishuUserId":"116afd4c"}
                 """),
                 null));
 
@@ -313,9 +311,7 @@ public class AdminDataApiCatalogService {
                   "mapping": {
                     "userId": 1,
                     "userName": "付靖怡",
-                    "feishuUserId": "116afd4c",
-                    "feishuUnionId": "on_...",
-                    "feishuOpenId": "ou_..."
+                    "feishuUserId": "116afd4c"
                   },
                   "voiceprint": {
                     "featureId": "xf-xxx",

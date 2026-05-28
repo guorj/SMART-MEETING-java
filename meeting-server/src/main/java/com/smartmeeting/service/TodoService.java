@@ -13,6 +13,8 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
+import com.smartmeeting.statemachine.MeetingEvent;
+import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,7 @@ public class TodoService {
     private final MeetingMapper meetingMapper;
     private final TodoMapper todoMapper;
     private final ParticipantMapper participantMapper;
+    private final MeetingStateMachineService meetingStateMachineService;
 
     private static final List<String> STATUS_SORT_ORDER = List.of(
             TodoStatus.PENDING.name(),
@@ -147,6 +150,7 @@ public class TodoService {
         } else if (!TodoStatus.COMPLETED.name().equals(newStatus.name()) && TodoStatus.COMPLETED.name().equals(oldStatus)) {
             adjustParticipantCompletedCount(meetingId, assigneeId, -1);
         }
+        markAllDoneIfNeeded(meetingId);
 
         log.info("Todo status updated: id={}, {} -> {}", todoId, oldStatus, newStatus.name());
         return toResponse(todo);
@@ -241,5 +245,25 @@ public class TodoService {
                 .reportedInNext(t.getReportedInNext())
                 .createdAt(t.getCreatedAt())
                 .build();
+    }
+
+    private void markAllDoneIfNeeded(String meetingId) {
+        LambdaQueryWrapper<MeetingTodo> openWrapper = new LambdaQueryWrapper<>();
+        openWrapper.eq(MeetingTodo::getMeetingId, meetingId)
+                .ne(MeetingTodo::getStatus, TodoStatus.COMPLETED.name());
+        Long remain = todoMapper.selectCount(openWrapper);
+        if (remain != null && remain == 0L) {
+            try {
+                meetingStateMachineService.apply(meetingId, MeetingEvent.ALL_TODOS_DONE);
+                Meeting meeting = meetingMapper.selectById(meetingId);
+                if (meeting != null) {
+                    meeting.setStatus("ALL_DONE");
+                    meetingMapper.updateById(meeting);
+                }
+                log.info("Meeting moved to ALL_DONE automatically: {}", meetingId);
+            } catch (Exception e) {
+                log.debug("Skip ALL_DONE transition for meeting {}: {}", meetingId, e.getMessage());
+            }
+        }
     }
 }

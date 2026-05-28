@@ -2,13 +2,14 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
+import com.smartmeeting.event.DomainEventPublisher;
+import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
-import com.smartmeeting.mq.KafkaProducer;
-import com.smartmeeting.mq.LocalEventBus;
-import com.smartmeeting.model.MinuteGenerateMessage;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.statemachine.MeetingEvent;
+import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -30,8 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * 会议录音生命周期与状态机管理服务。
  *
  * <p>内存态跟踪 {@link RecordingState}（RECORDING / PAUSED），持久化会议状态与音频路径；
- * 停止录音后将会议置为 PROCESSING 并通过 {@link com.smartmeeting.mq.KafkaProducer} 或
- * {@link com.smartmeeting.mq.LocalEventBus} 触发纪要生成链。
+ * 停止录音后将会议置为 PROCESSING 并发布领域事件，经 Outbox 异步触发纪要链路。
  *
  * <p>状态流转：STARTED/REVIEWING → RECORDING ⇄ PAUSED →（停止）PROCESSING。
  *
@@ -46,19 +46,14 @@ public class RecordingService {
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
 
-    // Kafka 生产者（生产环境）
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private KafkaProducer kafkaProducer;
-
-    // 本地事件总线（开发环境）
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    private LocalEventBus localEventBus;
-
     @Value("${meeting.audio.cache-dir:/data/audio}")
     private String audioCacheDir;
 
     @Value("${meeting.llm.model:deepseek-v4-pro}")
     private String modelName;
+
+    private final MeetingStateMachineService meetingStateMachineService;
+    private final DomainEventPublisher domainEventPublisher;
 
     // 会议ID → 录音状态追踪
     private final Map<String, RecordingState> recordingStates = new ConcurrentHashMap<>();
@@ -96,6 +91,7 @@ public class RecordingService {
 
         String audioPath = generateAudioPath(meetingId);
         meeting.setAudioPath(audioPath);
+        meetingStateMachineService.apply(meetingId, MeetingEvent.START_RECORDING);
         meeting.setStatus(MeetingStatus.RECORDING.name());
         meetingMapper.updateById(meeting);
 
@@ -196,6 +192,7 @@ public class RecordingService {
         recordingStates.remove(meetingId);
 
         // 更新会议状态 → PROCESSING
+        meetingStateMachineService.apply(meetingId, MeetingEvent.END_MEETING);
         meeting.setStatus(MeetingStatus.PROCESSING.name());
         meeting.setActualEndTime(LocalDateTime.now());
         if (meeting.getActualStartTime() != null) {
@@ -214,8 +211,13 @@ public class RecordingService {
                 .filter(fid -> fid != null && !fid.isEmpty())
                 .toList();
 
-        // 发送纪要生成事件
-        sendMinuteGenerateEvent(meetingId, audioPath, featureIds);
+        // 发送纪要生成领域事件（由 Outbox 监听器转为可重试消息）
+        domainEventPublisher.publish(new MeetingEndedEvent(
+                meetingId,
+                audioPath,
+                featureIds,
+                modelName,
+                System.currentTimeMillis()));
 
         return Map.of(
                 "meetingId", meetingId,
@@ -224,35 +226,6 @@ public class RecordingService {
                 "durationSeconds", meeting.getDurationSeconds(),
                 "fileSize", fileSize
         );
-    }
-
-    /**
-     * 向 Kafka 或本地事件总线投递纪要生成消息（优先 Kafka）。
-     *
-     * @param meetingId  会议 ID
-     * @param audioPath  音频路径
-     * @param featureIds 参会人声纹特征 ID 列表
-     */
-    private void sendMinuteGenerateEvent(String meetingId, String audioPath, List<String> featureIds) {
-        MinuteGenerateMessage message = MinuteGenerateMessage.builder()
-                .meetingId(meetingId)
-                .audioPath(audioPath)
-                .featureIds(featureIds)
-                .modelName(modelName)
-                .sentAt(System.currentTimeMillis())
-                .build();
-
-        if (kafkaProducer != null) {
-            // 生产环境：发送到 Kafka
-            kafkaProducer.sendMinuteGenerate("meeting.events", message);
-            log.info("Sent minute generate event to Kafka: meetingId={}", meetingId);
-        } else if (localEventBus != null) {
-            // 开发环境：通过本地事件总线处理
-            localEventBus.publishMeetingEvent(message);
-            log.info("Sent minute generate event to LocalEventBus: meetingId={}", meetingId);
-        } else {
-            log.warn("No event bus available for meeting: {}", meetingId);
-        }
     }
 
     /**

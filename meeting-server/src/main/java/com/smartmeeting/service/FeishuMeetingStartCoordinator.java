@@ -36,6 +36,7 @@ public class FeishuMeetingStartCoordinator {
     private final FeishuCardBuilder cardBuilder;
     private final MeetingWebPageUrls meetingWebPageUrls;
     private final ParticipantLinkService participantLinkService;
+    private final MeetingPreStageService meetingPreStageService;
 
     /**
      * 创建会议、立即启动、生成录音页链接并向群聊推送「会议已开始」卡片，同时向线上参会人单聊推送个人入会链接。
@@ -54,13 +55,29 @@ public class FeishuMeetingStartCoordinator {
         LambdaQueryWrapper<Meeting> activeQuery = new LambdaQueryWrapper<>();
         activeQuery.eq(Meeting::getCreatorId, openId);
         activeQuery.in(Meeting::getStatus,
-                MeetingStatus.ISSUE_COLLECTING.name(),
                 MeetingStatus.STARTED.name(),
-                MeetingStatus.RECORDING.name());
+                MeetingStatus.RECORDING.name(),
+                MeetingStatus.PAUSED.name());
         Meeting active = meetingMapper.selectOne(activeQuery);
         if (active != null) {
-            throw new BusinessException(400,
-                    "您有一场正在进行的会议「" + active.getTitle() + "」，请先结束再创建新会议");
+            // 兼容恢复链路：若存在进行中的会议，直接返回该会议并补发入口，避免前端陷入“可见但不可继续”状态。
+            String existingUrl = active.getRecordingUrl();
+            if (existingUrl == null || existingUrl.isBlank()) {
+                String recordingToken = jwtUtil.generateOperatorMeetingToken(active.getId(), JwtUtil.TYPE_RECORDING);
+                existingUrl = meetingWebPageUrls.recordingPageUrl(active.getId(), recordingToken);
+                active.setRecordingToken(recordingToken);
+                active.setRecordingUrl(existingUrl);
+                meetingMapper.updateById(active);
+            }
+            String card = cardBuilder.buildMeetingStartedNotifyCard(active.getId(), active.getTitle(), existingUrl);
+            boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
+            if (!sentToChat) {
+                feishuService.sendInteractiveCardToUserId(openId, card);
+            }
+            pushOnlineParticipantJoinLinks(active.getId(), active.getTitle());
+            log.warn("Detected existing active meeting, returned existing flow: openId={}, meetingId={}",
+                    openId, active.getId());
+            return meetingService.getMeeting(active.getId());
         }
 
         request.setCreatorId(openId);
@@ -70,6 +87,7 @@ public class FeishuMeetingStartCoordinator {
         String meetingId = meeting.getId();
         String displayTitle = meeting.getTitle();
 
+        meetingPreStageService.runPreStage(meetingId, meeting.getPresetTypeCode());
         meetingService.startMeeting(meetingId);
 
         String recordingToken = jwtUtil.generateOperatorMeetingToken(meetingId, JwtUtil.TYPE_RECORDING);
@@ -84,7 +102,7 @@ public class FeishuMeetingStartCoordinator {
         boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
         if (!sentToChat) {
             // chat_id 缺失或群推送失败时，至少给发起人单聊一张直达卡，避免“已创建但无入口”。
-            feishuService.sendInteractiveCardToOpenId(openId, card);
+            feishuService.sendInteractiveCardToUserId(openId, card);
         }
         pushOnlineParticipantJoinLinks(meetingId, displayTitle);
 
@@ -116,9 +134,12 @@ public class FeishuMeetingStartCoordinator {
             }
             String personalCard = cardBuilder.buildPersonalOnlineJoinCard(
                     meetingTitle, p.getName(), p.getJoinUrl());
-            boolean sent = feishuService.sendInteractiveCardToOpenId(openId, personalCard);
+            boolean sent = feishuService.sendInteractiveCardToUserId(openId, personalCard);
             if (sent) {
                 log.info("已推送个人入会链接: meetingId={}, openId={}, name={}",
+                        meetingId, openId, p.getName());
+            } else {
+                log.warn("个人入会链接推送失败: meetingId={}, rawUserId={}, name={}",
                         meetingId, openId, p.getName());
             }
         }

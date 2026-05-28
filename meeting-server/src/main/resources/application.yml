@@ -101,6 +101,8 @@ meeting:
     silence-auto-pause-min: 30
     cache-retention-hours: 72
     cache-dir: ./data/audio
+    # 纯线上/混合场景：允许把云端录音 URL 拉取到本地，复用离线 ASR 链路
+    cloud-download-enabled: ${MEETING_AUDIO_CLOUD_DOWNLOAD_ENABLED:true}
     queue-maxsize: 100
     write-flush-interval: 25
 

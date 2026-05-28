@@ -110,7 +110,7 @@ AdminModules.register({
             <span class="muted">共 ${page.total || 0} 人</span>
           </div>
           <div class="panel table-wrap"><table class="table-wide"><thead><tr>
-            <th>OA userId</th><th>姓名</th><th>feishu_user_id</th><th>union_id</th><th>open_id</th>
+            <th>OA userId</th><th>姓名</th><th>feishu_user_id</th>
             <th>声纹</th><th>featureId</th><th>groupId</th><th>注册</th><th>过期</th><th>操作</th>
           </tr></thead><tbody id="usr-tbody"></tbody></table></div>
           <div class="panel toolbar" id="usr-pager"></div>
@@ -125,8 +125,6 @@ AdminModules.register({
             : esc(r.featureId || '-');
           tr.innerHTML = '<td>' + esc(r.userId) + '</td><td>' + esc(r.userName) + '</td>'
             + '<td>' + cellLong(r.feishuUserId, 12) + '</td>'
-            + '<td>' + cellLong(r.feishuUnionId, 16) + '</td>'
-            + '<td>' + cellLong(r.feishuOpenId, 16) + '</td>'
             + '<td>' + expiryBadge(r.hasVoiceprint ? r.expiryStatus : null) + '</td>'
             + '<td>' + feat + '</td>'
             + '<td>' + esc(r.groupId || '-') + '</td>'
@@ -191,8 +189,6 @@ AdminModules.register({
         ${AdminForm.field('OA userId', '<input id="ed-user-id" type="number"/>', AdminHints.users.userId)}
         ${AdminForm.field('姓名', '<input id="ed-user-name" type="text"/>', AdminHints.users.userName)}
         ${AdminForm.field('feishu_user_id', '<input id="ed-feishu-user" type="text"/>', AdminHints.users.feishuUserId)}
-        ${AdminForm.field('feishu_union_id', '<input id="ed-feishu-union" type="text"/>', AdminHints.users.feishuUnionId)}
-        ${AdminForm.field('feishu_open_id', '<input id="ed-feishu-open" type="text"/>', AdminHints.users.feishuOpenId)}
         <h4>声纹 · int_voiceprint</h4>
         <input type="hidden" id="ed-vp-id" value="${esc(vp.id || '')}"/>
         ${AdminForm.field('featureId', '<input id="ed-feature-id" type="text"/>', AdminHints.users.featureIdOptional)}
@@ -214,8 +210,6 @@ AdminModules.register({
       uidInput.readOnly = !isNew;
       document.getElementById('ed-user-name').value = mapping.userName || '';
       document.getElementById('ed-feishu-user').value = mapping.feishuUserId || '';
-      document.getElementById('ed-feishu-union').value = mapping.feishuUnionId || '';
-      document.getElementById('ed-feishu-open').value = mapping.feishuOpenId || '';
       document.getElementById('ed-feature-id').value = vp.featureId || '';
       document.getElementById('ed-group-id').value = vp.groupId || '';
       document.getElementById('ed-registered').value = toLocalInput(vp.registeredAt);
@@ -233,9 +227,7 @@ AdminModules.register({
       const mapping = {
         userId: userId,
         userName: document.getElementById('ed-user-name').value.trim(),
-        feishuUserId: document.getElementById('ed-feishu-user').value.trim() || null,
-        feishuUnionId: document.getElementById('ed-feishu-union').value.trim() || null,
-        feishuOpenId: document.getElementById('ed-feishu-open').value.trim() || null
+        feishuUserId: document.getElementById('ed-feishu-user').value.trim() || null
       };
       const registeredRaw = document.getElementById('ed-registered').value.trim();
       const expiresRaw = document.getElementById('ed-expires').value.trim();

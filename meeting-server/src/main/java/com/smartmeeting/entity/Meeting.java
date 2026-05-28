@@ -44,6 +44,10 @@ public class Meeting {
     private String chatId;
     /** 飞书会议室 ID（可选） */
     private String roomId;
+    /** 会议场景：OFFLINE | HYBRID | ONLINE */
+    private String meetingScenario;
+    /** 云端录音文件 URL（混合/纯线上兜底） */
+    private String sourceAudioUrl;
     /** 关联的上一次会议 ID，用于待办续报等场景 */
     private String previousMeetingId;
     /** 计划开始时间 */

@@ -26,7 +26,13 @@ public class MeetingRuntimeConfigLoader {
     }
 
     public synchronized void reload() {
-        List<MeetingSystemConfig> rows = configMapper.selectList(null);
+        List<MeetingSystemConfig> rows;
+        try {
+            rows = configMapper.selectList(null);
+        } catch (Exception e) {
+            log.warn("runtime config reload skipped: {}", e.getMessage());
+            return;
+        }
         if (rows == null || rows.isEmpty()) {
             log.debug("runtime config reload: no DB overrides");
             return;

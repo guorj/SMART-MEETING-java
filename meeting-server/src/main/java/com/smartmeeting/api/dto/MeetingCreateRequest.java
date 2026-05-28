@@ -32,6 +32,10 @@ public class MeetingCreateRequest {
     /** 飞书会话 chat_id，用于推送卡片 */
     private String chatId;
     private String roomId;
+    /** 三场景：OFFLINE | HYBRID | ONLINE（不传时根据 participants 自动推导） */
+    private String meetingScenario;
+    /** 云端录音文件 URL（混合/纯线上可选），用于会后离线处理兜底 */
+    private String sourceAudioUrl;
     /** 链路上次会议 ID，用于待办进度通报 */
     private String previousMeetingId;
     private LocalDateTime scheduledTime;

@@ -66,7 +66,12 @@ public class FeishuCommandHandler {
      */
     public void handleOpenDashboard(String openId, String chatId) {
         try {
-            String userName = feishuService.getUserName(openId);
+            if (openId == null || openId.isBlank()) {
+                log.warn("跳过发送会议前台入口：缺少 user_id, chatId={}", chatId);
+                feishuService.sendMessage(chatId, "未识别到您的飞书 user_id，请联系管理员检查飞书事件配置（需上送 user_id）。");
+                return;
+            }
+            String userName = feishuService.getUserNameByUserId(openId);
             String token = jwtUtil.generateFeishuWebDashboardToken(openId, chatId, userName);
             String entryUrl = baseUrl + "/dashboard?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
             feishuService.sendInteractiveCard(chatId, cardBuilder.buildDashboardEntryCard(userName, entryUrl));
@@ -214,7 +219,7 @@ public class FeishuCommandHandler {
             log.debug("未处理的菜单 event_key: {}", eventKey);
             return;
         }
-        String openId = event.path("operator").path("operator_id").path("open_id").asText("");
+        String openId = event.path("operator").path("operator_id").path("user_id").asText("").trim();
         String chatId = resolveChatIdFromMenuEvent(event);
         if ((chatId == null || chatId.isBlank()) && feishuBotUxProperties.isMenuV6FallbackToLastGroupChat()) {
             chatId = feishuUserLastGroupChatStore.getLastChatId(openId);
@@ -228,7 +233,7 @@ public class FeishuCommandHandler {
         } else {
             String tip = "未关联到会话。请：① 与机器人**单聊里先发任意一条文字**；或 ② 订阅事件 **im.chat.access_event.bot_p2p_chat_entered_v1** 后重新进入单聊；"
                     + "③ 在**目标群**内发一条消息后再点菜单；也可把菜单改为「向当前会话发送消息」并填写：开始会议";
-            feishuService.sendMessageToOpenId(openId, tip);
+            feishuService.sendMessageToUserId(openId, tip);
             log.info("菜单开始会议：无 chat_id 且无最近群记录，已私聊提示 openId={}", openId);
         }
     }
@@ -575,7 +580,7 @@ public class FeishuCommandHandler {
         try {
             // 如果未提供姓名，从飞书API获取
             if (userName == null || userName.isEmpty()) {
-                userName = feishuService.getUserName(openId);
+                userName = feishuService.getUserNameByUserId(openId);
                 if (userName == null) {
                     userName = "用户" + openId.substring(openId.length() - 6);
                 }

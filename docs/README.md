@@ -8,6 +8,8 @@
 | [**weekly-matter-comparison.md**](weekly-matter-comparison.md) | **会前事项对比通报**（v0.9：bot 定时对比、config_role、Job 参数、故障排查） |
 | [**langfuse-integration-plan.md**](langfuse-integration-plan.md) | **Langfuse Prompt 管理集成方案**（项目结构图、分期落地、PromptRegistry 设计） |
 | [**meeting-admin.md**](meeting-admin.md) | **会议管理后台**（`meeting-admin-server` :8766，与 meeting-server 分离启动） |
+| [**meeting-admin.md#二期流水线事件驱动升级v017**](meeting-admin.md#二期流水线事件驱动升级v017) | 二期落地：状态机 + Outbox + Pipeline DDL/API/UI |
+| [**meeting-admin.md#三场景音频链路升级v018**](meeting-admin.md#三场景音频链路升级v018) | 三场景（线下/混合/线上）场景字段 + 云端录音兜底 |
 | [`scripts/start-dev.sh`](../scripts/start-dev.sh) | 开发一键启动 server / admin / both + 依赖检查 |
 | [admin-extensibility.md](admin-extensibility.md) | 后台 L1/L2/L3 扩展点开发说明 |
 | [meeting-admin-p2.md](meeting-admin-p2.md) | 后台 P2：internal API、OAuth、反代 |
@@ -38,6 +40,11 @@
 | 文档 | 说明 |
 |------|------|
 | [会中模块进度评估.md](会中模块进度评估.md) | **会中 10 项**矩阵 + v0.9 会前对比迁移状态（2026-05-23） |
+| [meeting-server schema-upgrade v0.17](../meeting-server/src/main/resources/schema-upgrade/v0.17-pipeline-outbox-statemachine.sql) | 二期 Phase1-5 结构升级 SQL（Outbox / Pipeline / 幂等） |
+| [meeting-server schema-upgrade v0.18](../meeting-server/src/main/resources/schema-upgrade/v0.18-meeting-scenario-audio-fallback.sql) | 二期 Phase6 场景字段与云端音频兜底 SQL |
+| [meeting-server schema-upgrade v0.19](../meeting-server/src/main/resources/schema-upgrade/v0.19-normalize-feishu-userid.sql) | user_id 主键化数据归一化（open_id → user_id，含备份） |
+| [meeting-server schema-upgrade v0.19 rollback](../meeting-server/src/main/resources/schema-upgrade/v0.19-rollback-normalize-feishu-userid.sql) | v0.19 回滚脚本（按备份表恢复） |
+| [meeting-server schema-upgrade v0.20](../meeting-server/src/main/resources/schema-upgrade/v0.20-drop-feishu-open-union-id.sql) | 删除映射表 feishu_open_id / feishu_union_id（user_id 硬切） |
 | [MCP+Skill改造方案.md](MCP+Skill改造方案.md) | MCP/Skill 改造；matter-progress 已改为 bot/LLM 路径 |
 | [matter-progress-core/README.md](../matter-progress-core/README.md) | 会前对比核心库类说明 |
 | [feishu-scheduled-bot 文档](../../feishu-scheduled-bot/docs/README.md) | bot 侧 USER-MANUAL、PRD、M9 计划 |

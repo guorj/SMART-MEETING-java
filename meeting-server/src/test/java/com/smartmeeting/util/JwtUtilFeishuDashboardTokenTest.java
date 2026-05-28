@@ -23,16 +23,16 @@ class JwtUtilFeishuDashboardTokenTest {
 
     @Test
     void shouldGenerateAndParseDashboardToken() {
-        String token = jwtUtil.generateFeishuWebDashboardToken("ou_abc", "oc_def", "Alan");
+        String token = jwtUtil.generateFeishuWebDashboardToken("116afd4c", "oc_def", "Alan");
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        assertEquals("ou_abc", entry.openId());
+        assertEquals("116afd4c", entry.feishuUserId());
         assertEquals("oc_def", entry.chatId());
         assertEquals("Alan", entry.userName());
     }
 
     @Test
     void shouldRejectTokenWithWrongPurpose() {
-        String token = jwtUtil.generateFeishuWebStartMeetingEntryToken("ou_abc", "oc_def");
+        String token = jwtUtil.generateFeishuWebStartMeetingEntryToken("116afd4c", "oc_def");
         BusinessException ex = assertThrows(BusinessException.class,
                 () -> jwtUtil.parseAndVerifyFeishuWebDashboardToken(token));
         assertEquals(401, ex.getCode());

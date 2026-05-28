@@ -8,11 +8,15 @@ import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.entity.UserMapping;
 import com.smartmeeting.entity.Voiceprint;
+import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.UserMappingMapper;
 import com.smartmeeting.repository.VoiceprintMapper;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
+import com.smartmeeting.util.JwtUtil;
+import com.smartmeeting.util.MeetingWebPageUrls;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -41,26 +45,35 @@ public class DashboardService {
     private final FeishuStartMeetingPendingStore pendingStore;
     private final FeishuService feishuService;
     private final VoiceprintRegisterService voiceprintRegisterService;
+    private final MeetingService meetingService;
+    private final JwtUtil jwtUtil;
+    private final MeetingWebPageUrls meetingWebPageUrls;
 
-    public UserInfo getUserInfo(String openId) {
+    public UserInfo getUserInfo(String feishuUserId, String tokenUserName) {
         UserMapping mapping = userMappingMapper.selectOne(new LambdaQueryWrapper<UserMapping>()
-                .eq(UserMapping::getFeishuOpenId, openId)
+                .eq(UserMapping::getFeishuUserId, feishuUserId)
                 .last("LIMIT 1"));
         Voiceprint vp = voiceprintMapper.selectOne(new LambdaQueryWrapper<Voiceprint>()
-                .eq(Voiceprint::getFeishuUserId, openId)
+                .eq(Voiceprint::getFeishuUserId, feishuUserId)
                 .orderByDesc(Voiceprint::getRegisteredAt)
                 .last("LIMIT 1"));
 
         UserInfo info = new UserInfo();
-        info.setFeishuOpenId(openId);
+        info.setFeishuUserId(feishuUserId);
+        String resolvedFromFeishu = null;
         if (mapping != null) {
             info.setOaUserId(mapping.getUserId());
-            info.setUserName(mapping.getUserName());
-            info.setFeishuUserId(mapping.getFeishuUserId());
+            resolvedFromFeishu = resolveNameFromFeishu(mapping, feishuUserId);
+            info.setUserName(normalizeDisplayName(mapping.getUserName(), resolvedFromFeishu, tokenUserName));
             info.setMappingExists(true);
+            log.info("Dashboard user resolve with mapping: feishuUserId={}, oaUserId={}, mappingName={}, feishuResolved={}, tokenName={}",
+                    feishuUserId, mapping.getUserId(), mapping.getUserName(), resolvedFromFeishu, tokenUserName);
         } else {
-            info.setUserName(feishuService.getUserName(openId));
+            String userName = resolveNameFromFeishu(null, feishuUserId);
+            info.setUserName(normalizeDisplayName(userName, tokenUserName));
             info.setMappingExists(false);
+            log.warn("Dashboard user resolve without mapping: feishuUserId={}, feishuResolved={}, tokenName={}",
+                    feishuUserId, userName, tokenUserName);
         }
         if (vp != null) {
             info.setVoiceprintRegistered(true);
@@ -74,9 +87,9 @@ public class DashboardService {
         return info;
     }
 
-    public VoiceprintStatusResult getVoiceprintStatus(String openId) {
+    public VoiceprintStatusResult getVoiceprintStatus(String feishuUserId) {
         Voiceprint vp = voiceprintMapper.selectOne(new LambdaQueryWrapper<Voiceprint>()
-                .eq(Voiceprint::getFeishuUserId, openId)
+                .eq(Voiceprint::getFeishuUserId, feishuUserId)
                 .orderByDesc(Voiceprint::getRegisteredAt)
                 .last("LIMIT 1"));
         VoiceprintStatusResult result = new VoiceprintStatusResult();
@@ -92,15 +105,15 @@ public class DashboardService {
         return result;
     }
 
-    public List<MeetingSummary> getRecentMeetings(String openId, int limit) {
+    public List<MeetingSummary> getRecentMeetings(String feishuUserId, int limit) {
         List<String> meetingIds = participantMapper.selectList(new LambdaQueryWrapper<Participant>()
-                        .eq(Participant::getUserId, openId))
+                        .eq(Participant::getUserId, feishuUserId))
                 .stream().map(Participant::getMeetingId).distinct().toList();
 
         List<Meeting> meetings;
         if (meetingIds.isEmpty()) {
             meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
-                    .eq(Meeting::getCreatorId, openId)
+                    .eq(Meeting::getCreatorId, feishuUserId)
                     .orderByDesc(Meeting::getCreatedAt)
                     .last("LIMIT " + limit));
         } else {
@@ -125,18 +138,117 @@ public class DashboardService {
         return list;
     }
 
-    public MeetingResponse createMeeting(String openId, String chatId, MeetingCreateRequest request) {
-        pendingStore.clear(openId, chatId);
-        return coordinator.createMeetingStartAndNotifyFeishu(openId, chatId, request);
+    public ActiveMeetingResult getActiveMeeting(String feishuUserId) {
+        Meeting active = meetingMapper.selectOne(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, feishuUserId)
+                .in(Meeting::getStatus,
+                        MeetingStatus.STARTED.name(),
+                        MeetingStatus.RECORDING.name(),
+                        MeetingStatus.PAUSED.name())
+                .orderByDesc(Meeting::getCreatedAt)
+                .last("LIMIT 1"));
+        if (active == null) {
+            return null;
+        }
+        String recordingUrl = active.getRecordingUrl();
+        if (recordingUrl == null || recordingUrl.isBlank()) {
+            String recordingToken = jwtUtil.generateOperatorMeetingToken(active.getId(), JwtUtil.TYPE_RECORDING);
+            recordingUrl = meetingWebPageUrls.recordingPageUrl(active.getId(), recordingToken);
+            active.setRecordingToken(recordingToken);
+            active.setRecordingUrl(recordingUrl);
+            meetingMapper.updateById(active);
+        }
+        ActiveMeetingResult out = new ActiveMeetingResult();
+        out.setId(active.getId());
+        out.setTitle(active.getTitle());
+        out.setStatus(active.getStatus());
+        out.setRecordingUrl(recordingUrl);
+        out.setCreatedAt(active.getCreatedAt());
+        return out;
     }
 
-    public String createVoiceprintSession(String openId, String userName) {
-        String resolvedName = (userName != null && !userName.isBlank()) ? userName : feishuService.getUserName(openId);
+    public MeetingResponse endActiveMeeting(String feishuUserId) {
+        Meeting active = meetingMapper.selectOne(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, feishuUserId)
+                .in(Meeting::getStatus,
+                        MeetingStatus.STARTED.name(),
+                        MeetingStatus.RECORDING.name(),
+                        MeetingStatus.PAUSED.name())
+                .orderByDesc(Meeting::getCreatedAt)
+                .last("LIMIT 1"));
+        if (active == null) {
+            throw new BusinessException(400, "当前没有可结束的进行中会议");
+        }
+        return meetingService.endMeeting(active.getId());
+    }
+
+    public ActiveMeetingResult recoverActiveMeeting(String feishuUserId) {
+        ActiveMeetingResult active = getActiveMeeting(feishuUserId);
+        if (active == null || active.getRecordingUrl() == null || active.getRecordingUrl().isBlank()) {
+            throw new BusinessException(400, "当前没有可恢复的进行中会议");
+        }
+        return active;
+    }
+
+    private String resolveNameFromFeishu(UserMapping mapping, String feishuUserId) {
+        String[] candidates = new String[] {
+                feishuUserId,
+                mapping != null ? mapping.getFeishuUserId() : null
+        };
+        for (String id : candidates) {
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            String name = feishuService.getUserNameByUserId(id);
+            if (sanitizeName(name) != null) {
+                return name;
+            }
+        }
+        return null;
+    }
+
+    private static String normalizeDisplayName(String... candidates) {
+        if (candidates == null) {
+            return "飞书用户";
+        }
+        for (String c : candidates) {
+            String v = sanitizeName(c);
+            if (v != null) {
+                return v;
+            }
+        }
+        return "飞书用户";
+    }
+
+    private static String sanitizeName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String v = raw.trim();
+        if (v.isEmpty()) {
+            return null;
+        }
+        if (v.startsWith("ou_") || v.startsWith("on_")) {
+            return null;
+        }
+        return v;
+    }
+
+    public MeetingResponse createMeeting(String feishuUserId, String chatId, MeetingCreateRequest request) {
+        pendingStore.clear(feishuUserId, chatId);
+        return coordinator.createMeetingStartAndNotifyFeishu(feishuUserId, chatId, request);
+    }
+
+    public String createVoiceprintSession(String feishuUserId, String userName) {
+        String resolvedName = userName;
         if (resolvedName == null || resolvedName.isBlank()) {
-            resolvedName = "用户" + openId.substring(Math.max(0, openId.length() - 6));
+            resolvedName = feishuService.getUserNameByUserId(feishuUserId);
+        }
+        if (resolvedName == null || resolvedName.isBlank()) {
+            resolvedName = "用户" + feishuUserId.substring(Math.max(0, feishuUserId.length() - 6));
         }
         String regToken = UUID.randomUUID().toString().replace("-", "");
-        voiceprintRegisterService.createRegisterSession(regToken, openId, resolvedName);
+        voiceprintRegisterService.createRegisterSession(regToken, feishuUserId, resolvedName);
         return regToken;
     }
 
@@ -163,7 +275,6 @@ public class DashboardService {
         private Integer oaUserId;
         private String userName;
         private String feishuUserId;
-        private String feishuOpenId;
         private boolean mappingExists;
         private boolean voiceprintRegistered;
         private String voiceprintFeatureId;
@@ -176,8 +287,6 @@ public class DashboardService {
         public void setUserName(String userName) { this.userName = userName; }
         public String getFeishuUserId() { return feishuUserId; }
         public void setFeishuUserId(String feishuUserId) { this.feishuUserId = feishuUserId; }
-        public String getFeishuOpenId() { return feishuOpenId; }
-        public void setFeishuOpenId(String feishuOpenId) { this.feishuOpenId = feishuOpenId; }
         public boolean isMappingExists() { return mappingExists; }
         public void setMappingExists(boolean mappingExists) { this.mappingExists = mappingExists; }
         public boolean isVoiceprintRegistered() { return voiceprintRegistered; }
@@ -226,5 +335,24 @@ public class DashboardService {
         public void setExpiresAt(LocalDateTime expiresAt) { this.expiresAt = expiresAt; }
         public String getExpiryStatus() { return expiryStatus; }
         public void setExpiryStatus(String expiryStatus) { this.expiryStatus = expiryStatus; }
+    }
+
+    public static class ActiveMeetingResult {
+        private String id;
+        private String title;
+        private String status;
+        private String recordingUrl;
+        private LocalDateTime createdAt;
+
+        public String getId() { return id; }
+        public void setId(String id) { this.id = id; }
+        public String getTitle() { return title; }
+        public void setTitle(String title) { this.title = title; }
+        public String getStatus() { return status; }
+        public void setStatus(String status) { this.status = status; }
+        public String getRecordingUrl() { return recordingUrl; }
+        public void setRecordingUrl(String recordingUrl) { this.recordingUrl = recordingUrl; }
+        public LocalDateTime getCreatedAt() { return createdAt; }
+        public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     }
 }

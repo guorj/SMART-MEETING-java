@@ -127,25 +127,25 @@ public class FeishuService {
     }
 
     /**
-     * 向用户单聊发送纯文本消息（菜单「推送事件」等无群 chat_id 场景）。
+     * 向用户 user_id 发送纯文本消息。
      *
-     * @param openId 用户 open_id
+     * @param userId 用户 user_id
      * @param text   消息正文
-     * @return 发送成功返回 {@code true}；openId 为空或 HTTP 失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}
      */
-    public boolean sendMessageToOpenId(String openId, String text) {
-        if (openId == null || openId.isBlank()) {
+    public boolean sendMessageToUserId(String userId, String text) {
+        if (userId == null || userId.isBlank()) {
             return false;
         }
         String token = getTenantToken();
-        String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=open_id";
+        String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=user_id";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(token);
 
         Map<String, Object> body = Map.of(
-                "receive_id", openId,
+                "receive_id", userId,
                 "msg_type", "text",
                 "content", "{\"text\":\"" + escapeJson(text) + "\"}"
         );
@@ -154,10 +154,10 @@ public class FeishuService {
         ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.POST, request, String.class);
 
         if (response.getStatusCode().is2xxSuccessful()) {
-            log.info("Feishu message sent to open_id");
+            log.info("Feishu message sent to user_id");
             return true;
         }
-        log.error("Failed to send feishu message to open_id: {}", response.getBody());
+        log.error("Failed to send feishu message to user_id: {}", response.getBody());
         return false;
     }
 
@@ -246,14 +246,14 @@ public class FeishuService {
     // ==================== 用户信息获取 ====================
 
     /**
-     * 从飞书 API 获取用户姓名。
+     * 通过飞书 user_id 获取用户姓名。
      *
-     * @param openId 飞书用户 open_id
+     * @param feishuUserId 飞书 user_id
      * @return 用户姓名；API 失败时返回 {@code null}
      */
-    public String getUserName(String openId) {
+    public String getUserNameByUserId(String feishuUserId) {
         String token = getTenantToken();
-        String url = baseUrl + "/open-apis/user/v3/users/" + openId + "?user_id_type=open_id";
+        String url = baseUrl + "/open-apis/contact/v3/users/" + feishuUserId + "?user_id_type=user_id";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -266,13 +266,13 @@ public class FeishuService {
             if (json != null && json.path("code").asInt() == 0) {
                 JsonNode user = json.path("data").path("user");
                 String name = user.path("name").asText();
-                log.info("获取飞书用户姓名: openId={}, name={}", openId, name);
+                log.info("获取飞书用户姓名: feishuUserId={}, name={}", feishuUserId, name);
                 return name;
             }
-            log.warn("获取用户姓名失败: openId={}, code={}", openId, json != null ? json.path("code").asInt() : -1);
+            log.warn("获取用户姓名失败: feishuUserId={}, code={}", feishuUserId, json != null ? json.path("code").asInt() : -1);
             return null;
         } catch (Exception e) {
-            log.error("获取飞书用户姓名异常: openId={}, error={}", openId, e.getMessage());
+            log.error("获取飞书用户姓名异常: feishuUserId={}, error={}", feishuUserId, e.getMessage());
             return null;
         }
     }
@@ -295,17 +295,17 @@ public class FeishuService {
     }
 
     /**
-     * 向用户单聊发送 Interactive 卡片（如线上个人入会链接）。
+     * 向用户单聊发送 Interactive 卡片（receive_id_type=user_id）。
      *
-     * @param openId   用户 open_id
+     * @param userId   飞书 user_id
      * @param cardJson 卡片 JSON 字符串
-     * @return 发送成功返回 {@code true}；openId 为空或 HTTP 失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；userId 为空或 HTTP 失败时返回 {@code false}
      */
-    public boolean sendInteractiveCardToOpenId(String openId, String cardJson) {
-        if (openId == null || openId.isBlank()) {
+    public boolean sendInteractiveCardToUserId(String userId, String cardJson) {
+        if (userId == null || userId.isBlank()) {
             return false;
         }
-        return sendInteractiveCardToReceiveId("open_id", openId, cardJson);
+        return sendInteractiveCardToReceiveId("user_id", userId, cardJson);
     }
 
     /** 向指定 receive_id_type 的接收方发送 Interactive 卡片。 */

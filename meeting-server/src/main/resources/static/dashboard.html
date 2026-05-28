@@ -27,6 +27,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica N
 .btn-secondary:active{background:#e6e6e6}
 .btn-voice{background:#52c41a;color:#fff}
 .btn-voice:active{background:#3dae0a}
+.btn-recover{background:#fa8c16;color:#fff}
+.btn-recover:active{background:#d46b08}
+.btn-danger{background:#ff4d4f;color:#fff}
+.btn-danger:active{background:#cf1322}
 .meeting-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0}
 .meeting-item:last-child{border-bottom:none}
 .meeting-icon{font-size:16px;width:24px;text-align:center}
@@ -84,21 +88,37 @@ function vpBadge(status){
   if(status==='EXPIRED')return '<span class="badge badge-expired">已过期</span>';
   return '<span class="badge badge-none">未注册</span>';
 }
+function canRecover(st){
+  return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
+}
+function canEnd(st){
+  return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
+}
 
 async function init(){
   try{
     const me=await api('/api/v1/dashboard/me');
     const vp=await api('/api/v1/dashboard/voiceprint-status');
+    const activeMeeting=await api('/api/v1/dashboard/active-meeting');
     const meetings=await api('/api/v1/dashboard/recent-meetings?limit=10');
     const presets=await api('/api/v1/dashboard/meeting-presets');
 
     const presetButtons=presets.map(p=>`<button class="btn btn-primary" data-code="${p.code}">${esc(p.displayName)}</button>`).join('');
     const meetingList=meetings.length===0?'<p class="muted">暂无近期会议</p>':
       meetings.map(m=>`<div class="meeting-item"><span class="meeting-icon">${statusIcon(m.status)}</span><span class="meeting-title">${esc(m.title)}</span><span class="meeting-time">${fmtDt(m.createdAt)}</span>${m.docUrl?'<a class="meeting-link" href="'+esc(m.docUrl)+'" target="_blank">纪要</a>':''}</div>`).join('');
+    const activeHtml=activeMeeting
+      ? `<div class="msg msg-info" style="margin-top:0;margin-bottom:10px">
+           检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b>（${esc(activeMeeting.status)}）
+         </div>
+         <div class="btn-grid" style="margin-top:0">
+           <button class="btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>
+           <button class="btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
+         </div>`
+      : '';
 
     document.getElementById('app').innerHTML=`
       <div class="card">
-        <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuOpenId)}</span>${vpBadge(vp.expiryStatus)}</div>
+        <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuUserId)}</span>${vpBadge(vp.expiryStatus)}</div>
         ${me.mappingExists?'<p class="muted">OA userId: '+esc(me.oaUserId)+'</p>':'<p class="muted">未关联 OA 账号</p>'}
       </div>
       <div class="card">
@@ -108,6 +128,7 @@ async function init(){
         <button class="btn btn-secondary" id="btn-other" style="grid-column:1/3;width:100%">创建其他会议</button>
         <p id="create-msg" class="msg hidden"></p>
       </div>
+      ${activeMeeting ? `<div class="card">${activeHtml}</div>` : ''}
       <div class="card">
         <h2>声纹管理</h2>
         <p>${vp.registered?'声纹特征 ID: '+esc(vp.featureId)+'<br/>有效期至: '+fmtDt(vp.expiresAt):'您尚未注册声纹，注册后会议纪要可自动识别您的声音。'}</p>
@@ -138,6 +159,45 @@ async function init(){
         location.href=r.registerUrl;
       }catch(e){showMsg('create-msg',e.message,true);}
     };
+    const recoverBtn=document.getElementById('btn-recover');
+    const endBtn=document.getElementById('btn-end-active');
+    const setActiveButtonsDisabled=(disabled)=>{
+      if(recoverBtn) recoverBtn.disabled=disabled;
+      if(endBtn) endBtn.disabled=disabled;
+    };
+    if(recoverBtn && activeMeeting){
+      recoverBtn.onclick=async()=>{
+        if(!canRecover(activeMeeting.status)) return;
+        setActiveButtonsDisabled(true);
+        try{
+          const r=await api('/api/v1/dashboard/active-meeting/recover',{method:'POST'});
+          if(r && r.recordingUrl){
+            window.open(r.recordingUrl,'_blank');
+          }else{
+            showMsg('create-msg','当前会议暂无可用入口，请稍后重试。',true);
+          }
+        }catch(e){
+          showMsg('create-msg',e.message,true);
+        }finally{
+          setActiveButtonsDisabled(false);
+        }
+      };
+    }
+    if(endBtn && activeMeeting){
+      endBtn.onclick=async()=>{
+        if(!canEnd(activeMeeting.status)) return;
+        if(!confirm('确认结束当前会议？结束后将进入纪要处理流程。')) return;
+        setActiveButtonsDisabled(true);
+        try{
+          await api('/api/v1/dashboard/active-meeting/end',{method:'POST'});
+          showMsg('create-msg','当前会议已结束，正在生成纪要。',false);
+          setTimeout(()=>init(),1200);
+        }catch(e){
+          showMsg('create-msg',e.message,true);
+          setActiveButtonsDisabled(false);
+        }
+      };
+    }
 
   }catch(e){
     document.getElementById('app').innerHTML='<div class="card msg msg-err">加载失败: '+esc(e.message)+'</div>';
