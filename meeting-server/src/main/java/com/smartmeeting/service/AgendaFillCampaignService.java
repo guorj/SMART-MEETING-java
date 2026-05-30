@@ -20,7 +20,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -188,7 +190,7 @@ public class AgendaFillCampaignService {
                 }
                 String url = trim(update.getUrl());
                 if (url != null) {
-                    upsertPrimaryUrl(item, url);
+                    upsertSourceUrls(item, splitUrls(url));
                     changed = true;
                 }
                 if (changed) {
@@ -327,31 +329,75 @@ public class AgendaFillCampaignService {
         return map;
     }
 
-    private void upsertPrimaryUrl(HostAgendaItem item, String url) {
-        if (item.getDocs() == null) {
-            item.setDocs(new ArrayList<>());
+    private void upsertSourceUrls(HostAgendaItem item, List<String> urls) {
+        if (urls == null || urls.isEmpty()) {
+            return;
         }
-        if (item.getDocs().isEmpty()) {
-            item.getDocs().add(HostAgendaDocBinding.builder()
+        List<HostAgendaDocBinding> existing = item.getDocs() == null
+                ? new ArrayList<>()
+                : new ArrayList<>(item.getDocs());
+        List<HostAgendaDocBinding> kept = new ArrayList<>();
+        for (HostAgendaDocBinding doc : existing) {
+            if (doc == null) {
+                continue;
+            }
+            if (!isSourceRole(doc.getRole())) {
+                kept.add(doc);
+            }
+        }
+        for (int i = 0; i < urls.size(); i++) {
+            kept.add(HostAgendaDocBinding.builder()
                     .role("SOURCE")
-                    .slot(0)
+                    .slot(i)
                     .enabled(true)
-                    .url(url)
+                    .url(urls.get(i))
                     .build());
-        } else {
-            item.getDocs().get(0).setUrl(url);
         }
-        item.setFeishuDocUrl(url);
+        item.setDocs(kept);
+        item.setFeishuDocUrl(urls.get(0));
     }
 
     private String resolvePrimaryUrl(HostAgendaItem item) {
-        if (item.getDocs() != null && !item.getDocs().isEmpty() && item.getDocs().get(0) != null) {
-            String url = trim(item.getDocs().get(0).getUrl());
-            if (url != null) {
-                return url;
+        if (item.getDocs() != null && !item.getDocs().isEmpty()) {
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc == null || !isSourceRole(doc.getRole())) {
+                    continue;
+                }
+                String url = trim(doc.getUrl());
+                if (url != null) {
+                    return url;
+                }
             }
         }
         return trim(item.getFeishuDocUrl());
+    }
+
+    private List<String> splitUrls(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        String normalized = raw
+                .replace('，', ',')
+                .replace('；', ',')
+                .replace(';', ',')
+                .replace('\n', ',');
+        String[] arr = normalized.split(",");
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (String part : arr) {
+            String v = trim(part);
+            if (v != null) {
+                out.add(v);
+            }
+        }
+        return new ArrayList<>(out);
+    }
+
+    private boolean isSourceRole(String role) {
+        if (role == null || role.isBlank()) {
+            return true;
+        }
+        String r = role.trim().toUpperCase(Locale.ROOT);
+        return "SOURCE".equals(r) || "BOTH".equals(r);
     }
 
     private Set<Integer> toSafeIndexSet(List<Integer> indexes) {
