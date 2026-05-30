@@ -73,7 +73,8 @@ AdminModules.register({
     };
 
     const showEditor = (job) => {
-      document.getElementById('wj-editor').classList.remove('hidden');
+      const editor = document.getElementById('wj-editor');
+      AdminUi.openEditor(editor);
       document.getElementById('wj-editor-title').textContent = job ? '编辑对比任务' : '新建对比任务';
       document.getElementById('wj-save-msg').classList.add('hidden');
       document.getElementById('wj-id').value = job ? job.id : '';
@@ -112,7 +113,7 @@ AdminModules.register({
       };
     });
     document.getElementById('wj-new').onclick = () => showEditor(null);
-    document.getElementById('wj-cancel').onclick = () => document.getElementById('wj-editor').classList.add('hidden');
+    document.getElementById('wj-cancel').onclick = () => AdminUi.closeEditor(document.getElementById('wj-editor'));
     document.getElementById('wj-save').onclick = async () => {
       const id = document.getElementById('wj-id').value;
       const existing = id ? jobs.find(x => String(x.id) === id) : null;
@@ -148,6 +149,7 @@ AdminModules.register({
         } else {
           await AdminApi.fetch('/api/v1/admin/weekly-jobs', { method: 'POST', body: JSON.stringify(body) });
         }
+          AdminUi.closeEditor(document.getElementById('wj-editor'));
         try {
           await AdminApi.fetch('/api/v1/admin/weekly-jobs/reload-schedule', { method: 'POST' });
         } catch (_) { /* bot 未配置时仍视为保存成功 */ }

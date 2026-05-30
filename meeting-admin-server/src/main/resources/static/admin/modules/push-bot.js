@@ -135,7 +135,8 @@ AdminModules.register({
         });
 
         const showEditor = (task) => {
-          document.getElementById('pb-editor').classList.remove('hidden');
+          const editor = document.getElementById('pb-editor');
+          AdminUi.openEditor(editor);
           document.getElementById('pb-editor-title').textContent = task ? '编辑任务' : '新建任务';
           document.getElementById('pb-save-msg').classList.add('hidden');
           document.getElementById('pb-id').value = task ? task.id : '';
@@ -225,7 +226,7 @@ AdminModules.register({
               showMsg('已删除任务', false);
               const editorId = document.getElementById('pb-id');
               if (editorId && editorId.value === id) {
-                document.getElementById('pb-editor').classList.add('hidden');
+                AdminUi.closeEditor(document.getElementById('pb-editor'));
               }
               await loadTasks();
             } catch (err) {
@@ -235,7 +236,7 @@ AdminModules.register({
           };
         });
         document.getElementById('pb-new').onclick = () => showEditor(null);
-        document.getElementById('pb-cancel').onclick = () => document.getElementById('pb-editor').classList.add('hidden');
+        document.getElementById('pb-cancel').onclick = () => AdminUi.closeEditor(document.getElementById('pb-editor'));
         document.getElementById('pb-cron-preview').onclick = async () => {
           const cron = document.getElementById('pb-cron').value.trim();
           if (!cron) return;
@@ -273,7 +274,7 @@ AdminModules.register({
             } else {
               await AdminApi.fetch('/api/v1/admin/push-tasks', { method: 'POST', body: JSON.stringify(body) });
             }
-            document.getElementById('pb-editor').classList.add('hidden');
+            AdminUi.closeEditor(document.getElementById('pb-editor'));
             loadTasks();
           } catch (e) {
             document.getElementById('pb-save-msg').className = 'msg msg-err';

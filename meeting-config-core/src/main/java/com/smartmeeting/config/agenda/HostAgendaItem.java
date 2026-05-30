@@ -9,6 +9,8 @@ import java.util.List;
 public class HostAgendaItem {
     private String title;
     private Integer minutes;
+    /** 会序负责人（飞书 user_id），可为空或多个 */
+    private List<String> owners;
     private String detail;
     private String feishuDocUrl;
     private List<HostAgendaFeishuDocRef> feishuDocs;

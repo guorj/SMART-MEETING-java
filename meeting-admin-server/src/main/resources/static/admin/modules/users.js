@@ -28,6 +28,22 @@ AdminModules.register({
       const short = t.length > (max || 14) ? t.slice(0, max || 14) + '…' : t;
       return '<span title="' + esc(t) + '">' + esc(short) + '</span>';
     };
+    const conciseErr = (e) => {
+      const msg = String(e && e.message ? e.message : e || '');
+      if (msg.includes('HTTP 404')) return '接口不存在（404），请确认 meeting-server internal 路径与版本已对齐';
+      if (msg.includes('HTTP 401') || msg.includes('HTTP 403')) return '鉴权失败，请检查 INTERNAL_RELOAD_TOKEN 与 bridge 配置';
+      return msg;
+    };
+    const arrayBufferToBase64 = buffer => {
+      const bytes = new Uint8Array(buffer);
+      const chunkSize = 0x8000;
+      let binary = '';
+      for (let i = 0; i < bytes.length; i += chunkSize) {
+        const chunk = bytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk);
+      }
+      return btoa(binary);
+    };
 
     const parseUserId = raw => {
       const s = String(raw == null ? '' : raw).trim();
@@ -114,7 +130,8 @@ AdminModules.register({
             <th>声纹</th><th>featureId</th><th>groupId</th><th>注册</th><th>过期</th><th>操作</th>
           </tr></thead><tbody id="usr-tbody"></tbody></table></div>
           <div class="panel toolbar" id="usr-pager"></div>
-          <div class="panel hidden form-editor" id="usr-editor"></div>`;
+          <div class="panel hidden form-editor" id="usr-editor"></div>
+          <div class="panel" id="usr-vp-ops"></div>`;
 
         document.getElementById('usr-expiry').value = expiryFilter;
         const tbody = document.getElementById('usr-tbody');
@@ -170,10 +187,382 @@ AdminModules.register({
             }
           };
         });
+        renderVoiceprintOps();
       } catch (err) {
         panel.innerHTML = '<div class="panel"><p class="msg msg-err">加载失败: ' + esc(err.message) + '</p></div>';
         showMsg(err.message, true);
       }
+    }
+
+    function bindAudioFileToTextarea(fileInputId, textareaId) {
+      const fi = document.getElementById(fileInputId);
+      const ta = document.getElementById(textareaId);
+      if (!fi || !ta) return;
+      fi.onchange = async () => {
+        const f = fi.files && fi.files[0];
+        if (!f) return;
+        try {
+          const ab = await f.arrayBuffer();
+          ta.value = arrayBufferToBase64(ab);
+          showMsg('已加载音频文件: ' + f.name + ' (' + Math.round(f.size / 1024) + 'KB)', false);
+        } catch (e) {
+          showMsg('音频转 base64 失败: ' + e.message, true);
+        }
+      };
+    }
+
+    function renderScoreRows(rows) {
+      if (!rows || !rows.length) return '<tr><td colspan="6" class="muted">无结果</td></tr>';
+      return rows.map(r => '<tr>'
+        + '<td>' + cellLong(r.featureId, 16) + '</td>'
+        + '<td>' + esc(r.score == null ? '-' : Number(r.score).toFixed(4)) + '</td>'
+        + '<td>' + esc(r.userId == null ? '-' : r.userId) + '</td>'
+        + '<td>' + esc(r.userName || '-') + '</td>'
+        + '<td>' + cellLong(r.feishuUserId, 12) + '</td>'
+        + '<td>' + cellLong(r.featureInfo, 24) + '</td>'
+        + '</tr>').join('');
+    }
+
+    function renderFeatureRows(rows) {
+      if (!rows || !rows.length) return '<tr><td colspan="8" class="muted">无特征</td></tr>';
+      return rows.map(r => '<tr>'
+        + '<td>' + cellLong(r.featureId, 16) + '</td>'
+        + '<td>' + esc(r.userId == null ? '-' : r.userId) + '</td>'
+        + '<td>' + esc(r.userName || '-') + '</td>'
+        + '<td>' + cellLong(r.feishuUserId, 12) + '</td>'
+        + '<td>' + cellLong(r.featureInfo, 24) + '</td>'
+        + '<td>' + fmtDt(r.registeredAt) + '</td>'
+        + '<td>' + fmtDt(r.expiresAt) + '</td>'
+        + '<td><button type="button" class="usr-vp-del" data-feature-id="' + esc(r.featureId) + '">删除</button></td>'
+        + '</tr>').join('');
+    }
+
+    function renderVoiceprintOps() {
+      const root = document.getElementById('usr-vp-ops');
+      root.innerHTML = `
+        <h3>声纹运维（P0/P1/P2）</h3>
+        <p class="form-hint">通过 admin 接口桥接 meeting-server internal 声纹能力：查询特征、更新/删除、1:N 检索、1:1 比对、特征库管理。</p>
+        <div class="toolbar">
+          <input id="vp-group-id" placeholder="groupId（留空使用默认）" />
+          <button type="button" class="primary" id="vp-refresh-features">查询特征列表</button>
+          <button type="button" id="vp-refresh-all-features">按 group_id 查询全部（本地）</button>
+          <button type="button" id="vp-open-group-center">特征库管理中心</button>
+          <span class="muted" id="vp-feature-count"></span>
+        </div>
+        <div class="table-wrap"><table class="table-wide"><thead><tr>
+          <th>featureId</th><th>OA userId</th><th>姓名</th><th>feishu_user_id</th>
+          <th>featureInfo</th><th>注册时间</th><th>过期时间</th><th>操作</th>
+        </tr></thead><tbody id="vp-feature-tbody"><tr><td colspan="8" class="muted">点击“查询特征列表”加载</td></tr></tbody></table></div>
+
+        <details id="vp-adv-box">
+          <summary>展开高级运维（更新/检索）</summary>
+
+          <h4>更新特征（P0）</h4>
+          <div class="toolbar">
+            <input id="vp-upd-feature-id" placeholder="featureId（必填）"/>
+            <input id="vp-upd-feature-info" placeholder="featureInfo（可选）"/>
+            <label><input type="checkbox" id="vp-upd-cover" checked/> 覆盖更新</label>
+          </div>
+          <div class="toolbar">
+            <input id="vp-upd-audio-file" type="file" accept="audio/*"/>
+            <button type="button" id="vp-upd-submit">提交更新</button>
+          </div>
+          <textarea id="vp-upd-audio-b64" rows="4" placeholder="audioBase64（可手填，或通过文件自动填充）"></textarea>
+
+          <h4>1:N 检索（P1）</h4>
+          <div class="toolbar">
+            <input id="vp-1n-topk" type="number" min="1" max="10" value="3" style="width:120px" />
+            <input id="vp-1n-audio-file" type="file" accept="audio/*"/>
+            <button type="button" id="vp-1n-submit">执行 1:N</button>
+          </div>
+          <textarea id="vp-1n-audio-b64" rows="4" placeholder="audioBase64（可手填，或通过文件自动填充）"></textarea>
+          <div class="table-wrap"><table class="table-wide"><thead><tr>
+            <th>featureId</th><th>score</th><th>OA userId</th><th>姓名</th><th>feishu_user_id</th><th>featureInfo</th>
+          </tr></thead><tbody id="vp-1n-tbody"><tr><td colspan="6" class="muted">暂无结果</td></tr></tbody></table></div>
+
+          <h4>1:1 比对（P2）</h4>
+          <div class="toolbar">
+            <input id="vp-1v1-feature-id" placeholder="目标 featureId（必填）"/>
+            <input id="vp-1v1-audio-file" type="file" accept="audio/*"/>
+            <button type="button" id="vp-1v1-submit">执行 1:1</button>
+          </div>
+          <textarea id="vp-1v1-audio-b64" rows="4" placeholder="audioBase64（可手填，或通过文件自动填充）"></textarea>
+          <div class="table-wrap"><table class="table-wide"><thead><tr>
+            <th>featureId</th><th>score</th><th>OA userId</th><th>姓名</th><th>feishu_user_id</th><th>featureInfo</th>
+          </tr></thead><tbody id="vp-1v1-tbody"><tr><td colspan="6" class="muted">暂无结果</td></tr></tbody></table></div>
+        </details>
+
+        <div class="panel hidden form-editor" id="vp-group-center">
+          <h3>特征库管理中心</h3>
+          <p class="form-hint">统一入口：左侧选择 groupId，右侧查看远端/本地特征并执行管理动作。</p>
+          <div class="vp-center-layout">
+            <div class="vp-center-left">
+              <div class="toolbar">
+                <button type="button" id="vp-center-refresh-groups">刷新列表</button>
+              </div>
+              <div id="vp-center-group-list" class="vp-center-group-list"></div>
+            </div>
+            <div class="vp-center-right">
+              <div class="toolbar">
+                <input id="vp-center-group-id" placeholder="groupId（可手动补充）"/>
+                <button type="button" class="primary" id="vp-center-use-group">回填到主查询</button>
+                <button type="button" id="vp-center-load-remote">远端特征</button>
+                <button type="button" id="vp-center-load-local">本地特征</button>
+              </div>
+              <pre id="vp-center-result" class="msg"></pre>
+            </div>
+          </div>
+          <div class="toolbar">
+            <input id="vp-new-group-id" placeholder="新 groupId"/>
+            <input id="vp-new-group-name" placeholder="groupName"/>
+            <input id="vp-new-group-info" placeholder="groupInfo"/>
+            <button type="button" id="vp-group-create">创建特征库</button>
+          </div>
+          <div class="toolbar">
+            <input id="vp-del-group-id" placeholder="删除 groupId"/>
+            <button type="button" class="danger" id="vp-group-delete">删除特征库</button>
+            <button type="button" id="vp-center-close">关闭</button>
+          </div>
+        </div>
+      `;
+
+      bindAudioFileToTextarea('vp-upd-audio-file', 'vp-upd-audio-b64');
+      bindAudioFileToTextarea('vp-1n-audio-file', 'vp-1n-audio-b64');
+      bindAudioFileToTextarea('vp-1v1-audio-file', 'vp-1v1-audio-b64');
+
+      const withBusy = async (btnId, job) => {
+        const btn = document.getElementById(btnId);
+        const old = btn ? btn.textContent : '';
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = '处理中...';
+        }
+        try {
+          return await job();
+        } finally {
+          if (btn) {
+            btn.disabled = false;
+            btn.textContent = old;
+          }
+        }
+      };
+
+      const fetchFeaturesAllWithFallback = async (groupId) => {
+        const qs = groupId ? ('?groupId=' + encodeURIComponent(groupId)) : '';
+        try {
+          return await AdminApi.fetch('/api/v1/admin/voiceprints/features/all' + qs);
+        } catch (err) {
+          return await AdminApi.fetch('/api/v1/admin/voiceprints/features' + qs);
+        }
+      };
+
+      const loadCenterGroupList = async () => {
+        const list = document.getElementById('vp-center-group-list');
+        list.innerHTML = '<div class="muted">加载中...</div>';
+        try {
+          const rows = await fetchFeaturesAllWithFallback('');
+          const groups = Array.from(new Set((rows || [])
+            .map(r => (r.groupId || '').trim())
+            .filter(Boolean)))
+            .sort((a, b) => a.localeCompare(b, 'zh-CN'));
+          if (!groups.length) {
+            list.innerHTML = '<div class="muted">暂无 groupId 数据</div>';
+            return;
+          }
+          list.innerHTML = groups.map(g => '<button type="button" class="secondary vp-center-group-item" data-group-id="' + esc(g) + '">' + esc(g) + '</button>').join('');
+          list.querySelectorAll('.vp-center-group-item').forEach(btn => {
+            btn.onclick = () => {
+              const gid = btn.dataset.groupId || '';
+              document.getElementById('vp-center-group-id').value = gid;
+              document.getElementById('vp-del-group-id').value = gid;
+              list.querySelectorAll('.vp-center-group-item').forEach(x => x.classList.remove('primary'));
+              btn.classList.add('primary');
+              document.getElementById('vp-center-load-local').click();
+            };
+          });
+        } catch (e) {
+          list.innerHTML = '<div class="msg msg-err">加载 group 列表失败: ' + esc(conciseErr(e)) + '</div>';
+        }
+      };
+
+      const refreshFeatures = async () => {
+        try {
+          const gid = document.getElementById('vp-group-id').value.trim();
+          const qs = gid ? ('?groupId=' + encodeURIComponent(gid)) : '';
+          const rows = await AdminApi.fetch('/api/v1/admin/voiceprints/features' + qs);
+          document.getElementById('vp-feature-count').textContent = '共 ' + (rows ? rows.length : 0) + ' 条';
+          const tb = document.getElementById('vp-feature-tbody');
+          tb.innerHTML = renderFeatureRows(rows || []);
+          tb.querySelectorAll('button.usr-vp-del').forEach(btn => {
+            btn.onclick = async () => {
+              const fid = btn.dataset.featureId;
+              if (!confirm('确认删除 featureId=' + fid + ' ?')) return;
+              try {
+                await AdminApi.fetch('/api/v1/admin/voiceprints/features/' + encodeURIComponent(fid), { method: 'DELETE' });
+                showMsg('已删除特征: ' + fid, false);
+                refreshFeatures();
+              } catch (e) {
+                showMsg(e.message, true);
+              }
+            };
+          });
+        } catch (e) {
+          showMsg('查询特征失败: ' + e.message, true);
+        }
+      };
+      document.getElementById('vp-refresh-features').onclick = () => withBusy('vp-refresh-features', refreshFeatures);
+
+      const refreshAllFeaturesByGroupId = async () => {
+        try {
+          const gid = document.getElementById('vp-group-id').value.trim();
+          const qs = gid ? ('?groupId=' + encodeURIComponent(gid)) : '';
+          const rows = await fetchFeaturesAllWithFallback(gid);
+          document.getElementById('vp-feature-count').textContent = '本地共 ' + (rows ? rows.length : 0) + ' 条';
+          const tb = document.getElementById('vp-feature-tbody');
+          tb.innerHTML = renderFeatureRows(rows || []);
+          tb.querySelectorAll('button.usr-vp-del').forEach(btn => {
+            btn.onclick = async () => {
+              const fid = btn.dataset.featureId;
+              if (!confirm('确认删除 featureId=' + fid + ' ?')) return;
+              try {
+                await AdminApi.fetch('/api/v1/admin/voiceprints/features/' + encodeURIComponent(fid), { method: 'DELETE' });
+                showMsg('已删除特征: ' + fid, false);
+                refreshAllFeaturesByGroupId();
+              } catch (e) {
+                showMsg(e.message, true);
+              }
+            };
+          });
+        } catch (e) {
+          showMsg('按 group_id 查询全部声纹失败: ' + conciseErr(e), true);
+        }
+      };
+      document.getElementById('vp-refresh-all-features').onclick = () => withBusy('vp-refresh-all-features', refreshAllFeaturesByGroupId);
+
+      document.getElementById('vp-open-group-center').onclick = () => {
+        const center = document.getElementById('vp-group-center');
+        const gid = document.getElementById('vp-group-id').value.trim();
+        document.getElementById('vp-center-group-id').value = gid;
+        document.getElementById('vp-del-group-id').value = gid;
+        document.getElementById('vp-center-result').textContent = '';
+        AdminUi.openEditor(center);
+        loadCenterGroupList();
+      };
+      document.getElementById('vp-center-refresh-groups').onclick = () => withBusy('vp-center-refresh-groups', loadCenterGroupList);
+      document.getElementById('vp-center-close').onclick = () => AdminUi.closeEditor(document.getElementById('vp-group-center'));
+      document.getElementById('vp-center-use-group').onclick = () => {
+        const gid = document.getElementById('vp-center-group-id').value.trim();
+        document.getElementById('vp-group-id').value = gid;
+        if (gid) document.getElementById('vp-del-group-id').value = gid;
+        showMsg('已回填 groupId 到主查询区', false);
+      };
+      document.getElementById('vp-center-load-remote').onclick = async () => withBusy('vp-center-load-remote', async () => {
+        const gid = document.getElementById('vp-center-group-id').value.trim();
+        const qs = gid ? ('?groupId=' + encodeURIComponent(gid)) : '';
+        const rows = await AdminApi.fetch('/api/v1/admin/voiceprints/features' + qs);
+        document.getElementById('vp-center-result').textContent =
+          '远端特征：' + (rows ? rows.length : 0) + ' 条\n'
+          + (rows && rows.length ? rows.slice(0, 30).map(r => (r.featureId || '-') + ' | ' + (r.userName || '-') + ' | ' + (r.groupId || gid || '-')).join('\n') : '(无)');
+      });
+      document.getElementById('vp-center-load-local').onclick = async () => withBusy('vp-center-load-local', async () => {
+        const gid = document.getElementById('vp-center-group-id').value.trim();
+        const qs = gid ? ('?groupId=' + encodeURIComponent(gid)) : '';
+        const rows = await fetchFeaturesAllWithFallback(gid);
+        document.getElementById('vp-center-result').textContent =
+          '本地特征：' + (rows ? rows.length : 0) + ' 条\n'
+          + (rows && rows.length ? rows.slice(0, 30).map(r => (r.featureId || '-') + ' | ' + (r.userName || '-') + ' | ' + (r.groupId || gid || '-')).join('\n') : '(无)');
+      });
+
+      document.getElementById('vp-upd-submit').onclick = () => withBusy('vp-upd-submit', async () => {
+        const gid = document.getElementById('vp-group-id').value.trim() || null;
+        const fid = document.getElementById('vp-upd-feature-id').value.trim();
+        const finfo = document.getElementById('vp-upd-feature-info').value.trim() || null;
+        const audio = document.getElementById('vp-upd-audio-b64').value.trim();
+        const cover = document.getElementById('vp-upd-cover').checked;
+        if (!fid || !audio) return showMsg('更新特征需要 featureId 和 audioBase64', true);
+        try {
+          await AdminApi.fetch('/api/v1/admin/voiceprints/features/' + encodeURIComponent(fid) + '/update', {
+            method: 'POST',
+            body: JSON.stringify({ groupId: gid, featureInfo: finfo, audioBase64: audio, cover: cover })
+          });
+          showMsg('特征更新已提交: ' + fid, false);
+          refreshFeatures();
+        } catch (e) {
+          showMsg('更新特征失败: ' + e.message, true);
+        }
+      });
+
+      document.getElementById('vp-1n-submit').onclick = () => withBusy('vp-1n-submit', async () => {
+        const gid = document.getElementById('vp-group-id').value.trim() || null;
+        const topK = Number(document.getElementById('vp-1n-topk').value || '3');
+        const audio = document.getElementById('vp-1n-audio-b64').value.trim();
+        if (!audio) return showMsg('1:N 需要 audioBase64', true);
+        try {
+          const rows = await AdminApi.fetch('/api/v1/admin/voiceprints/search/1n', {
+            method: 'POST',
+            body: JSON.stringify({ groupId: gid, topK: topK, audioBase64: audio })
+          });
+          document.getElementById('vp-1n-tbody').innerHTML = renderScoreRows(rows || []);
+          showMsg('1:N 检索完成', false);
+        } catch (e) {
+          showMsg('1:N 检索失败: ' + e.message, true);
+        }
+      });
+
+      document.getElementById('vp-1v1-submit').onclick = () => withBusy('vp-1v1-submit', async () => {
+        const gid = document.getElementById('vp-group-id').value.trim() || null;
+        const targetFeatureId = document.getElementById('vp-1v1-feature-id').value.trim();
+        const audio = document.getElementById('vp-1v1-audio-b64').value.trim();
+        if (!targetFeatureId || !audio) return showMsg('1:1 需要目标 featureId 和 audioBase64', true);
+        try {
+          const row = await AdminApi.fetch('/api/v1/admin/voiceprints/search/1v1', {
+            method: 'POST',
+            body: JSON.stringify({ groupId: gid, featureId: targetFeatureId, audioBase64: audio })
+          });
+          document.getElementById('vp-1v1-tbody').innerHTML = renderScoreRows(row ? [row] : []);
+          showMsg('1:1 比对完成', false);
+        } catch (e) {
+          showMsg('1:1 比对失败: ' + e.message, true);
+        }
+      });
+
+      document.getElementById('vp-group-create').onclick = () => withBusy('vp-group-create', async () => {
+        const groupId = document.getElementById('vp-new-group-id').value.trim();
+        if (!groupId) return showMsg('请填写 groupId', true);
+        try {
+          await AdminApi.fetch('/api/v1/admin/voiceprints/groups', {
+            method: 'POST',
+            body: JSON.stringify({
+              groupId: groupId,
+              groupName: document.getElementById('vp-new-group-name').value.trim() || null,
+              groupInfo: document.getElementById('vp-new-group-info').value.trim() || null
+            })
+          });
+          showMsg('特征库创建请求已发送: ' + groupId, false);
+          document.getElementById('vp-center-group-id').value = groupId;
+          document.getElementById('vp-del-group-id').value = groupId;
+        } catch (e) {
+          showMsg('创建特征库失败: ' + e.message, true);
+        }
+        await loadCenterGroupList();
+      });
+
+      document.getElementById('vp-group-delete').onclick = () => withBusy('vp-group-delete', async () => {
+        const groupId = document.getElementById('vp-del-group-id').value.trim();
+        if (!groupId) return showMsg('请填写要删除的 groupId', true);
+        if (!confirm('确认删除特征库 ' + groupId + ' ?')) return;
+        try {
+          await AdminApi.fetch('/api/v1/admin/voiceprints/groups/' + encodeURIComponent(groupId), { method: 'DELETE' });
+          showMsg('特征库删除请求已发送: ' + groupId, false);
+          if (document.getElementById('vp-group-id').value.trim() === groupId) {
+            document.getElementById('vp-group-id').value = '';
+          }
+          document.getElementById('vp-center-result').textContent = '已删除特征库: ' + groupId;
+        } catch (e) {
+          showMsg('删除特征库失败: ' + e.message, true);
+        }
+        await loadCenterGroupList();
+      });
     }
 
     function showEditor(detail) {
@@ -181,7 +570,7 @@ AdminModules.register({
       const mapping = isNew ? {} : (detail.mapping || {});
       const vp = isNew ? {} : (detail.primaryVoiceprint || {});
       const ed = document.getElementById('usr-editor');
-      ed.classList.remove('hidden');
+      AdminUi.openEditor(ed);
       ed.innerHTML = `
         <h3>${isNew ? '新建用户' : '编辑用户 #' + esc(mapping.userId)}</h3>
         <p class="form-hint">${AdminHints.users.editorIntro}</p>
@@ -216,9 +605,8 @@ AdminModules.register({
       document.getElementById('ed-expires').value = toLocalInput(vp.expiresAt);
       document.getElementById('ed-clear-vp').checked = false;
 
-      document.getElementById('ed-cancel').onclick = () => ed.classList.add('hidden');
+      document.getElementById('ed-cancel').onclick = () => AdminUi.closeEditor(ed);
       document.getElementById('ed-save').onclick = () => saveEditor(isNew);
-      ed.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 
     async function saveEditor(isNew) {
@@ -285,7 +673,7 @@ AdminModules.register({
         } else {
           await AdminApi.fetch('/api/v1/admin/users/' + userId, { method: 'PUT', body: JSON.stringify(body) });
         }
-        document.getElementById('usr-editor').classList.add('hidden');
+        AdminUi.closeEditor(document.getElementById('usr-editor'));
         showMsg('用户档案已保存', false);
         loadList();
       } catch (err) {

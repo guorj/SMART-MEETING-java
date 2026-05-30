@@ -5,6 +5,7 @@ import com.smartmeeting.admin.api.dto.HostAgendaBundleItemDto;
 import com.smartmeeting.admin.api.dto.HostAgendaItemRowDto;
 import com.smartmeeting.admin.service.AgendaConfigService;
 import com.smartmeeting.config.agenda.AgendaPresetSnapshot;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +22,25 @@ public class AgendaConfigAdminController {
     @GetMapping("/providers")
     public ApiResponse<List<String>> providers() {
         return ApiResponse.ok(agendaConfigService.listProviderIds());
+    }
+
+    @GetMapping("/presets")
+    public ApiResponse<List<AgendaPresetSnapshot>> listPresets() {
+        return ApiResponse.ok(agendaConfigService.listPresetHeaders());
+    }
+
+    @PostMapping("/presets")
+    public ApiResponse<Map<String, Integer>> createPreset(@RequestBody(required = false) CreatePresetRequest body) {
+        Integer wantedCode = body != null ? body.getPresetTypeCode() : null;
+        String name = body != null ? body.getDisplayName() : null;
+        int code = agendaConfigService.createPreset(wantedCode, name);
+        return ApiResponse.ok(Map.of("code", code));
+    }
+
+    @Data
+    public static class CreatePresetRequest {
+        private Integer presetTypeCode;
+        private String displayName;
     }
 
     @GetMapping("/presets/{code}")
@@ -86,5 +106,21 @@ public class AgendaConfigAdminController {
     public ApiResponse<Void> refreshCache(@PathVariable int code) {
         agendaConfigService.refreshPresetCache(code);
         return ApiResponse.ok();
+    }
+
+    @PostMapping("/presets/{code}/trigger-owner-confirm-notify")
+    public ApiResponse<Map<String, Object>> triggerOwnerConfirmNotify(
+            @PathVariable int code,
+            @RequestBody TriggerOwnerConfirmNotifyReq body) {
+        return ApiResponse.ok(agendaConfigService.triggerOwnerConfirmNotify(
+                code,
+                body != null ? body.getTemplateCode() : null,
+                body == null || body.getSkipExisting() == null || body.getSkipExisting()));
+    }
+
+    @Data
+    public static class TriggerOwnerConfirmNotifyReq {
+        private String templateCode;
+        private Boolean skipExisting;
     }
 }

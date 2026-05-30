@@ -5,7 +5,9 @@ import com.smartmeeting.admin.agenda.PresetTableAgendaConfigProvider;
 import com.smartmeeting.admin.api.dto.HostAgendaBundleItemDto;
 import com.smartmeeting.admin.api.dto.HostAgendaItemRowDto;
 import com.smartmeeting.admin.api.dto.MatterConfigOptionDto;
+import com.smartmeeting.admin.entity.MeetingTypePreset;
 import com.smartmeeting.admin.exception.BusinessException;
+import com.smartmeeting.admin.repository.MeetingTypePresetMapper;
 import com.smartmeeting.config.agenda.AgendaConfigProviderRegistry;
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 import com.smartmeeting.config.agenda.AgendaPresetSnapshot;
@@ -14,6 +16,7 @@ import com.smartmeeting.config.agenda.HostAgendaItem;
 import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
 import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -23,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AgendaConfigService {
@@ -31,7 +35,51 @@ public class AgendaConfigService {
     private final PresetTableAgendaConfigProvider presetProvider;
     private final HostAgendaJsonHelper hostAgendaJsonHelper;
     private final MeetingServerBridgeService meetingServerBridge;
+    private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
+
+    public List<AgendaPresetSnapshot> listPresetHeaders() {
+        List<MeetingTypePreset> rows = presetMapper.selectList(null);
+        rows.sort((a, b) -> Integer.compare(a.getCode(), b.getCode()));
+        List<AgendaPresetSnapshot> out = new ArrayList<>();
+        for (MeetingTypePreset row : rows) {
+            out.add(AgendaPresetSnapshot.builder()
+                    .presetTypeCode(row.getCode())
+                    .displayName(row.getDisplayName())
+                    .company(row.getCompany())
+                    .groupName(row.getGroupName())
+                    .build());
+        }
+        return out;
+    }
+
+    public int createPreset(Integer wantedCode, String displayName) {
+        int code = wantedCode != null ? wantedCode : nextPresetCode();
+        if (code <= 0) {
+            throw new BusinessException("preset code 必须为正整数");
+        }
+        if (code > 127) {
+            throw new BusinessException("preset code 超出上限（当前库表为 TINYINT，最大 127）");
+        }
+        if (presetMapper.selectById(code) != null) {
+            throw new BusinessException("preset code 已存在: " + code);
+        }
+        AgendaPresetSnapshot snap = AgendaPresetSnapshot.builder()
+                .presetTypeCode(code)
+                .displayName(displayName != null && !displayName.isBlank() ? displayName.trim() : ("会务类型" + code))
+                .company("未设置集团")
+                .groupName("未设置会议组")
+                .department("")
+                .scheduleNote("")
+                .agendaSummary("")
+                .organizerName("")
+                .leaderName("")
+                .participantsNames("")
+                .hostAgendaJson("{\"version\":2,\"items\":[]}")
+                .build();
+        savePreset(snap);
+        return code;
+    }
 
     public List<String> listProviderIds() {
         return registry.providerIds();
@@ -50,7 +98,7 @@ public class AgendaConfigService {
             hostAgendaJsonHelper.parseItems(snapshot.getHostAgendaJson());
         }
         presetProvider.savePreset(snapshot);
-        meetingServerBridge.refreshPresetCache(snapshot.getPresetTypeCode());
+        refreshPresetCacheBestEffort(snapshot.getPresetTypeCode());
     }
 
     public List<HostAgendaItemRowDto> parseAgendaItems(String hostAgendaJson) {
@@ -81,6 +129,7 @@ public class AgendaConfigService {
                     .index(i)
                     .title(item.getTitle())
                     .minutes(item.getMinutes())
+                    .owners(item.getOwners() != null ? new ArrayList<>(item.getOwners()) : new ArrayList<>())
                     .hasRollCallKeyword(item.getTitle() != null && item.getTitle().contains("检点"))
                     .bindings(bindings)
                     .build());
@@ -123,6 +172,16 @@ public class AgendaConfigService {
             HostAgendaItem hi = new HostAgendaItem();
             hi.setTitle(item.getTitle().trim());
             hi.setMinutes(item.getMinutes() != null && item.getMinutes() > 0 ? item.getMinutes() : 10);
+            if (item.getOwners() != null && !item.getOwners().isEmpty()) {
+                List<String> owners = item.getOwners().stream()
+                        .filter(v -> v != null && !v.isBlank())
+                        .map(String::trim)
+                        .distinct()
+                        .toList();
+                hi.setOwners(owners);
+            } else {
+                hi.setOwners(List.of());
+            }
             List<HostAgendaDocBinding> docs = new ArrayList<>();
             if (item.getBindings() != null) {
                 for (AgendaDocBindingSnapshot b : item.getBindings()) {
@@ -143,23 +202,32 @@ public class AgendaConfigService {
                 .orElseThrow(() -> new BusinessException("preset not found"));
         snap.setHostAgendaJson(HostAgendaJsonCodec.toJson(objectMapper, coreItems));
         presetProvider.savePreset(snap);
-        meetingServerBridge.refreshPresetCache(presetTypeCode);
+        refreshPresetCacheBestEffort(presetTypeCode);
+    }
+
+    private void refreshPresetCacheBestEffort(int presetTypeCode) {
+        try {
+            meetingServerBridge.refreshPresetCache(presetTypeCode);
+        } catch (Exception e) {
+            // 兼容联调期：meeting-server 可能尚未暴露 refresh-cache internal 接口，不应阻塞预设保存。
+            log.warn("refresh preset cache skipped after save, presetTypeCode={}, reason={}",
+                    presetTypeCode, e.getMessage());
+        }
     }
 
     private void assertConfigNamesUniqueAcrossPresets(int editingPreset, Set<String> namesInPayload) {
         if (namesInPayload.isEmpty()) {
             return;
         }
-        for (int code = 1; code <= 5; code++) {
-            if (code == editingPreset) {
+        for (Integer code : listPresetCodes()) {
+            if (code == null || code == editingPreset) {
                 continue;
             }
-            int otherCode = code;
-            presetProvider.loadPreset(otherCode).ifPresent(p -> {
+            presetProvider.loadPreset(code).ifPresent(p -> {
                 for (AgendaDocBindingSnapshot b : PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
-                        otherCode, p.getHostAgendaJson(), objectMapper)) {
+                        code, p.getHostAgendaJson(), objectMapper)) {
                     if (b.getConfigName() != null && namesInPayload.contains(b.getConfigName().trim())) {
-                        throw new BusinessException("config_name 已在 preset " + otherCode + " 使用: " + b.getConfigName());
+                        throw new BusinessException("config_name 已在 preset " + code + " 使用: " + b.getConfigName());
                     }
                 }
             });
@@ -174,6 +242,18 @@ public class AgendaConfigService {
 
     public void refreshPresetCache(int presetTypeCode) {
         meetingServerBridge.refreshPresetCache(presetTypeCode);
+    }
+
+    public Map<String, Object> triggerOwnerConfirmNotify(int presetTypeCode, String templateCode, boolean skipExisting) {
+        presetProvider.loadPreset(presetTypeCode)
+                .orElseThrow(() -> new BusinessException("preset not found: " + presetTypeCode));
+        String finalTemplate = (templateCode == null || templateCode.isBlank())
+                ? "pre_10m_default"
+                : templateCode.trim();
+        Map<String, Object> out = meetingServerBridge.executePipelineByPreset(
+                presetTypeCode, "PRE", finalTemplate, skipExisting);
+        out.put("message", "已按 preset 触发会序确认通知");
+        return out;
     }
 
     public List<String> previewMergeLines(int presetTypeCode) {
@@ -195,9 +275,12 @@ public class AgendaConfigService {
 
     public List<MatterConfigOptionDto> listMatterConfigOptions(String role) {
         Map<String, MatterConfigOptionDto> byName = new LinkedHashMap<>();
-        for (int code = 1; code <= 5; code++) {
+        for (Integer code : listPresetCodes()) {
+            if (code == null) {
+                continue;
+            }
             int finalCode = code;
-            presetProvider.loadPreset(code).ifPresent(p -> {
+            presetProvider.loadPreset(finalCode).ifPresent(p -> {
                 for (AgendaDocBindingSnapshot b : PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
                         finalCode, p.getHostAgendaJson(), objectMapper)) {
                     if (b.getEnabled() == null || b.getEnabled() != 1) {
@@ -225,5 +308,27 @@ public class AgendaConfigService {
             });
         }
         return new ArrayList<>(byName.values());
+    }
+
+    private List<Integer> listPresetCodes() {
+        List<MeetingTypePreset> rows = presetMapper.selectList(null);
+        List<Integer> codes = new ArrayList<>();
+        for (MeetingTypePreset row : rows) {
+            if (row.getCode() != null && row.getCode() > 0) {
+                codes.add(row.getCode());
+            }
+        }
+        codes.sort(Integer::compareTo);
+        return codes;
+    }
+
+    private int nextPresetCode() {
+        int max = 0;
+        for (Integer c : listPresetCodes()) {
+            if (c != null && c > max) {
+                max = c;
+            }
+        }
+        return max + 1;
     }
 }

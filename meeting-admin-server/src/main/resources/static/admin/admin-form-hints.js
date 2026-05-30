@@ -63,6 +63,7 @@ window.AdminHints = {
     presetCode: '会务类型编号 1–5，对应 int_meeting_type_preset；切换后加载该类型的会序与资料绑定。',
     agendaTitle: '会序项标题，主持页与议程展示用；修改后自动保存。',
     agendaMinutes: '预计时长（分钟），用于会序计时与汇总。',
+    agendaOwners: '会序负责人（飞书 user_id），支持多个，逗号分隔；流水线会据此自动分发回填任务。',
     configName: '资料配置名，weekly-jobs 的 source/output 引用此名称；建议 preset{N}- 前缀便于识别。',
     configRole: {
       SOURCE: 'SOURCE — 只读源资料，供事项对比、AI 读取输入。',

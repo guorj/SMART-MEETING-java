@@ -15,7 +15,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
@@ -83,6 +85,26 @@ public class PipelineAdminService {
         return row.getId();
     }
 
+    @Transactional
+    public void deleteTemplate(long templateId) {
+        PipelineTemplate existing = templateMapper.selectById(templateId);
+        if (existing == null) {
+            throw new BusinessException("template 不存在: " + templateId);
+        }
+        stepMapper.delete(new LambdaQueryWrapper<PipelineStep>()
+                .eq(PipelineStep::getTemplateId, templateId));
+        templateMapper.deleteById(templateId);
+    }
+
+    @Transactional
+    public void deleteStep(long stepId) {
+        PipelineStep existing = stepMapper.selectById(stepId);
+        if (existing == null) {
+            throw new BusinessException("step 不存在: " + stepId);
+        }
+        stepMapper.deleteById(stepId);
+    }
+
     public List<PipelineExecutionDto> listExecutions(String meetingId) {
         return executionMapper.selectList(new LambdaQueryWrapper<PipelineStepExecution>()
                         .eq(meetingId != null && !meetingId.isBlank(), PipelineStepExecution::getMeetingId, meetingId)
@@ -91,8 +113,27 @@ public class PipelineAdminService {
                 .stream().map(this::toExecutionDto).toList();
     }
 
-    public void executePipeline(String meetingId, String stage, String templateCode) {
-        meetingServerBridgeService.executePipeline(meetingId, stage, templateCode);
+    public Map<String, Object> executePipeline(String meetingId, Integer presetTypeCode, String stage, String templateCode, Boolean skipExisting) {
+        String finalStage = (stage == null || stage.isBlank()) ? "PRE" : stage.trim().toUpperCase();
+        String finalTemplate = (templateCode == null || templateCode.isBlank()) ? null : templateCode.trim();
+        String mid = meetingId == null ? null : meetingId.trim();
+        if (mid != null && !mid.isBlank()) {
+            meetingServerBridgeService.executePipeline(mid, finalStage, finalTemplate);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("mode", "meeting");
+            out.put("meetingId", mid);
+            out.put("stage", finalStage);
+            out.put("templateCode", finalTemplate == null ? "" : finalTemplate);
+            return out;
+        }
+        if (presetTypeCode == null || presetTypeCode <= 0) {
+            throw new BusinessException("meetingId 或 presetTypeCode 至少提供一个");
+        }
+        boolean skip = skipExisting == null || skipExisting;
+        Map<String, Object> out = meetingServerBridgeService.executePipelineByPreset(
+                presetTypeCode, finalStage, finalTemplate, skip);
+        out.put("mode", "preset");
+        return out;
     }
 
     private PipelineTemplateDto toTemplateDto(PipelineTemplate row) {

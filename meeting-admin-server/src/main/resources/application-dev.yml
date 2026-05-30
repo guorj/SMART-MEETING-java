@@ -9,14 +9,14 @@ meeting:
       - push-bot
       - users
       - meetings
+      - pipeline
       - settings
-      - observability
       - integrations
     agenda-config:
       file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}
       file-path: ${MEETING_ADMIN_AGENDA_FILE_PATH:classpath:agenda-templates/example-presets.json}
   runtime:
-    meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765}
+    meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765/meeting-server}
     # 本地 admin 连远程 bot：默认走 OA 反代（prod 已设 context-path=/scheduled-bot）
     # 本机也跑 bot 时：MEETING_NOTIFY_BOT_URL=http://127.0.0.1:8764
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:https://oa.qdyhjz.cn/scheduled-bot}

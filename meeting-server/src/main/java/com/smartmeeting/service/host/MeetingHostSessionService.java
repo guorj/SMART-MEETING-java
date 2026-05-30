@@ -387,7 +387,21 @@ public class MeetingHostSessionService {
 
         if (topicLeftSec == 0 && !rt.topicTimeUpAnnounced) {
             rt.topicTimeUpAnnounced = true;
-            pushHostToast(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
+            String strategy = runtimeConfig.getTopicTimeoutStrategy() == null
+                    ? "REMIND_ONLY" : runtimeConfig.getTopicTimeoutStrategy().trim().toUpperCase();
+            if ("AUTO_NEXT".equals(strategy)) {
+                pushHostToast(meetingId, "本议题时间到，系统将自动切换到下一议题。");
+                try {
+                    nextTopic(meetingId);
+                } catch (Exception e) {
+                    pushHostToast(meetingId, "自动切换失败，请手动点击「下一议题」继续。");
+                    log.warn("topic timeout auto-next failed: meetingId={}, err={}", meetingId, e.getMessage());
+                }
+            } else if ("WAIT_DECISION".equals(strategy)) {
+                pushHostToast(meetingId, "本议题时间到。等待主持人决策（加时/下一议题/跳过）。");
+            } else {
+                pushHostToast(meetingId, "本议题时间到。请点击「下一议题」或「跳过议题」继续，或继续讨论后再切换。");
+            }
         }
 
         if (runtimeConfig.isRollCallEnabled()) {

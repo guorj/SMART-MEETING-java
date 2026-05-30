@@ -2,6 +2,7 @@ package com.smartmeeting.api.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartmeeting.service.FeishuCommandHandler;
 import com.smartmeeting.service.FeishuCommandRouter;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
@@ -237,16 +238,12 @@ public class FeishuWebhookController {
                         commandHandler.handleStopMeeting(userId, chatId, params.get("meeting_id"));
                         break;
                     case "rename_speaker":
-                        // TODO: 实现说话人修改
-                        log.info("Rename speaker requested: meeting={}, old={}, new={}", 
-                            params.get("meeting_id"), params.get("old_name"), params.get("new_name"));
+                        commandHandler.handleRenameSpeaker(chatId,
+                                params.get("meeting_id"), params.get("old_name"), params.get("new_name"));
                         break;
-                        
                     case "regenerate_minutes":
-                        // TODO: 实现重新生成纪要
-                        log.info("Regenerate minutes requested: meeting={}", params.get("meeting_id"));
+                        commandHandler.handleRegenerateMinutes(chatId, params.get("meeting_id"));
                         break;
-                        
                     case "show_help":
                         CompletableFuture.runAsync(() -> commandHandler.handleHelp(chatId));
                         break;
@@ -382,10 +379,12 @@ public class FeishuWebhookController {
                         traceId, mode, chatId);
             }
         }
-        JsonNode value = event.path("action").path("value");
+        JsonNode action = event.path("action");
+        JsonNode value = action.path("value");
+        JsonNode payload = enrichActionValueWithForm(value, action.path("form_value"));
         log.info("[traceId={}] Feishu card action ({}) openId={}, chatId={}, value={}",
-                traceId, mode, openId, chatId, value);
-        JsonNode finalValue = value;
+                traceId, mode, openId, chatId, payload);
+        JsonNode finalValue = payload;
         String finalOpenId = openId;
         String finalChatId = chatId;
         CompletableFuture.runAsync(() ->
@@ -434,9 +433,11 @@ public class FeishuWebhookController {
         if (chatId.isEmpty()) {
             chatId = feishuUserLastGroupChatStore.getLastChatId(openId);
         }
-        JsonNode value = body.path("action").path("value");
+        JsonNode action = body.path("action");
+        JsonNode value = action.path("value");
+        JsonNode payload = enrichActionValueWithForm(value, action.path("form_value"));
         log.info("[traceId={}] Feishu card.action.trigger_v1 openId={}, chatId={}, value={}",
-                traceId, openId, chatId, value);
+                traceId, openId, chatId, payload);
         if (openId.isEmpty() || chatId.isEmpty()) {
             log.warn("[traceId={}] trigger_v1 缺少 user_id/open_id 或可推断的 chat_id", traceId);
             return ResponseEntity.ok(Map.of(
@@ -444,7 +445,7 @@ public class FeishuWebhookController {
         }
         String finalOpenId = openId;
         String finalChatId = chatId;
-        JsonNode finalValue = value;
+        JsonNode finalValue = payload;
         CompletableFuture.runAsync(() ->
                 commandHandler.handleMeetingTypeCardAction(finalOpenId, finalChatId, finalValue));
         return ResponseEntity.ok(Map.of(
@@ -713,5 +714,18 @@ public class FeishuWebhookController {
             return direct;
         }
         return idNode.path("user_id").asText("").trim();
+    }
+
+    private JsonNode enrichActionValueWithForm(JsonNode value, JsonNode formValue) {
+        if ((formValue == null || formValue.isMissingNode() || formValue.isNull())
+                || (value != null && !value.isObject() && !value.isMissingNode() && !value.isNull())) {
+            return value;
+        }
+        ObjectNode out = objectMapper.createObjectNode();
+        if (value != null && value.isObject()) {
+            out.setAll((ObjectNode) value);
+        }
+        out.set("formValue", formValue);
+        return out;
     }
 }

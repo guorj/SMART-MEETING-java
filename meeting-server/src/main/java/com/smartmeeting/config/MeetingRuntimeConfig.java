@@ -16,6 +16,10 @@ public class MeetingRuntimeConfig {
     private boolean ttsEnabled = true;
     private boolean rollCallEnabled = true;
     private boolean autoRollCallAfterOpening = true;
+    /**
+     * 议题超时策略：REMIND_ONLY（仅提醒）| AUTO_NEXT（自动下一议题）| WAIT_DECISION（等待人工决策）
+     */
+    private String topicTimeoutStrategy = "REMIND_ONLY";
     private RollCall rollCall = new RollCall();
 
     @Data

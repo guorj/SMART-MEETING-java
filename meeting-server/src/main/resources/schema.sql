@@ -274,7 +274,7 @@ CREATE TABLE IF NOT EXISTS int_pipeline_step_execution (
     template_id      BIGINT UNSIGNED NOT NULL COMMENT '模板 ID',
     step_id          BIGINT UNSIGNED NOT NULL COMMENT '步骤 ID',
     stage            VARCHAR(16)     NOT NULL COMMENT 'PRE|MID|POST',
-    status           VARCHAR(20)     NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING|RUNNING|SUCCESS|FAILED|WAITING|TIMEOUT',
+    status           VARCHAR(20)     NOT NULL DEFAULT 'PENDING' COMMENT 'PENDING|RUNNING|SUCCESS|FAILED|WAITING|WAITING_CALLBACK|TIMEOUT',
     retry_count      INT             NOT NULL DEFAULT 0 COMMENT '重试次数',
     max_retries      INT             NOT NULL DEFAULT 3 COMMENT '最大重试',
     timeout_at       DATETIME        NULL COMMENT '超时截止时间',

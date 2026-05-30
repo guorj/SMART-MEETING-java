@@ -2,14 +2,17 @@ package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.smartmeeting.service.AgendaFillCampaignService.AgendaFillUpdate;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.pipeline.PipelineCallbackRouter;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.entity.Voiceprint;
 import com.smartmeeting.repository.VoiceprintMapper;
 import com.smartmeeting.config.MeetingFeishuBotUxProperties;
@@ -57,6 +60,10 @@ public class FeishuCommandHandler {
     private final FeishuChatInstructionCardStore feishuChatInstructionCardStore;
     private final FeishuUserLastGroupChatStore feishuUserLastGroupChatStore;
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
+    private final PipelineCallbackRouter pipelineCallbackRouter;
+    private final AgendaFillCampaignService agendaFillCampaignService;
+    private final TranscriptMapper transcriptMapper;
+    private final MinuteGenerationService minuteGenerationService;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
@@ -158,9 +165,111 @@ public class FeishuCommandHandler {
             }
         } else if ("other_prompt".equals(cmd)) {
             handleStartMeetingOtherPrompt(openId, chatId);
+        } else if ("pipeline-callback".equals(cmd)) {
+            String callbackKey = value.path("callbackKey").asText("");
+            boolean ok = pipelineCallbackRouter.completeByCallbackKey(callbackKey, openId, value);
+            log.info("pipeline-callback handled: callbackKey={}, ok={}, openId={}", callbackKey, ok, openId);
+        } else if ("agenda-fill-claim".equals(cmd)) {
+            String campaignId = value.path("campaignId").asText("");
+            String entryUrl = value.path("entryUrl").asText("");
+            handleAgendaFillClaim(openId, chatId, campaignId, entryUrl);
+        } else if ("agenda-fill-inline-submit".equals(cmd)) {
+            String campaignId = value.path("campaignId").asText("");
+            JsonNode form = value.path("formValue");
+            handleAgendaFillInlineSubmit(openId, chatId, campaignId, form);
         } else {
             log.warn("卡片回调未知 cmd: {}", cmd);
         }
+    }
+
+    private void handleAgendaFillClaim(String openId, String chatId, String campaignId, String entryUrl) {
+        if (openId == null || openId.isBlank()) {
+            if (chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "未识别到您的 user_id，暂无法领取个人回填链接。");
+            }
+            return;
+        }
+        try {
+            String token = agendaFillCampaignService.claimTokenForUser(campaignId, openId);
+            String base = (entryUrl != null && !entryUrl.isBlank()) ? entryUrl : (baseUrl + "/agenda-fill.html");
+            String sep = base.contains("?") ? "&" : "?";
+            String fillUrl = base + sep + "token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
+            boolean sent = feishuService.sendMessageToUserId(openId, "你的会序资料回填入口：\n" + fillUrl);
+            if (!sent && chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "已领取，但私聊发送失败，请联系管理员检查机器人私聊权限。");
+            }
+        } catch (Exception e) {
+            log.warn("agenda-fill-claim failed: openId={}, campaignId={}, err={}", openId, campaignId, e.getMessage());
+            if (chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "领取失败：" + e.getMessage());
+            } else {
+                feishuService.sendMessageToUserId(openId, "领取失败：" + e.getMessage());
+            }
+        }
+    }
+
+    private void handleAgendaFillInlineSubmit(String openId, String chatId, String campaignId, JsonNode formValue) {
+        if (openId == null || openId.isBlank()) {
+            if (chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "未识别到 user_id，暂无法提交回填。");
+            }
+            return;
+        }
+        try {
+            Integer agendaIndex = parseIntField(formValue, "agendaIndex");
+            Integer minutes = parseIntField(formValue, "minutes");
+            String url = parseTextField(formValue, "url");
+            if (agendaIndex == null || agendaIndex < 0) {
+                throw new BusinessException(400, "agendaIndex 必须为 >=0 的整数");
+            }
+            AgendaFillUpdate update = new AgendaFillUpdate();
+            update.setAgendaIndex(agendaIndex);
+            update.setMinutes(minutes);
+            update.setUrl(url);
+            AgendaFillCampaignService.SubmitResult result = agendaFillCampaignService
+                    .submitByCampaignUser(campaignId, openId, List.of(update));
+            if (chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "回填成功：已更新 " + result.getUpdatedCount() + " 项。");
+            } else {
+                feishuService.sendMessageToUserId(openId, "回填成功：已更新 " + result.getUpdatedCount() + " 项。");
+            }
+        } catch (Exception e) {
+            log.warn("agenda-fill-inline-submit failed: openId={}, campaignId={}, err={}", openId, campaignId, e.getMessage());
+            if (chatId != null && !chatId.isBlank()) {
+                feishuService.sendMessage(chatId, "回填失败：" + e.getMessage());
+            } else {
+                feishuService.sendMessageToUserId(openId, "回填失败：" + e.getMessage());
+            }
+        }
+    }
+
+    private Integer parseIntField(JsonNode formValue, String key) {
+        String text = parseTextField(formValue, key);
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(text.trim());
+        } catch (NumberFormatException ex) {
+            return null;
+        }
+    }
+
+    private String parseTextField(JsonNode formValue, String key) {
+        if (formValue == null || formValue.isMissingNode() || formValue.isNull()) {
+            return "";
+        }
+        JsonNode n = formValue.path(key);
+        if (n.isMissingNode() || n.isNull()) {
+            return "";
+        }
+        if (n.isTextual()) {
+            return n.asText("").trim();
+        }
+        if (n.has("value")) {
+            return n.path("value").asText("").trim();
+        }
+        return n.asText("").trim();
     }
 
     /**
@@ -557,6 +666,50 @@ public class FeishuCommandHandler {
      */
     public void handleHelp(String chatId) {
         feishuService.sendMessage(chatId, commandRouter.getHelpText());
+    }
+
+    /**
+     * 手动修正转写中的说话人名称。
+     */
+    public void handleRenameSpeaker(String chatId, String meetingId, String oldName, String newName) {
+        if (meetingId == null || meetingId.isBlank() || oldName == null || oldName.isBlank()
+                || newName == null || newName.isBlank()) {
+            feishuService.sendMessage(chatId, "参数缺失：格式为 修改说话人 <meetingId> <旧名>:<新名>");
+            return;
+        }
+        LambdaQueryWrapper<com.smartmeeting.entity.TranscriptSegment> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(com.smartmeeting.entity.TranscriptSegment::getMeetingId, meetingId)
+                .eq(com.smartmeeting.entity.TranscriptSegment::getSpeakerName, oldName);
+        List<com.smartmeeting.entity.TranscriptSegment> rows = transcriptMapper.selectList(wrapper);
+        int updated = 0;
+        for (com.smartmeeting.entity.TranscriptSegment row : rows) {
+            row.setSpeakerName(newName);
+            row.setCorrected(true);
+            transcriptMapper.updateById(row);
+            updated++;
+        }
+        feishuService.sendMessage(chatId,
+                updated > 0
+                        ? ("已更新说话人：" + oldName + " -> " + newName + "，共 " + updated + " 条。")
+                        : "未找到可更新的说话人片段。");
+    }
+
+    /**
+     * 手动触发纪要重生成。
+     */
+    public void handleRegenerateMinutes(String chatId, String meetingId) {
+        if (meetingId == null || meetingId.isBlank()) {
+            feishuService.sendMessage(chatId, "请提供 meetingId：重新生成 会议ID:<uuid>");
+            return;
+        }
+        CompletableFuture.runAsync(() -> {
+            try {
+                minuteGenerationService.generateMinute(meetingId, null);
+                feishuService.sendMessage(chatId, "纪要重生成已完成，会议ID：" + meetingId);
+            } catch (Exception e) {
+                feishuService.sendMessage(chatId, "纪要重生成失败：" + e.getMessage());
+            }
+        });
     }
 
     /**

@@ -1,11 +1,13 @@
 package com.smartmeeting.api.controller;
 
-import com.fasterxml.jackson.databind.JsonNode;
 import com.smartmeeting.service.VoiceprintRegisterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.Base64;
 import java.util.Map;
@@ -57,29 +59,23 @@ public class VoiceprintRegisterController {
      * @param body 请求体，须含 {@code token} 与 {@code audio}（Base64）
      * @return 含 success、message、featureId 的结果 Map
      */
-    @PostMapping("/api/v1/voiceprint/register")
-    public ResponseEntity<Map<String, Object>> submitRegister(@RequestBody Map<String, Object> body) {
+    @PostMapping(value = "/api/v1/voiceprint/register", consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<Map<String, Object>> submitRegisterJson(@RequestBody Map<String, Object> body) {
         String token = (String) body.get("token");
         String audioBase64 = (String) body.get("audio");
-        
+        log.info("声纹注册请求(JSON): tokenPresent={}, audioBase64Len={}",
+                token != null && !token.isBlank(), audioBase64 != null ? audioBase64.length() : 0);
+
         if (token == null || audioBase64 == null) {
             return ResponseEntity.badRequest().body(Map.of(
                 "success", false,
                 "message", "缺少token或audio参数"
             ));
         }
-        
+
         try {
             byte[] audioData = Base64.getDecoder().decode(audioBase64);
-            
-            VoiceprintRegisterService.RegisterResult result = registerService.submitRegister(token, audioData);
-            
-            return ResponseEntity.ok(Map.of(
-                "success", result.isSuccess(),
-                "message", result.getMessage(),
-                "featureId", result.getFeatureId() != null ? result.getFeatureId() : ""
-            ));
-            
+            return buildRegisterResponse(token, audioData);
         } catch (Exception e) {
             log.error("声纹注册提交失败", e);
             return ResponseEntity.ok(Map.of(
@@ -87,6 +83,42 @@ public class VoiceprintRegisterController {
                 "message", "处理失败: " + e.getMessage()
             ));
         }
+    }
+
+    /**
+     * 提交声纹注册（multipart）：接收二进制音频（推荐，避免 Base64 膨胀导致 413）。
+     */
+    @PostMapping(value = "/api/v1/voiceprint/register", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<Map<String, Object>> submitRegisterMultipart(@RequestParam("token") String token,
+                                                                       @RequestParam("audio") MultipartFile audio) {
+        log.info("声纹注册请求(MULTIPART): tokenPresent={}, fileName={}, bytes={}",
+                token != null && !token.isBlank(),
+                audio != null ? audio.getOriginalFilename() : null,
+                audio != null ? audio.getSize() : 0);
+        if (token == null || token.isBlank() || audio == null || audio.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of(
+                    "success", false,
+                    "message", "缺少token或audio参数"
+            ));
+        }
+        try {
+            return buildRegisterResponse(token, audio.getBytes());
+        } catch (Exception e) {
+            log.error("声纹注册(multipart)提交失败", e);
+            return ResponseEntity.ok(Map.of(
+                    "success", false,
+                    "message", "处理失败: " + e.getMessage()
+            ));
+        }
+    }
+
+    private ResponseEntity<Map<String, Object>> buildRegisterResponse(String token, byte[] audioData) {
+        VoiceprintRegisterService.RegisterResult result = registerService.submitRegister(token, audioData);
+        return ResponseEntity.ok(Map.of(
+                "success", result.isSuccess(),
+                "message", result.getMessage(),
+                "featureId", result.getFeatureId() != null ? result.getFeatureId() : ""
+        ));
     }
 
     /**
@@ -142,11 +174,17 @@ public class VoiceprintRegisterController {
         html.append("</div>\n");
         html.append("<script>\n");
         html.append("let mediaRecorder=null,audioChunks=[],startTime=null,timerInterval=null;\n");
-        html.append("const token='" + token + "',MIN_DURATION=35,MAX_DURATION=90;\n");
-        html.append("const REGISTER_API='/api/v1/voiceprint/register';\n");
+        html.append("const token='" + token + "',MIN_DURATION=35,MAX_DURATION=90,GATEWAY_SAFE_BYTES=900*1024;\n");
+        html.append("const PAGE_BASE=window.location.pathname.replace(/\\/voiceprint$/,'');\n");
+        html.append("const REGISTER_API=(PAGE_BASE+'/api/v1/voiceprint/register').replace(/\\/\\/+/, '/');\n");
         html.append("const recordBtn=document.getElementById('recordBtn'),timerDiv=document.getElementById('timer'),statusDiv=document.getElementById('status');\n");
+        html.append("function floatTo16BitPCM(float32Array){const out=new ArrayBuffer(float32Array.length*2);const view=new DataView(out);let offset=0;for(let i=0;i<float32Array.length;i++,offset+=2){let s=Math.max(-1,Math.min(1,float32Array[i]));view.setInt16(offset,s<0?s*0x8000:s*0x7FFF,true);}return out;}\n");
+        html.append("async function toPcm16kMonoBlob(inputBlob){const srcBuffer=await inputBlob.arrayBuffer();const ac=new (window.AudioContext||window.webkitAudioContext)();let decoded;try{decoded=await ac.decodeAudioData(srcBuffer.slice(0));}finally{await ac.close();}\n");
+        html.append("const targetRate=16000;const frameCount=Math.ceil(decoded.length*targetRate/decoded.sampleRate);const oac=new OfflineAudioContext(1,frameCount,targetRate);const source=oac.createBufferSource();\n");
+        html.append("const mono=oac.createBuffer(1,decoded.length,decoded.sampleRate);const out=mono.getChannelData(0);for(let ch=0;ch<decoded.numberOfChannels;ch++){const data=decoded.getChannelData(ch);for(let i=0;i<data.length;i++){out[i]+=data[i]/decoded.numberOfChannels;}}\n");
+        html.append("source.buffer=mono;source.connect(oac.destination);source.start(0);const rendered=await oac.startRendering();const pcm=floatTo16BitPCM(rendered.getChannelData(0));return new Blob([pcm],{type:'application/octet-stream'});}\n");
+        html.append("function trimPcmForGateway(blob,maxBytes){const safe=Math.max(2,maxBytes-(maxBytes%2));if(blob.size<=safe){return {blob:blob,trimmed:false};}return {blob:blob.slice(0,safe,'application/octet-stream'),trimmed:true};}\n");
         html.append("function showStatus(msg,type){statusDiv.textContent=msg;statusDiv.className='status '+type;statusDiv.style.display='block';}\n");
-        html.append("function arrayBufferToBase64(buffer){const bytes=new Uint8Array(buffer),chunkSize=0x8000;let binary='';for(let i=0;i<bytes.length;i+=chunkSize){const chunk=bytes.subarray(i,i+chunkSize);binary+=String.fromCharCode.apply(null,chunk);}return btoa(binary);}\n");
         html.append("function updateTimer(){const elapsed=Math.floor((Date.now()-startTime)/1000);timerDiv.textContent=Math.floor(elapsed/60).toString().padStart(2,'0')+':'+(elapsed%60).toString().padStart(2,'0');if(mediaRecorder&&mediaRecorder.state==='recording'&&elapsed>=MAX_DURATION){showStatus('已达到90秒，自动停止并提交...','info');stopRecording();}}\n");
         html.append("async function startRecording(){\n");
         html.append("try{\n");
@@ -159,19 +197,24 @@ public class VoiceprintRegisterController {
         html.append("if(elapsed<MIN_DURATION){showStatus('录音时长不足35秒，请完整朗读三句话后再提交','error');recordBtn.className='btn btn-start';recordBtn.textContent='开始录音';timerDiv.style.display='none';return;}\n");
         html.append("showStatus('正在处理音频...','info');recordBtn.disabled=true;\n");
         html.append("try{\n");
-        html.append("const blob=new Blob(audioChunks,{type:'audio/webm'});\n");
-        html.append("const arrayBuffer=await blob.arrayBuffer();\n");
-        html.append("const base64=arrayBufferToBase64(arrayBuffer);\n");
+        html.append("const webmBlob=new Blob(audioChunks,{type:'audio/webm'});\n");
+        html.append("const pcmBlob=await toPcm16kMonoBlob(webmBlob);\n");
+        html.append("const packed=trimPcmForGateway(pcmBlob,GATEWAY_SAFE_BYTES);\n");
+        html.append("const blob=packed.blob;\n");
+        html.append("if(packed.trimmed){showStatus('检测到网关上传限制，已自动裁剪音频后提交（建议后续提升网关 body 限制）','info');}\n");
+        html.append("const formData=new FormData();\n");
+        html.append("formData.append('token',token);\n");
+        html.append("formData.append('audio',blob,'voiceprint.pcm');\n");
         html.append("const controller=new AbortController();\n");
         html.append("const timeoutId=setTimeout(()=>controller.abort(),90000);\n");
         html.append("let data;\n");
         html.append("try{\n");
-        html.append("const res=await fetch(REGISTER_API,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token,audio:base64}),signal:controller.signal});\n");
+        html.append("const res=await fetch(REGISTER_API,{method:'POST',body:formData,signal:controller.signal});\n");
         html.append("const ct=(res.headers.get('content-type')||'').toLowerCase();\n");
         html.append("if(ct.includes('application/json')){data=await res.json();}else{const raw=await res.text();throw new Error('服务返回非JSON（HTTP '+res.status+'）: '+raw.slice(0,120));}\n");
         html.append("}finally{clearTimeout(timeoutId);}\n");
         html.append("if(data.success){showStatus(data.message,'success');recordBtn.textContent='注册成功';recordBtn.className='btn btn-submit';}else{showStatus(data.message,'error');recordBtn.disabled=false;recordBtn.className='btn btn-start';recordBtn.textContent='重新录音';}\n");
-        html.append("}catch(err){const msg=err&&err.name==='AbortError'?'提交超时，请稍后重试':'提交失败:'+err.message;showStatus(msg,'error');recordBtn.disabled=false;recordBtn.className='btn btn-start';recordBtn.textContent='重新录音';}\n");
+        html.append("}catch(err){let msg='提交失败:'+err.message;if(err&&err.name==='AbortError'){msg='提交超时，请稍后重试';}else if(String(err&&err.message||'').includes('HTTP 413')){msg='提交失败：网关上传大小限制过小（HTTP 413）。请联系管理员提高 client_max_body_size（建议>=20m）';}showStatus(msg,'error');recordBtn.disabled=false;recordBtn.className='btn btn-start';recordBtn.textContent='重新录音';}\n");
         html.append("};\n");
         html.append("mediaRecorder.start();startTime=Date.now();timerDiv.style.display='block';timerInterval=setInterval(updateTimer,1000);\n");
         html.append("recordBtn.className='btn btn-recording';recordBtn.textContent='停止录音';statusDiv.style.display='none';\n");

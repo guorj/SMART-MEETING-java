@@ -83,39 +83,81 @@ public class VoiceprintRegisterService {
         long start = System.currentTimeMillis();
         log.info("声纹注册开始: token={}, feishuUserId={}, audioBytes={}", token, feishuUserId, audioData.length);
 
+        UserMapping mapping = userMappingMapper.selectOne(new LambdaQueryWrapper<UserMapping>()
+                .eq(UserMapping::getFeishuUserId, feishuUserId)
+                .last("LIMIT 1"));
+        if (mapping == null || mapping.getUserId() == null) {
+            log.warn("声纹注册中止：缺少 user_id 映射, token={}, feishuUserId={}", token, feishuUserId);
+            return new RegisterResult(false, "未找到当前飞书账号对应的系统用户，请先在用户映射中维护 feishu_user_id", null);
+        }
+
         String featureId = isvClient.registerVoiceprint(feishuUserId, userName, audioData);
         if (featureId == null) {
             log.warn("声纹注册失败: token={}, feishuUserId={}, costMs={}",
                     token, feishuUserId, System.currentTimeMillis() - start);
-            return new RegisterResult(false, "声纹注册失败（ISV API调用失败）", null);
+            return new RegisterResult(false, "声纹注册失败（音频格式或ISV调用异常），请刷新页面后重新录制", null);
         }
-
-        Voiceprint voiceprint = new Voiceprint();
-        voiceprint.setId(UUID.randomUUID().toString());
-        voiceprint.setUserId(null);
-        voiceprint.setUserName(userName);
-        voiceprint.setFeishuUserId(feishuUserId);
-        voiceprint.setFeatureId(featureId);
-        voiceprint.setGroupId(isvClient.getGroupId());
-        voiceprint.setRegisteredAt(LocalDateTime.now());
-        voiceprint.setExpiresAt(LocalDateTime.now().plusYears(VOICEPRINT_EXPIRE_YEARS));
 
         Voiceprint existing = voiceprintMapper.selectOne(
             new LambdaQueryWrapper<Voiceprint>()
                 .eq(Voiceprint::getFeishuUserId, feishuUserId));
-        if (existing != null) {
-            voiceprintMapper.deleteById(existing.getId());
-            log.info("旧声纹已删除: feishuUserId={}, oldFeatureId={}", feishuUserId, existing.getFeatureId());
+        Voiceprint existingSnapshot = copy(existing);
+        boolean hadExisting = existing != null;
+        Voiceprint target = hadExisting ? existing : new Voiceprint();
+        if (!hadExisting) {
+            target.setId(UUID.randomUUID().toString());
+        }
+        target.setUserId(mapping.getUserId());
+        target.setUserName(userName);
+        target.setFeishuUserId(feishuUserId);
+        target.setFeatureId(featureId);
+        target.setGroupId(isvClient.getGroupId());
+        target.setRegisteredAt(LocalDateTime.now());
+        target.setExpiresAt(LocalDateTime.now().plusYears(VOICEPRINT_EXPIRE_YEARS));
+
+        try {
+            if (hadExisting) {
+                voiceprintMapper.updateById(target);
+            } else {
+                voiceprintMapper.insert(target);
+            }
+        } catch (Exception e) {
+            log.error("声纹入库失败，开始回滚讯飞特征: feishuUserId={}, featureId={}", feishuUserId, featureId, e);
+            try {
+                isvClient.deleteVoiceprint(featureId);
+            } catch (Exception rollbackEx) {
+                log.error("回滚讯飞特征失败: featureId={}", featureId, rollbackEx);
+            }
+            return new RegisterResult(false, "声纹注册入库失败，请联系管理员检查数据库约束", null);
         }
 
-        UserMapping mapping = userMappingMapper.selectOne(new LambdaQueryWrapper<UserMapping>()
-                .eq(UserMapping::getFeishuUserId, feishuUserId)
-                .last("LIMIT 1"));
-        if (mapping != null && mapping.getUserId() != null) {
-            voiceprint.setUserId(mapping.getUserId());
+        if (existingSnapshot != null
+                && existingSnapshot.getFeatureId() != null
+                && !existingSnapshot.getFeatureId().isBlank()
+                && !existingSnapshot.getFeatureId().equals(featureId)) {
+            boolean deletedOld = isvClient.deleteVoiceprint(existingSnapshot.getFeatureId());
+            if (!deletedOld) {
+                log.error("清理旧声纹失败，开始回滚本地和新特征: feishuUserId={}, oldFeatureId={}, newFeatureId={}",
+                        feishuUserId, existingSnapshot.getFeatureId(), featureId);
+                try {
+                    if (hadExisting) {
+                        voiceprintMapper.updateById(existingSnapshot);
+                    } else {
+                        voiceprintMapper.deleteById(target.getId());
+                    }
+                } catch (Exception dbRollbackEx) {
+                    log.error("本地声纹回滚失败: feishuUserId={}, newFeatureId={}", feishuUserId, featureId, dbRollbackEx);
+                }
+                try {
+                    isvClient.deleteVoiceprint(featureId);
+                } catch (Exception remoteRollbackEx) {
+                    log.error("新特征回滚失败: featureId={}", featureId, remoteRollbackEx);
+                }
+                return new RegisterResult(false, "旧声纹清理失败，本次注册已回滚，请稍后重试", null);
+            }
+            log.info("旧声纹已清理: feishuUserId={}, oldFeatureId={}", feishuUserId, existingSnapshot.getFeatureId());
         }
 
-        voiceprintMapper.insert(voiceprint);
         pendingSessions.remove(token);
         log.info("声纹注册成功: feishuUserId={}, userName={}, featureId={}, costMs={}",
                 feishuUserId, userName, featureId, System.currentTimeMillis() - start);
@@ -187,5 +229,21 @@ public class VoiceprintRegisterService {
         public boolean isValid() { return isValid; }
         public boolean isExpiring() { return isExpiring; }
         public LocalDateTime getExpiresAt() { return expiresAt; }
+    }
+
+    private Voiceprint copy(Voiceprint source) {
+        if (source == null) {
+            return null;
+        }
+        Voiceprint out = new Voiceprint();
+        out.setId(source.getId());
+        out.setUserId(source.getUserId());
+        out.setUserName(source.getUserName());
+        out.setFeishuUserId(source.getFeishuUserId());
+        out.setFeatureId(source.getFeatureId());
+        out.setGroupId(source.getGroupId());
+        out.setRegisteredAt(source.getRegisteredAt());
+        out.setExpiresAt(source.getExpiresAt());
+        return out;
     }
 }

@@ -1,6 +1,6 @@
 # 智能会议系统 — 用户手册
 
-**文档版本：** 2026-05-27 · 与当前代码实现对齐（含 v0.18 三场景音频兜底）
+**文档版本：** 2026-05-29 · 与当前代码实现对齐（含 Pipeline 二期编排增强）
 
 ---
 
@@ -49,12 +49,27 @@
 |------|------|------|
 | 飞书统一入口工作台 | 可用 | 发送「会议管理」进入 dashboard，内含开始会议/注册声纹/查看纪要 |
 | 混合线上线下检点 | 可用 | 线上个人链接 + 线下点名 |
-| AI 主持 TTS、议题切换 | 可用 | 议题到时提醒后需手动「下一议题」 |
+| AI 主持 TTS、议题切换 | 可用 | 支持议题超时策略（仅提醒 / 自动下一议题 / 等待主持人决策） |
 | 现场录音 + 实时 ASR | 可用 | 可关闭实时转写走离线 ASR |
 | 会后纪要 + 待办提取 | 可用 | LLM 生成 + AI 增强（可选） |
 | 会前事项对比通报 | 可用 | Bot 定时生成 + OpenClaw 主路径 |
+| Pipeline 会务编排（PRE/MID/POST） | 可用 | 支持步骤模板、条件分支、等待卡片回调、跨步骤上下文 |
 | 建会待办进度卡片 | 已下线 (v0.9) | 由会前事项对比通报取代 |
 | 三场景会议支持 (v0.18) | 可用 | OFFLINE/HYBRID/ONLINE 自动推导 + 云端录音 URL 兜底下载（纯线上/混合场景） |
+
+### 1.4 当前项目能力总览（2026-05）
+
+| 阶段 | 已上线能力 | 当前实现状态 |
+|------|------------|--------------|
+| 会前（PRE） | 议题归集通知、参会确认卡片、会前盘点卡、上次纪要链接附带、声纹就绪检查 | 已接入 Pipeline 编排；支持条件分支与回调后续跑 |
+| 会中（MID） | AI 主持、议题计时提醒、议题超时策略、上次待办进度通报 | 可用；超时策略支持仅提醒/自动下一议题/等待决策 |
+| 会后（POST） | 纪要生成、待办提取、待办提醒、自动延期标记、下次会议自动创建、议程带入 | 可用；部分动作已可编排为 Pipeline 步骤 |
+| 声纹与转写闭环 | 声纹注册、特征管理、会后说话人回写、离线校正步骤入口 | 可用；依赖音频质量与外部 ISV/LLM 结果 |
+| 管理后台（Admin） | 模板/步骤 CRUD、执行触发、执行记录、步骤排序、模块化管理页面 | 可用；`pipeline`、`meetings`、`users` 模块可联合运维 |
+| 跨服务协同 | meeting-server + feishu-scheduled-bot + matter-progress-core | 可用；会前对比与会后推送走独立服务链路 |
+
+> 说明：当前版本已从“固定流程”升级为“可配置编排 + 关键链路保底”。  
+> 对外部依赖较强的环节（飞书权限、ISV 音频、LLM 可用性）仍建议保留人工复核与降级策略。
 
 ---
 
@@ -184,6 +199,171 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 - 定时清理：已有 `cleanAudioCache` 任务（每天 3:00）。
 - Admin UI：在 `meeting-admin-server` 「meetings」模块可查看 `meetingScenario` 与 `sourceAudioUrl` 字段。
 
+### 3.7 Pipeline 编排使用（Admin）
+
+> 入口：`meeting-admin-server` -> `#/pipeline`。  
+> 目标：将会前/会中/会后动作配置为可复用步骤链。
+
+#### 3.7.1 使用顺序
+
+1. 创建模板（选择 `PRE` / `MID` / `POST`）。
+2. 新增步骤并设置顺序（支持拖拽/上移/下移）。
+3. 配置每个步骤 `configJson`（可含 `condition` 条件）。
+4. 手动触发执行：`pre-agenda-owner-confirm-notify` 推荐输入 `presetTypeCode` 直接按预设触发（不要求会议已创建）；其他步骤仍可输入 `meetingId` 单场触发；或由调度器自动触发 PRE。
+5. 在执行记录查看状态：`PENDING / RUNNING / SUCCESS / FAILED / WAITING_CALLBACK / TIMEOUT`。
+
+#### 3.7.2 常用 stepType（按阶段）
+
+- `PRE`：`pre-confirm-card`、`pre-confirm-persist`、`pre-inventory-card`、`pre-push-doc-link`、`pre-voiceprint-check`、`pre-agenda-notify`、`pre-agenda-confirm`、`pre-calendar-create`、`pre-agenda-fill-init`、`pre-agenda-fill-notify`、`pre-agenda-owner-confirm-notify`
+- `MID`：`mid-topic-timeout`、`mid-prev-progress-tts`
+- `POST`：`post-todo-remind`、`post-auto-delayed`、`post-auto-next-meeting`、`post-feishu-task-sync`、`post-todo-action`、`post-agenda-carry`、`post-voiceprint-identify`、`post-offline-llm-correction`
+- 通用：`preset-sync`、`settings-reload`、`weekly-job`、`push-notification`
+
+#### 3.7.3 配置示例
+
+**条件分支（仅在会议状态为 INVITED 时执行）：**
+
+```json
+{
+  "condition": {
+    "key": "meeting.status",
+    "equals": "INVITED"
+  }
+}
+```
+
+**消息推送（动态模板 + 指定目标）：**
+
+```json
+{
+  "targetType": "CHAT",
+  "messageTemplate": "会前提醒：{meetingTitle}（{meetingId}）请确认参会。"
+}
+```
+
+**会中议题超时策略：**
+
+```json
+{
+  "strategy": "AUTO_NEXT",
+  "topicWarnMinutes": 3
+}
+```
+
+**会前会序资料回填（个人/群/混合通知）：**
+
+```json
+{
+  "presetCode": 1,
+  "expireMinutes": 180,
+  "leaderUserIds": ["ou_leader_1"]
+}
+```
+
+> 分发规则已升级：`pre-agenda-fill-init` 会自动从 `host_agenda.items[].owners` 读取负责人（可空、可多个），不再要求在流水线里手写 `participantAgenda`。
+> 回填提交默认更新**当前会议**的 `host_agenda`（meeting 维度），不再默认回写全局 preset。
+> leader 自动授权规则（严格模式）：从模板 `leader_name`（姓名）在“本次会议参会人”中做唯一匹配；仅唯一命中时授予 leader 全会序权限，未命中/重名均不授权。
+>
+> `host_agenda` 示例：
+>
+> ```json
+> {
+>   "version": 2,
+>   "items": [
+>     { "title": "会序1", "minutes": 10, "owners": ["ou_user_a"] },
+>     { "title": "会序2", "minutes": 5, "owners": ["ou_user_b", "ou_user_c"] }
+>   ]
+> }
+> ```
+
+```json
+{
+  "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
+  "sendParticipantUsers": true,
+  "groupClaimCard": true,
+  "groupInlineFillCard": false,
+  "groupIds": ["oc_xxx_group_a"],
+  "fallbackMeetingChat": true,
+  "extraUserIds": ["ou_ops_1"],
+  "userMessageTemplate": "请在会前完成你负责会序资料回填：{fillUrl}",
+  "groupMessageTemplate": "会前会序资料回填已发起，请相关同事打开个人通知中的回填链接完成提交。"
+}
+```
+
+> 建议：开启 `groupClaimCard=true`，群里只发“领取我的回填链接”按钮，用户点击后系统按卡片回调里的 `user_id` 动态私聊专属 token 链接，避免群内泄露可编辑入口。
+> 若希望在群内直接填写而不跳转，可设置 `groupInlineFillCard=true`（会序编号/分钟/URL 在群卡片直接提交）。
+
+**会前定时只发对应人（一步到位）**
+
+```json
+{
+  "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
+  "expireMinutes": 180,
+  "leaderUserIds": ["ou_leader_1"],
+  "userMessageTemplate": "请确认并完善你负责的会序：{fillUrl}\\n会议：{meetingTitle}"
+}
+```
+
+> 使用 `pre-agenda-owner-confirm-notify` 时，系统会在执行时自动：
+> 1) meeting 模式：从当前会议 `host_agenda.items[].owners` 识别对应人；
+> 2) preset 直触发模式：从预设 `host_agenda.items[].owners` 识别对应人；
+> 3) 给每人发专属可编辑链接；
+> 4) 对应人提交后按权限更新对应目标（meeting 或 preset）。
+> 5) leader 权限可通过 `leaderUserIds` 明确指定；meeting 模式下可叠加 `leader_name` 唯一匹配规则。
+
+#### 3.7.4 异步回调步骤说明
+
+- 诸如 `pre-confirm-card` / `pre-agenda-confirm` 会先发卡片，再进入 `WAITING_CALLBACK`。
+- 用户点击卡片按钮后，系统通过回调路由继续推进后续步骤。
+- 若长时间未回调，会被超时扫描任务标记为 `TIMEOUT`，可在后台重试或人工补偿。
+
+#### 3.7.5 触发器推荐配置（dev / prod）
+
+> 你的当前策略：**会中（MID）暂不加自动触发器**。  
+> 推荐做法：只启用 `PRE` 与 `POST` 自动触发，`MID` 继续人工/外部触发。
+
+| 场景 | 配置项 | 推荐值 | 说明 |
+|------|--------|--------|------|
+| dev | `meeting.scheduler.pre-enabled` | `true` | 开启 PRE 自动触发 |
+| dev | `meeting.scheduler.scan-ms` | `60000` | 1 分钟扫描，便于联调观察 |
+| dev | `meeting.scheduler.pre-window-minutes` | `5` | 避免扫描漂移导致错过触发 |
+| dev | `meeting.scheduler.pre-24h-template-code` | `pre_24h_default` | 会前 24h 模板 |
+| dev | `meeting.scheduler.pre-10m-template-code` | `pre_10m_default` | 会前 10min 模板 |
+| dev | `meeting.pipeline.post-auto-trigger.enabled` | `true` | 会议结束后自动触发 POST |
+| dev | `meeting.pipeline.post-auto-trigger.template-code` | 空 | 用默认 POST 启用模板 |
+| prod | `MEETING_SCHEDULER_PRE_ENABLED` | `true` | 同 dev |
+| prod | `MEETING_SCHEDULER_SCAN_MS` | `300000` | 建议 5 分钟，减少调度压力 |
+| prod | `MEETING_SCHEDULER_PRE_WINDOW_MINUTES` | `5` | 与扫描频率配套 |
+| prod | `MEETING_SCHEDULER_PRE_24H_TEMPLATE_CODE` | 按模板命名 | 例如 `pre_24h_default` |
+| prod | `MEETING_SCHEDULER_PRE_10M_TEMPLATE_CODE` | 按模板命名 | 例如 `pre_10m_default` |
+| prod | `MEETING_PIPELINE_POST_AUTO_TRIGGER_ENABLED` | `true` | 同 dev |
+| prod | `MEETING_PIPELINE_POST_TEMPLATE_CODE` | 可空 | 若需固定流程再填写 |
+
+生产环境变量示例：
+
+```bash
+MEETING_SCHEDULER_PRE_ENABLED=true
+MEETING_SCHEDULER_SCAN_MS=300000
+MEETING_SCHEDULER_PRE_WINDOW_MINUTES=5
+MEETING_SCHEDULER_PRE_24H_TEMPLATE_CODE=pre_24h_default
+MEETING_SCHEDULER_PRE_10M_TEMPLATE_CODE=pre_10m_default
+MEETING_PIPELINE_POST_AUTO_TRIGGER_ENABLED=true
+MEETING_PIPELINE_POST_TEMPLATE_CODE=
+```
+
+#### 3.7.6 完全零基础操作指南
+
+如果执行人不懂技术、只在管理后台操作，请直接按文档逐步点击配置：
+
+- [会前流程编排指南-零基础.md](会前流程编排指南-零基础.md)
+
+该文档提供了：
+
+- 后台点击路径（模板、步骤、执行）
+- 会前 24h / 10min 推荐流程
+- 可直接复制的步骤配置
+- 上线前检查清单与故障判断方法
+
 ---
 
 ## 4. 角色与职责
@@ -193,6 +373,7 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 | **会务/发起人** | 创建会议、维护参会人、结束会议（备用） | 飞书机器人「会议管理」、dashboard 工作台 |
 | **现场录音操作员** | 会议主页·录音模块：推流、结束会议 | 飞书卡片链接 `/rec` |
 | **会议主持** | 会议主页·主持模块：开始、检点、下一议题 | `/host/{id}` |
+| **系统管理员** | 配置 Pipeline 模板、步骤、执行与排障 | `meeting-admin-server` -> `#/pipeline` |
 
 ---
 
@@ -207,6 +388,15 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 - **Q**：如何在 Admin UI 查看会议场景？  
   **A**：进入 `meeting-admin-server` → 「meetings」模块，详情页会展示 `meetingScenario` 与 `sourceAudioUrl` 字段。
 
+- **Q**：Pipeline 执行卡在 `WAITING_CALLBACK` 怎么办？  
+  **A**：先确认飞书卡片回调地址和 token 配置正确；确认用户已点击按钮。若超过超时窗口会自动转 `TIMEOUT`，可在后台重跑该阶段。
+
+- **Q**：为什么某个步骤没有执行但显示成功？  
+  **A**：通常是命中了 `configJson.condition` 的“不满足”分支，会以“条件不匹配跳过”方式记为成功，避免阻塞后续步骤。
+
+- **Q**：议题到时为什么会自动跳下一议题？  
+  **A**：因为配置了 `mid-topic-timeout` 的 `strategy=AUTO_NEXT`；如需人工决定改为 `WAIT_DECISION`。
+
 ---
 
 ## 6. 附录
@@ -218,6 +408,9 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 | 创建会议 | POST `/api/v1/meetings` | `meetingScenario`, `sourceAudioUrl`, `participants[].attendanceMode` | 显式或自动推导场景 |
 | 查询会议 | GET `/api/v1/meetings/{id}` | 返回 `meetingScenario`, `sourceAudioUrl` | 前端展示用 |
 | 结束会议 | POST `/api/v1/meetings/{id}/end` | 触发云端兜底逻辑 | 无需额外参数 |
+| 触发 Pipeline | POST `/api/v1/admin/pipeline/execute` | `presetTypeCode`（推荐）/`meetingId`（可选）, `stage`, `templateCode`, `skipExisting` | 管理后台触发编排执行（code 维度优先） |
+| 回填会话查询 | GET `/api/v1/agenda-fill/session?token=...` | `token` | 获取当前 token 可编辑会序项 |
+| 回填提交 | POST `/api/v1/agenda-fill/submit` | `token`, `updates[]` | 回写 preset 的 `host_agenda` |
 
 ### 6.2 相关文档
 
@@ -227,4 +420,65 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 
 ---
 
-*本手册随代码版本同步更新。v0.18 重点解决「纯线上/混合场景纪要生成」问题，后续迭代将补全飞书 VC 录制文件自动获取能力。*
+*本手册随代码版本同步更新。当前版本已补齐 Pipeline 二期能力（条件分支、异步回调、跨步骤上下文、自动触发 PRE），并保留三场景音频兜底链路。*
+模板一：pre_24h_default（会前24小时）
+阶段：PRE
+模板编码：pre_24h_default
+建议步骤顺序：
+Step 1
+stepType: pre-agenda-owner-confirm-notify
+stepCode: owner_confirm_notify_24h
+orderNo: 10
+timeoutSeconds: 120
+configJson:
+{
+  "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
+  "expireMinutes": 1440,
+  "leaderUserIds": ["ou_leader_1"],
+  "userMessageTemplate": "【会前24小时】请确认并完善你负责的会序：{fillUrl}\n会议：{meetingTitle}"
+}
+Step 2（可选）
+stepType: pre-agenda-notify
+stepCode: agenda_notify_24h
+orderNo: 20
+timeoutSeconds: 120
+configJson:
+{}
+模板二：pre_10m_default（会前10分钟）
+阶段：PRE
+模板编码：pre_10m_default
+建议步骤顺序：
+Step 1
+stepType: pre-agenda-owner-confirm-notify
+stepCode: owner_confirm_notify_10m
+orderNo: 10
+timeoutSeconds: 120
+configJson:
+{
+  "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
+  "expireMinutes": 120,
+  "leaderUserIds": ["ou_leader_1"],
+  "userMessageTemplate": "【会前10分钟】请立即确认并完善你负责的会序：{fillUrl}\n会议：{meetingTitle}"
+}
+Step 2（可选）
+stepType: pre-inventory-card
+stepCode: inventory_10m
+orderNo: 20
+timeoutSeconds: 120
+configJson:
+{}
+调度配置（确保自动触发）
+在 meeting-server 配置里确认：
+
+meeting:
+  scheduler:
+    pre-enabled: true
+    pre-window-minutes: 5
+    pre-24h-template-code: pre_24h_default
+    pre-10m-template-code: pre_10m_default
+上线前检查（1分钟）
+每个会序 host_agenda.items[].owners 已填 user_id
+机器人有给用户私聊权限
+entryUrl 可从飞书打开（HTTPS、可访问）
+手动执行一次 PRE 验证消息是否成功送达
+如果你要，我可以下一步给你一份“最简 owners 填写规范”（给会务同事直接照抄用）。

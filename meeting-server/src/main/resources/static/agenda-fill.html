@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>会序资料回填</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 780px; margin: 0 auto; padding: 20px 14px 40px; color: #1a1a1a; background: #fafafa; }
+    h1 { margin: 0 0 6px; font-size: 1.4rem; }
+    .muted { color: #666; font-size: 0.9rem; }
+    .card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 14px; margin-top: 12px; }
+    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .tag { font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #eef3ff; color: #3859c7; }
+    .agenda-title { font-weight: 600; margin-bottom: 8px; }
+    label { display: block; font-size: 0.85rem; color: #444; margin: 6px 0 4px; }
+    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d4; border-radius: 8px; padding: 9px 10px; font-size: 0.95rem; }
+    input:focus { outline: none; border-color: #4b7cff; box-shadow: 0 0 0 2px rgba(75,124,255,0.12); }
+    .btn-bar { margin-top: 16px; display: flex; gap: 10px; }
+    button { border: none; background: #2f6df6; color: #fff; border-radius: 8px; padding: 10px 14px; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
+    button[disabled] { opacity: .65; cursor: not-allowed; }
+    button.secondary { background: #fff; color: #333; border: 1px solid #d4d4d4; }
+    #status { margin-top: 14px; font-size: 0.92rem; }
+    .ok { color: #0a7f2e; }
+    .err { color: #bf1d1d; }
+  </style>
+</head>
+<body>
+  <h1>会序资料回填</h1>
+  <div class="muted">请按需填写您负责会序的【上会资料飞书URL】与【汇报时长】。提交后将直接更新到当前会议会序。</div>
+  <div id="summary" class="card muted">正在加载会序回填会话…</div>
+  <div id="formBody"></div>
+  <div class="btn-bar">
+    <button id="submitBtn" onclick="submitUpdates()">提交更新</button>
+    <button class="secondary" onclick="location.reload()">刷新</button>
+  </div>
+  <div id="status"></div>
+
+  <script>
+    (function () {
+      var p = location.pathname || '';
+      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var base = document.createElement('base');
+      base.href = ctx ? ctx + '/' : '/';
+      document.head.appendChild(base);
+    })();
+  </script>
+  <script src="meeting-context.js?v=sm-20260529-1"></script>
+  <script>
+    var token = new URLSearchParams(location.search).get('token');
+    var sessionData = null;
+
+    function esc(s) {
+      return (s == null ? '' : String(s))
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function status(msg, ok) {
+      var el = document.getElementById('status');
+      el.className = ok ? 'ok' : 'err';
+      el.textContent = msg || '';
+    }
+
+    function formatExpireAt(raw) {
+      if (!raw) return '-';
+      var d = new Date(raw);
+      if (isNaN(d.getTime())) {
+        // 兜底：把 2026-05-31T01:34:08.77089484 这类格式裁剪到分钟
+        var s = String(raw).replace('T', ' ');
+        return s.length >= 16 ? s.substring(0, 16) : s;
+      }
+      var y = d.getFullYear();
+      var m = String(d.getMonth() + 1).padStart(2, '0');
+      var day = String(d.getDate()).padStart(2, '0');
+      var hh = String(d.getHours()).padStart(2, '0');
+      var mm = String(d.getMinutes()).padStart(2, '0');
+      return y + '-' + m + '-' + day + ' ' + hh + ':' + mm;
+    }
+
+    function renderSession(data) {
+      sessionData = data || {};
+      var summary = document.getElementById('summary');
+      summary.innerHTML = '过期时间：' + esc(formatExpireAt(data.expireAt));
+
+      var body = document.getElementById('formBody');
+      var items = (data.items || []);
+      if (!items.length) {
+        body.innerHTML = '<div class="card muted">当前 token 下没有可编辑会序项。</div>';
+        document.getElementById('submitBtn').disabled = true;
+        return;
+      }
+      body.innerHTML = items.map(function (it) {
+        var idx = it.agendaIndex;
+        return (
+          '<div class="card">' +
+            '<div class="agenda-title">' + esc(it.title || '未命名会序') + '</div>' +
+            '<label>资料链接 URL</label>' +
+            '<input type="text" data-kind="url" data-idx="' + idx + '" value="' + esc(it.url || '') + '" placeholder="https://..." />' +
+            '<label>预计时长（分钟）</label>' +
+            '<input type="number" min="1" step="1" data-kind="minutes" data-idx="' + idx + '" value="' + esc(it.minutes || '') + '" placeholder="例如 15" />' +
+          '</div>'
+        );
+      }).join('');
+      document.getElementById('submitBtn').disabled = false;
+    }
+
+    function collectUpdates() {
+      var byIdx = {};
+      var inputs = document.querySelectorAll('#formBody input[data-idx]');
+      inputs.forEach(function (el) {
+        var idx = Number(el.getAttribute('data-idx'));
+        var kind = el.getAttribute('data-kind');
+        byIdx[idx] = byIdx[idx] || { agendaIndex: idx };
+        if (kind === 'url') {
+          byIdx[idx].url = String(el.value || '').trim();
+        } else if (kind === 'minutes') {
+          var v = String(el.value || '').trim();
+          if (v) byIdx[idx].minutes = Number(v);
+        }
+      });
+      return Object.keys(byIdx).map(function (k) { return byIdx[k]; });
+    }
+
+    async function loadSession() {
+      if (!token) {
+        status('链接缺少 token，请从飞书消息重新打开。', false);
+        document.getElementById('summary').textContent = '无效链接';
+        document.getElementById('submitBtn').disabled = true;
+        return;
+      }
+      try {
+        var res = await fetch(meetingApi('/api/v1/agenda-fill/session?token=' + encodeURIComponent(token)));
+        var j = await res.json();
+        if (!res.ok || j.code !== 0 || !j.data) throw new Error((j && j.message) || '会话加载失败');
+        renderSession(j.data);
+        status('', true);
+      } catch (e) {
+        status('会话加载失败：' + (e.message || e), false);
+      }
+    }
+
+    async function submitUpdates() {
+      if (!token) return;
+      var btn = document.getElementById('submitBtn');
+      btn.disabled = true;
+      status('提交中…', true);
+      try {
+        var payload = { token: token, updates: collectUpdates() };
+        var res = await fetch(meetingApi('/api/v1/agenda-fill/submit'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        var j = await res.json();
+        if (!res.ok || j.code !== 0) throw new Error((j && j.message) || '提交失败');
+        var n = (j.data && j.data.updatedCount) || 0;
+        status('提交成功，已更新 ' + n + ' 项。', true);
+      } catch (e) {
+        status('提交失败：' + (e.message || e), false);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    loadSession();
+  </script>
+</body>
+</html>
+

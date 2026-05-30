@@ -79,6 +79,14 @@ public final class HostAgendaJsonCodec {
                 n.put("title", item.getTitle().trim());
                 int min = item.getMinutes() != null && item.getMinutes() > 0 ? item.getMinutes() : 10;
                 n.put("minutes", min);
+                if (item.getOwners() != null && !item.getOwners().isEmpty()) {
+                    ArrayNode ownerArr = n.putArray("owners");
+                    for (String owner : item.getOwners()) {
+                        if (owner != null && !owner.isBlank()) {
+                            ownerArr.add(owner.trim());
+                        }
+                    }
+                }
                 if (item.getDetail() != null && !item.getDetail().isBlank()) {
                     n.put("detail", item.getDetail().trim());
                 }
@@ -311,6 +319,7 @@ public final class HostAgendaJsonCodec {
         HostAgendaItem item = new HostAgendaItem();
         item.setTitle(title);
         item.setMinutes(n.path("minutes").asInt(10));
+        item.setOwners(parseOwners(n));
         String detail = n.path("detail").asText("").trim();
         if (!detail.isEmpty()) {
             item.setDetail(detail);
@@ -514,5 +523,29 @@ public final class HostAgendaJsonCodec {
 
     private static String nullToEmpty(String s) {
         return s == null ? "" : s;
+    }
+
+    private static List<String> parseOwners(JsonNode n) {
+        List<String> owners = new ArrayList<>();
+        JsonNode ownerNode = n.path("owners");
+        if (ownerNode.isArray()) {
+            for (JsonNode x : ownerNode) {
+                String uid = x.asText("").trim();
+                if (!uid.isEmpty() && !owners.contains(uid)) {
+                    owners.add(uid);
+                }
+            }
+            return owners;
+        }
+        String single = ownerNode.asText("").trim();
+        if (!single.isEmpty()) {
+            for (String part : single.split(",")) {
+                String uid = part.trim();
+                if (!uid.isEmpty() && !owners.contains(uid)) {
+                    owners.add(uid);
+                }
+            }
+        }
+        return owners;
     }
 }

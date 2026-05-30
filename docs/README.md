@@ -4,10 +4,11 @@
 
 | 文档 | 说明 |
 |------|------|
-| [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（§1.2–1.4 双服务 + **matter-progress-core**；§3.8 配置分层） |
+| [**USER-MANUAL.md**](USER-MANUAL.md) | **完整用户手册**（三场景音频 + Pipeline 二期编排 + 双服务协作） |
 | [**weekly-matter-comparison.md**](weekly-matter-comparison.md) | **会前事项对比通报**（v0.9：bot 定时对比、config_role、Job 参数、故障排查） |
 | [**langfuse-integration-plan.md**](langfuse-integration-plan.md) | **Langfuse Prompt 管理集成方案**（项目结构图、分期落地、PromptRegistry 设计） |
 | [**meeting-admin.md**](meeting-admin.md) | **会议管理后台**（`meeting-admin-server` :8766，与 meeting-server 分离启动） |
+| [**会前流程编排指南-零基础.md**](会前流程编排指南-零基础.md) | **零基础会务可用**：后台一步步配置会前 24h / 10min 工作流 |
 | [**meeting-admin.md#二期流水线事件驱动升级v017**](meeting-admin.md#二期流水线事件驱动升级v017) | 二期落地：状态机 + Outbox + Pipeline DDL/API/UI |
 | [**meeting-admin.md#三场景音频链路升级v018**](meeting-admin.md#三场景音频链路升级v018) | 三场景（线下/混合/线上）场景字段 + 云端录音兜底 |
 | [`scripts/start-dev.sh`](../scripts/start-dev.sh) | 开发一键启动 server / admin / both + 依赖检查 |
@@ -19,7 +20,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [PRD-Java-二期.md](PRD-Java-二期.md) | 二期需求与架构主文档 |
+| [PRD-Java-二期.md](PRD-Java-二期.md) | 二期需求与架构主文档（**v2.2：§1.5 六阶段能力图谱 + 实现进度**） |
 | [coding-standards.md](coding-standards.md) | Java/前端编码约定 |
 | [数据库表结构冗余与字段合理性分析.md](数据库表结构冗余与字段合理性分析.md) | DDL 与生产库结构分析 |
 

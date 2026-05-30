@@ -2,23 +2,68 @@ AdminModules.register({
   route: '/presets',
   mount: async function (root) {
     let code = 1;
+    let presetOptions = [];
     let bundleItems = [];
     let hostAgendaJson = '';
+    let presetMeta = {};
+    let userOptions = [];
+    let userNameByFeishuId = {};
+    let metaParticipants = [];
     let tab = 'table';
     let editingDocKey = null;
     let saveTimer = null;
+    let metaSaveTimer = null;
     let saving = false;
+    let metaSaving = false;
     let skipInlineCommit = false;
 
     const esc = s => (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const docKey = (i, bi) => i + '-' + bi;
     const roleLabel = r => ({ SOURCE: '源资料', OUTPUT: '产出', BOTH: '双向' }[r] || r || '—');
+    const text = v => (v == null ? '' : String(v));
+    const agendaOrderTitlePattern = /^会序\s*\d+\s*([:：\-—]\s*)?(.*)$/;
+    const parseNames = s => String(s || '').split(',').map(v => v.trim()).filter(Boolean);
+    const ownerTagLabel = uid => {
+      const name = userNameByFeishuId[uid];
+      return name ? (name + ' · ' + uid) : uid;
+    };
 
     const setAutosaveStatus = (state, text) => {
       const el = document.getElementById('autosave-status');
       if (!el) return;
       el.className = 'autosave-status autosave-' + state;
       el.textContent = text;
+    };
+
+    const renderPresetOptions = () => {
+      const sel = document.getElementById('preset-code');
+      if (!sel) return;
+      sel.innerHTML = (presetOptions || []).map(p =>
+        `<option value="${p.presetTypeCode}">${p.presetTypeCode} · ${esc(p.displayName || ('会务类型' + p.presetTypeCode))}</option>`
+      ).join('');
+      if (!presetOptions.length) {
+        sel.innerHTML = '<option value="1">1 · 会务类型1</option>';
+      }
+      const hasCurrent = (presetOptions || []).some(p => Number(p.presetTypeCode) === Number(code));
+      if (hasCurrent) {
+        sel.value = String(code);
+      } else if (presetOptions.length) {
+        code = Number(presetOptions[0].presetTypeCode);
+        sel.value = String(code);
+      }
+    };
+
+    const loadPresetOptions = async () => {
+      presetOptions = await AdminApi.fetch('/api/v1/admin/agenda-config/presets');
+      presetOptions = (presetOptions || []).sort((a, b) => Number(a.presetTypeCode) - Number(b.presetTypeCode));
+      renderPresetOptions();
+    };
+
+    const setMetaSaveStatus = (state, msg) => {
+      const el = document.getElementById('meta-save-status');
+      if (!el) return;
+      el.className = 'autosave-status autosave-' + state;
+      el.textContent = msg;
     };
 
     const syncAgendaFieldsFromDom = () => {
@@ -29,8 +74,15 @@ AdminModules.register({
         if (!bundleItems[i]) return;
         const titleEl = tr.querySelector('.ag-title');
         const minEl = tr.querySelector('.ag-min');
+        const ownersEl = tr.querySelector('.ag-owners');
         if (titleEl) bundleItems[i].title = titleEl.value.trim();
         if (minEl) bundleItems[i].minutes = parseInt(minEl.value, 10) || 10;
+        if (ownersEl) {
+          bundleItems[i].owners = ownersEl.value
+            .split(',')
+            .map(v => v.trim())
+            .filter(Boolean);
+        }
       });
     };
 
@@ -57,11 +109,13 @@ AdminModules.register({
 
     const buildPayload = () => {
       syncAgendaFieldsFromDom();
+      normalizeAgendaOrderTitles();
       return bundleItems
         .filter(r => r.title && r.title.trim())
         .map(r => ({
           title: r.title.trim(),
           minutes: r.minutes || 10,
+          owners: (r.owners || []).filter(Boolean),
           bindings: normalizeBindingSlots(r.bindings || []).map(b => ({
             id: b.id || null,
             configName: b.configName,
@@ -72,6 +126,41 @@ AdminModules.register({
             bitableDisplayMode: b.bitableDisplayMode || null
           }))
         }));
+    };
+
+    const normalizeAgendaOrderTitles = () => {
+      bundleItems.forEach((row, idx) => {
+        const raw = (row && row.title ? String(row.title) : '').trim();
+        if (!raw) return;
+        const m = raw.match(agendaOrderTitlePattern);
+        if (!m) return;
+        const tail = (m[2] || '').trim();
+        row.title = tail ? ('会序' + (idx + 1) + '：' + tail) : ('会序' + (idx + 1));
+      });
+    };
+
+    const loadUserOptions = async () => {
+      const map = {};
+      const options = [];
+      let page = 1;
+      const size = 200;
+      while (page <= 20) {
+        const res = await AdminApi.fetch('/api/v1/admin/users?page=' + page + '&size=' + size);
+        const rows = (res && res.records) || [];
+        rows.forEach(r => {
+          const uid = (r.feishuUserId || '').trim();
+          if (!uid || map[uid]) return;
+          const name = (r.userName || '').trim();
+          map[uid] = name;
+          options.push({ uid: uid, name: name });
+        });
+        const total = Number(res && res.total ? res.total : rows.length);
+        const fetched = page * size;
+        if (!rows.length || fetched >= total) break;
+        page += 1;
+      }
+      userOptions = options.sort((a, b) => (a.name || a.uid).localeCompare(b.name || b.uid, 'zh-CN'));
+      userNameByFeishuId = map;
     };
 
     const autoSaveBundle = () => {
@@ -253,14 +342,43 @@ AdminModules.register({
       return renderDocTileView(d, agendaIndex, bindingIndex);
     };
 
+    const reorderAgenda = (from, to) => {
+      if (from === to || from < 0 || to < 0 || from >= bundleItems.length || to >= bundleItems.length) return;
+      const moved = bundleItems[from];
+      bundleItems.splice(from, 1);
+      bundleItems.splice(to, 0, moved);
+      normalizeAgendaOrderTitles();
+    };
+
     const bindAgendaTableEvents = el => {
       el.querySelector('#ag-add-row').onclick = () => {
-        bundleItems.push({ title: '新议题', minutes: 10, hasRollCallKeyword: false, bindings: [] });
+        bundleItems.push({ title: '新议题', minutes: 10, owners: [], hasRollCallKeyword: false, bindings: [] });
         renderAgendaTable();
         autoSaveBundle();
       };
-      el.querySelectorAll('.ag-title, .ag-min').forEach(inp => {
+      el.querySelectorAll('.ag-title, .ag-min, .ag-owners').forEach(inp => {
         inp.addEventListener('blur', () => autoSaveBundle());
+      });
+      el.querySelectorAll('.ag-owner-add').forEach(btn => btn.onclick = () => {
+        const i = +btn.dataset.i;
+        const sel = el.querySelector('.ag-owner-sel[data-i="' + i + '"]');
+        if (!bundleItems[i] || !sel) return;
+        const uid = (sel.value || '').trim();
+        if (!uid) return;
+        if (!bundleItems[i].owners) bundleItems[i].owners = [];
+        if (!bundleItems[i].owners.includes(uid)) {
+          bundleItems[i].owners.push(uid);
+          renderAgendaTable();
+          autoSaveBundle();
+        }
+      });
+      el.querySelectorAll('.ag-owner-del').forEach(btn => btn.onclick = () => {
+        const i = +btn.dataset.i;
+        const uid = (btn.dataset.uid || '').trim();
+        if (!bundleItems[i] || !uid) return;
+        bundleItems[i].owners = (bundleItems[i].owners || []).filter(v => v !== uid);
+        renderAgendaTable();
+        autoSaveBundle();
       });
       el.querySelectorAll('.ag-up').forEach(btn => btn.onclick = () => {
         const i = +btn.dataset.i;
@@ -281,6 +399,37 @@ AdminModules.register({
           renderAgendaTable();
           autoSaveBundle();
         }
+      });
+      el.querySelectorAll('.agenda-card').forEach(card => {
+        card.ondragstart = e => {
+          const i = Number(card.dataset.i);
+          if (Number.isNaN(i)) return;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', String(i));
+          card.classList.add('dragging');
+        };
+        card.ondragend = () => {
+          card.classList.remove('dragging');
+          el.querySelectorAll('.agenda-card.drag-over').forEach(x => x.classList.remove('drag-over'));
+        };
+        card.ondragover = e => {
+          e.preventDefault();
+          card.classList.add('drag-over');
+          e.dataTransfer.dropEffect = 'move';
+        };
+        card.ondragleave = () => {
+          card.classList.remove('drag-over');
+        };
+        card.ondrop = e => {
+          e.preventDefault();
+          const from = Number(e.dataTransfer.getData('text/plain'));
+          const to = Number(card.dataset.i);
+          card.classList.remove('drag-over');
+          if (Number.isNaN(from) || Number.isNaN(to)) return;
+          reorderAgenda(from, to);
+          renderAgendaTable();
+          autoSaveBundle();
+        };
       });
       el.querySelectorAll('.ag-del').forEach(btn => btn.onclick = async () => {
         if (!confirm('删除该会序项及其全部资料？')) return;
@@ -389,12 +538,147 @@ AdminModules.register({
 
     const loadBundle = async () => {
       code = parseInt(document.getElementById('preset-code').value, 10);
+      if (!code || code <= 0) {
+        throw new Error('请选择有效会务类型');
+      }
       const preset = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code);
+      presetMeta = {
+        displayName: text(preset.displayName),
+        company: text(preset.company),
+        department: text(preset.department),
+        groupName: text(preset.groupName),
+        scheduleNote: text(preset.scheduleNote),
+        agendaSummary: text(preset.agendaSummary),
+        organizerName: text(preset.organizerName),
+        leaderName: text(preset.leaderName),
+        participantsNames: text(preset.participantsNames)
+      };
       hostAgendaJson = preset.hostAgendaJson || '';
       bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
       editingDocKey = null;
       const jsonEl = document.getElementById('host-agenda-json');
       if (jsonEl) jsonEl.value = hostAgendaJson;
+      syncMetaForm();
+    };
+
+    const syncMetaForm = () => {
+      const set = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.value = text(v);
+      };
+      set('meta-display-name', presetMeta.displayName);
+      set('meta-company', presetMeta.company);
+      set('meta-department', presetMeta.department);
+      set('meta-group-name', presetMeta.groupName);
+      set('meta-schedule-note', presetMeta.scheduleNote);
+      set('meta-agenda-summary', presetMeta.agendaSummary);
+      setupNameSelect('meta-organizer-name', presetMeta.organizerName, '选择组织者...');
+      setupNameSelect('meta-leader-name', presetMeta.leaderName, '选择负责人...');
+      setupNameSelect('meta-participant-select', '', '选择参会人...');
+      metaParticipants = parseNames(presetMeta.participantsNames);
+      renderMetaParticipantChips();
+    };
+
+    const collectMetaForm = () => {
+      const get = id => {
+        const el = document.getElementById(id);
+        return el ? el.value.trim() : '';
+      };
+      return {
+        displayName: get('meta-display-name'),
+        company: get('meta-company'),
+        department: get('meta-department'),
+        groupName: get('meta-group-name'),
+        scheduleNote: get('meta-schedule-note'),
+        agendaSummary: get('meta-agenda-summary'),
+        organizerName: get('meta-organizer-name'),
+        leaderName: get('meta-leader-name'),
+        participantsNames: metaParticipants.join(',')
+      };
+    };
+
+    const setupNameSelect = (id, currentName, placeholder) => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const opts = [`<option value="">${esc(placeholder || '请选择...')}</option>`];
+      (userOptions || []).forEach(u => {
+        const name = (u.name || '').trim();
+        if (!name) return;
+        opts.push(`<option value="${esc(name)}">${esc(name + ' · ' + u.uid)}</option>`);
+      });
+      const current = String(currentName || '').trim();
+      if (current && !opts.some(o => o.includes(`value="${esc(current)}"`))) {
+        opts.push(`<option value="${esc(current)}">${esc(current)}（历史值）</option>`);
+      }
+      el.innerHTML = opts.join('');
+      el.value = current || '';
+    };
+
+    const renderMetaParticipantChips = () => {
+      const box = document.getElementById('meta-participant-chips');
+      if (!box) return;
+      if (!metaParticipants.length) {
+        box.innerHTML = '<span class="muted">未选择参会人</span>';
+        return;
+      }
+      box.innerHTML = metaParticipants.map((name, idx) =>
+        `<span class="owner-chip">${esc(name)}<button type="button" class="meta-participant-del" data-idx="${idx}">×</button></span>`
+      ).join('');
+    };
+
+    const saveMeta = async (silent) => {
+      presetMeta = collectMetaForm();
+      if (metaSaving) return;
+      metaSaving = true;
+      setMetaSaveStatus('saving', '保存中…');
+      try {
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code, {
+          method: 'PUT',
+          body: JSON.stringify(Object.assign({ presetTypeCode: code, hostAgendaJson }, presetMeta))
+        });
+        setMetaSaveStatus('saved', silent ? '已自动保存' : '已保存');
+      } catch (e) {
+        setMetaSaveStatus('error', '保存失败: ' + (e.message || ''));
+      } finally {
+        metaSaving = false;
+      }
+    };
+
+    const autoSaveMeta = () => {
+      clearTimeout(metaSaveTimer);
+      metaSaveTimer = setTimeout(() => saveMeta(true), 550);
+    };
+
+    const bindMetaEvents = () => {
+      const panel = document.getElementById('preset-meta-panel');
+      if (!panel) return;
+      panel.querySelectorAll('input, textarea, select').forEach(el => {
+        el.addEventListener('input', autoSaveMeta);
+        el.addEventListener('blur', autoSaveMeta);
+        el.addEventListener('change', autoSaveMeta);
+      });
+      const addBtn = document.getElementById('meta-participant-add');
+      const sel = document.getElementById('meta-participant-select');
+      if (addBtn && sel) {
+        addBtn.onclick = () => {
+          const name = (sel.value || '').trim();
+          if (!name) return;
+          if (!metaParticipants.includes(name)) {
+            metaParticipants.push(name);
+            renderMetaParticipantChips();
+            autoSaveMeta();
+          }
+        };
+      }
+      panel.addEventListener('click', e => {
+        const btn = e.target && e.target.closest('.meta-participant-del');
+        if (!btn) return;
+        const idx = Number(btn.dataset.idx);
+        if (Number.isNaN(idx) || idx < 0 || idx >= metaParticipants.length) return;
+        metaParticipants.splice(idx, 1);
+        renderMetaParticipantChips();
+        autoSaveMeta();
+      });
     };
 
     const renderAgendaTable = () => {
@@ -414,7 +698,14 @@ AdminModules.register({
         if (row.hasOrphanDocs) tags.push('<span class="tag tag-warn">含未挂载资料</span>');
         const tagHtml = tags.length ? `<div class="agenda-tags">${tags.join('')}</div>` : '';
         const bindings = row.bindings || [];
-        html += `<article class="agenda-card ag-row" data-i="${i}">
+        const ownersText = (row.owners || []).join(', ');
+        const ownerTags = (row.owners || []).map(uid =>
+          `<span class="owner-chip">${esc(ownerTagLabel(uid))}<button type="button" class="ag-owner-del" data-i="${i}" data-uid="${esc(uid)}">×</button></span>`
+        ).join('');
+        const ownerOptions = ['<option value="">选择负责人...</option>']
+          .concat(userOptions.map(o => `<option value="${esc(o.uid)}">${esc(o.name ? (o.name + ' · ' + o.uid) : o.uid)}</option>`))
+          .join('');
+        html += `<article class="agenda-card ag-row" data-i="${i}" draggable="true">
           <div class="agenda-rail">
             <span class="agenda-num">${i + 1}</span>
             ${i < bundleItems.length - 1 ? '<span class="agenda-rail-line" aria-hidden="true"></span>' : ''}
@@ -426,6 +717,14 @@ AdminModules.register({
                 <label class="agenda-min-label" title="${AdminHints.presets.agendaMinutes.replace(/"/g, '&quot;')}"><span>时长</span>
                   <input class="ag-min" type="number" min="1" max="999" value="${row.minutes || 10}"/><span class="agenda-min-unit">分钟</span>
                 </label>
+                <label class="agenda-owner-label" title="${AdminHints.presets.agendaOwners.replace(/"/g, '&quot;')}">
+                  <span>负责人</span>
+                  <input class="ag-owners" type="text" placeholder="ou_xxx_a,ou_xxx_b" value="${esc(ownersText)}"/>
+                </label>
+                <div class="agenda-owner-picker">
+                  <select class="ag-owner-sel" data-i="${i}">${ownerOptions}</select>
+                  <button type="button" class="secondary ag-owner-add" data-i="${i}">添加</button>
+                </div>
                 <div class="btn-group btn-group-icon">
                   <button type="button" class="secondary ag-up" data-i="${i}" ${i === 0 ? 'disabled' : ''}>↑</button>
                   <button type="button" class="secondary ag-down" data-i="${i}" ${i === bundleItems.length - 1 ? 'disabled' : ''}>↓</button>
@@ -433,6 +732,7 @@ AdminModules.register({
                 </div>
               </div>
               ${tagHtml}
+              <div class="agenda-owner-chips">${ownerTags || '<span class="muted">未设置负责人</span>'}</div>
             </header>
             <section class="agenda-card-docs">
               <div class="agenda-doc-toolbar">
@@ -454,9 +754,11 @@ AdminModules.register({
     };
 
     const render = () => {
+      document.getElementById('preset-meta-panel').classList.toggle('hidden', tab !== 'basic');
       document.getElementById('agenda-table-panel').classList.toggle('hidden', tab !== 'table');
       document.getElementById('agenda-json-panel').classList.toggle('hidden', tab !== 'json');
       document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      if (tab === 'basic') syncMetaForm();
       if (tab === 'table') renderAgendaTable();
     };
 
@@ -467,6 +769,7 @@ AdminModules.register({
           <div class="toolbar-row">
             <label class="field-inline" title="${AdminHints.presets.presetCode.replace(/"/g, '&quot;')}">会务类型<select id="preset-code"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
             <button type="button" class="primary" id="load-preset">加载</button>
+            <button type="button" class="secondary" id="create-preset">新增会务类型</button>
             <button type="button" class="secondary" id="validate-preset">校验会序</button>
             <button type="button" class="secondary" id="preview-preset">合并预览</button>
           </div>
@@ -475,13 +778,35 @@ AdminModules.register({
             <button type="button" class="secondary" id="refresh-cache">刷新 preset 缓存</button>
             <button type="button" class="secondary" id="refresh-meetings-dry">预览刷新未开会</button>
             <button type="button" class="secondary" id="refresh-meetings">执行刷新未开会</button>
+            <button type="button" class="secondary" id="trigger-owner-notify">手动触发会序确认通知</button>
           </div>
         </div>
       </div>
       <div class="panel">
         <div class="tabs">
+          <button type="button" data-tab="basic">基础信息</button>
           <button type="button" data-tab="table" class="active">会序与资料</button>
           <button type="button" data-tab="json">JSON 高级</button>
+        </div>
+        <div id="preset-meta-panel" class="hidden">
+          <div class="preset-meta-head">
+            <p class="muted">维护会务类型基础属性（与数据库字段一一对应）。输入后自动保存，无需逐项点确认。</p>
+            <span id="meta-save-status" class="autosave-status autosave-idle">修改后自动保存</span>
+          </div>
+          <div class="preset-meta-grid">
+            ${AdminForm.field('显示名称', '<input id="meta-display-name" type="text" placeholder="如 会议议程模板"/>', '对应 int_meeting_type_preset.display_name')}
+            ${AdminForm.field('集团/公司', '<input id="meta-company" type="text" placeholder="如 吉青汽车科技集团"/>', '对应 int_meeting_type_preset.company')}
+            ${AdminForm.field('部门', '<input id="meta-department" type="text" placeholder="如 经营管理中心"/>', '对应 int_meeting_type_preset.department')}
+            ${AdminForm.field('小组名称', '<input id="meta-group-name" type="text" placeholder="如 会议计划表"/>', '对应 int_meeting_type_preset.group_name')}
+            ${AdminForm.field('组织者', '<select id="meta-organizer-name"></select>', '对应 int_meeting_type_preset.organizer_name')}
+            ${AdminForm.field('负责人', '<select id="meta-leader-name"></select>', '对应 int_meeting_type_preset.leader_name')}
+          </div>
+          <div class="preset-meta-stack">
+            ${AdminForm.field('参会人（多选）', '<div class="meta-participant-picker"><select id="meta-participant-select"></select><button type="button" class="secondary" id="meta-participant-add">添加</button></div><div id="meta-participant-chips" class="agenda-owner-chips"></div>', '对应 int_meeting_type_preset.participants_names')}
+            ${AdminForm.field('排期备注', '<textarea id="meta-schedule-note" rows="2" class="code-area" placeholder="如 每周一 9:30"></textarea>', '对应 int_meeting_type_preset.schedule_note')}
+            ${AdminForm.field('议题摘要', '<textarea id="meta-agenda-summary" rows="3" class="code-area" placeholder="如 集团综合职能事务汇报"></textarea>', '对应 int_meeting_type_preset.agenda_summary')}
+          </div>
+          <p class="preset-meta-actions"><button type="button" class="secondary" id="save-meta">立即保存</button></p>
         </div>
         <div id="agenda-table-panel"><div id="agenda-table-wrap"></div></div>
         <div id="agenda-json-panel" class="hidden">
@@ -491,13 +816,124 @@ AdminModules.register({
         </div>
       </div>
       <pre id="preview-out" class="panel hidden"></pre>
-      <pre id="validate-out" class="panel hidden"></pre>`;
+      <pre id="validate-out" class="panel hidden"></pre>
+      <div class="panel hidden form-editor" id="preset-create-editor">
+        <h3>新增会务类型</h3>
+        <p class="form-hint">一次填写后提交。编号可留空自动分配。</p>
+        ${AdminForm.field('会务类型编号', '<input id="preset-create-code" type="number" min="1" placeholder="留空自动分配"/>', '正整数，留空自动使用下一个编号')}
+        ${AdminForm.field('会务类型名称', '<input id="preset-create-name" type="text" placeholder="如 经营例会"/>', '建议填写便于识别的业务名称')}
+        <p id="preset-create-msg" class="msg hidden"></p>
+        <div class="toolbar">
+          <button type="button" class="primary" id="preset-create-submit">提交创建</button>
+          <button type="button" class="secondary" id="preset-create-cancel">取消</button>
+        </div>
+      </div>
+      <div class="panel hidden form-editor" id="owner-notify-editor">
+        <h3>手动触发会序确认通知</h3>
+        <p class="form-hint">按当前会务类型（preset code）批量触发 PRE 通知流程。默认模板为 pre_10m_default。</p>
+        ${AdminForm.field('模板编码', '<input id="owner-notify-template-code" type="text" placeholder="pre_10m_default（留空使用默认）"/>')}
+        ${AdminForm.field('跳过已有执行', '<label class="check-label"><input id="owner-notify-skip-existing" type="checkbox" checked/> 仅触发尚未执行 PRE 的会议</label>')}
+        <p id="owner-notify-msg" class="msg hidden"></p>
+        <div class="toolbar">
+          <button type="button" class="primary" id="owner-notify-submit">提交触发</button>
+          <button type="button" class="secondary" id="owner-notify-cancel">取消</button>
+        </div>
+      </div>`;
 
     root.querySelectorAll('.tabs button').forEach(b => {
       b.onclick = () => { tab = b.dataset.tab; render(); };
     });
-    document.getElementById('preset-code').onchange = async () => { await loadBundle(); render(); };
+    document.getElementById('save-meta').onclick = async () => { await saveMeta(false); };
+    document.getElementById('preset-code').onchange = async () => {
+      clearTimeout(metaSaveTimer);
+      await loadBundle();
+      render();
+      setMetaSaveStatus('idle', '修改后自动保存');
+    };
     document.getElementById('load-preset').onclick = async () => { await loadBundle(); render(); setAutosaveStatus('idle', '已加载'); };
+    document.getElementById('create-preset').onclick = () => {
+      const ed = document.getElementById('preset-create-editor');
+      document.getElementById('preset-create-code').value = '';
+      document.getElementById('preset-create-name').value = '';
+      const msg = document.getElementById('preset-create-msg');
+      msg.className = 'msg hidden';
+      msg.textContent = '';
+      AdminUi.openEditor(ed);
+    };
+    document.getElementById('preset-create-cancel').onclick = () => {
+      AdminUi.closeEditor(document.getElementById('preset-create-editor'));
+    };
+    document.getElementById('trigger-owner-notify').onclick = () => {
+      const ed = document.getElementById('owner-notify-editor');
+      document.getElementById('owner-notify-template-code').value = 'pre_10m_default';
+      document.getElementById('owner-notify-skip-existing').checked = true;
+      const msg = document.getElementById('owner-notify-msg');
+      msg.className = 'msg hidden';
+      msg.textContent = '';
+      AdminUi.openEditor(ed);
+    };
+    document.getElementById('owner-notify-cancel').onclick = () => {
+      AdminUi.closeEditor(document.getElementById('owner-notify-editor'));
+    };
+    document.getElementById('owner-notify-submit').onclick = async () => {
+      const msg = document.getElementById('owner-notify-msg');
+      const templateCode = document.getElementById('owner-notify-template-code').value.trim();
+      const skipExisting = !!document.getElementById('owner-notify-skip-existing').checked;
+      try {
+        const res = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/trigger-owner-confirm-notify', {
+          method: 'POST',
+          body: JSON.stringify({
+            templateCode: templateCode,
+            skipExisting: skipExisting
+          })
+        });
+        AdminUi.closeEditor(document.getElementById('owner-notify-editor'));
+        if (res && res.mode === 'preset_direct') {
+          const success = Number(res.successSteps || 0);
+          const failed = Number(res.failedSteps || 0);
+          setAutosaveStatus('saved', '已按 code 触发：成功步骤 ' + success + '，失败步骤 ' + failed);
+        } else {
+          const matched = Number(res && res.matchedMeetings ? res.matchedMeetings : 0);
+          const triggered = Number(res && res.triggeredMeetings ? res.triggeredMeetings : 0);
+          setAutosaveStatus('saved', '已触发：匹配 ' + matched + ' 场，实际触发 ' + triggered + ' 场');
+        }
+      } catch (e) {
+        msg.className = 'msg msg-err';
+        msg.classList.remove('hidden');
+        msg.textContent = e.message || '触发失败';
+      }
+    };
+    document.getElementById('preset-create-submit').onclick = async () => {
+      const msg = document.getElementById('preset-create-msg');
+      const codeRaw = document.getElementById('preset-create-code').value.trim();
+      const nameRaw = document.getElementById('preset-create-name').value.trim();
+      const codeNum = codeRaw ? Number(codeRaw) : null;
+      if (codeNum != null && (!Number.isInteger(codeNum) || codeNum <= 0)) {
+        msg.className = 'msg msg-err';
+        msg.classList.remove('hidden');
+        msg.textContent = '编号必须为正整数';
+        return;
+      }
+      try {
+        const created = await AdminApi.fetch('/api/v1/admin/agenda-config/presets', {
+          method: 'POST',
+          body: JSON.stringify({
+            presetTypeCode: codeNum,
+            displayName: nameRaw
+          })
+        });
+        code = Number(created.code);
+        await loadPresetOptions();
+        await loadBundle();
+        render();
+        AdminUi.closeEditor(document.getElementById('preset-create-editor'));
+        setAutosaveStatus('saved', '已创建会务类型 #' + code);
+      } catch (e) {
+        msg.className = 'msg msg-err';
+        msg.classList.remove('hidden');
+        msg.textContent = e.message || '创建失败';
+      }
+    };
     document.getElementById('save-json').onclick = async () => {
       if (!confirm('仅保存会序 JSON，资料 agenda_index 不会联动。继续？')) return;
       await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code, {
@@ -534,7 +970,10 @@ AdminModules.register({
       alert('已刷新 ' + r.count + ' 场');
     };
 
+    await loadUserOptions();
+    await loadPresetOptions();
     await loadBundle();
+    bindMetaEvents();
     render();
   }
 });

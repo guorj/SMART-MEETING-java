@@ -14,6 +14,11 @@ spring:
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
+  servlet:
+    multipart:
+      max-file-size: ${MEETING_VOICEPRINT_MAX_FILE_SIZE:10MB}
+      max-request-size: ${MEETING_VOICEPRINT_MAX_REQUEST_SIZE:10MB}
+
   datasource:
     url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:intelligence}
@@ -63,6 +68,23 @@ spring:
 # 业务配置（默认值，各 profile 可覆盖）
 # ============================================================
 meeting:
+  pipeline:
+    post-auto-trigger:
+      # 会议结束后自动触发 POST 流水线；仅补会后触发，不涉及 MID 触发器
+      enabled: ${MEETING_PIPELINE_POST_AUTO_TRIGGER_ENABLED:true}
+      # 为空时按 stage=POST 的默认启用模板执行；可指定模板编码精确触发
+      template-code: ${MEETING_PIPELINE_POST_TEMPLATE_CODE:}
+  scheduler:
+    # PRE 自动触发总开关（会前 24h / 10min 双时点）
+    pre-enabled: ${MEETING_SCHEDULER_PRE_ENABLED:true}
+    # 触发窗口（分钟），用于容忍定时任务扫描误差
+    pre-window-minutes: ${MEETING_SCHEDULER_PRE_WINDOW_MINUTES:5}
+    # 会前 24h 对应 PRE 模板编码（为空则不触发该时点；两项都为空时回退旧逻辑：24h 单次触发默认 PRE 模板）
+    pre-24h-template-code: ${MEETING_SCHEDULER_PRE_24H_TEMPLATE_CODE:}
+    # 会前 10min 对应 PRE 模板编码（为空则不触发该时点）
+    pre-10m-template-code: ${MEETING_SCHEDULER_PRE_10M_TEMPLATE_CODE:}
+    # 调度扫描周期（毫秒）
+    scan-ms: ${MEETING_SCHEDULER_SCAN_MS:300000}
   database:
     # 启动时只读校验会序飞书配置（不写库）；关闭可设 MEETING_DB_VALIDATE_SEED=false
     validate-seed-on-startup: ${MEETING_DB_VALIDATE_SEED:true}

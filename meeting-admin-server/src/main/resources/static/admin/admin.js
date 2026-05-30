@@ -2,13 +2,46 @@
   const TOKEN_KEY = 'sm-admin-token';
   let modules = [];
   let scriptsLoaded = {};
+  let navigateSeq = 0;
+
+  function readJsonSafely(text) {
+    if (!text) return null;
+    try {
+      return JSON.parse(text);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function shorten(text, max) {
+    const s = String(text == null ? '' : text);
+    return s.length > max ? (s.slice(0, max) + '...') : s;
+  }
+
+  function renderModuleError(message) {
+    const root = document.getElementById('module-root');
+    root.innerHTML = '<div class="panel"><p class="msg msg-err">' + message + '</p></div>';
+  }
 
   window.AdminApi = {
     token: () => sessionStorage.getItem(TOKEN_KEY) || '',
     fetch: async (path, opts = {}) => {
-      const headers = Object.assign({ 'X-Admin-Token': AdminApi.token(), 'Content-Type': 'application/json' }, opts.headers || {});
-      const res = await fetch(path, Object.assign({}, opts, { headers }));
-      const json = await res.json();
+      const reqOpts = Object.assign({}, opts);
+      const headers = Object.assign({ 'X-Admin-Token': AdminApi.token() }, reqOpts.headers || {});
+      const hasContentType = headers['Content-Type'] || headers['content-type'];
+      if (!(reqOpts.body instanceof FormData) && !hasContentType) {
+        headers['Content-Type'] = 'application/json';
+      }
+      const res = await fetch(path, Object.assign({}, reqOpts, { headers }));
+      const text = await res.text();
+      const json = readJsonSafely(text);
+      if (!res.ok) {
+        if (json && json.message) throw new Error(json.message);
+        throw new Error('HTTP ' + res.status + ': ' + shorten(text, 160));
+      }
+      if (!json) {
+        throw new Error('服务返回非JSON: ' + shorten(text, 160));
+      }
       if (json.code !== 0) throw new Error(json.message || 'request failed');
       return json.data;
     }
@@ -17,6 +50,42 @@
   window.AdminModules = {
     registry: {},
     register: function (def) { this.registry[def.route] = def; }
+  };
+
+  window.AdminUi = {
+    openEditor: function (editorEl) {
+      if (!editorEl) return;
+      this.closeEditor(editorEl);
+      const backdrop = document.createElement('div');
+      backdrop.className = 'admin-editor-backdrop';
+      const close = () => this.closeEditor(editorEl);
+      backdrop.onclick = close;
+      editorEl.__adminEditorBackdrop = backdrop;
+      editorEl.__adminEditorEscHandler = (e) => {
+        if (e.key === 'Escape') close();
+      };
+      document.addEventListener('keydown', editorEl.__adminEditorEscHandler);
+      document.body.appendChild(backdrop);
+      editorEl.classList.remove('hidden');
+      editorEl.classList.add('admin-editor-modal');
+      document.body.classList.add('admin-modal-lock');
+    },
+    closeEditor: function (editorEl) {
+      if (!editorEl) return;
+      if (editorEl.__adminEditorEscHandler) {
+        document.removeEventListener('keydown', editorEl.__adminEditorEscHandler);
+        editorEl.__adminEditorEscHandler = null;
+      }
+      if (editorEl.__adminEditorBackdrop && editorEl.__adminEditorBackdrop.parentNode) {
+        editorEl.__adminEditorBackdrop.parentNode.removeChild(editorEl.__adminEditorBackdrop);
+      }
+      editorEl.__adminEditorBackdrop = null;
+      editorEl.classList.add('hidden');
+      editorEl.classList.remove('admin-editor-modal');
+      if (!document.querySelector('.admin-editor-modal')) {
+        document.body.classList.remove('admin-modal-lock');
+      }
+    }
   };
 
   function showLogin() {
@@ -35,6 +104,8 @@
     nav.innerHTML = '';
     for (const m of modules) {
       if (!m.enabled) continue;
+      if (!m.displayName || !String(m.displayName).trim()) continue;
+      if (!m.uiRouteHash || !String(m.uiRouteHash).trim()) continue;
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = m.displayName;
@@ -50,30 +121,53 @@
       const s = document.createElement('script');
       s.src = m.scriptPath;
       s.onload = resolve;
-      s.onerror = reject;
+      s.onerror = () => reject(new Error('模块脚本加载失败: ' + m.scriptPath));
       document.body.appendChild(s);
     });
     scriptsLoaded[m.moduleId] = true;
   }
 
   async function navigate(hash) {
+    const seq = ++navigateSeq;
     const fullHash = hash || location.hash || '#/presets';
     if (hash) {
       location.hash = hash;
     }
     const routePath = (location.hash || '#/presets').replace('#', '').split('?')[0];
     const m = modules.find(x => x.uiRouteHash === '#' + routePath);
-    if (!m) return;
-    await ensureScript(m);
+    const root = document.getElementById('module-root');
+    root.innerHTML = '<div class="panel"><p class="muted">加载中...</p></div>';
+    if (!m) {
+      document.getElementById('route-title').textContent = '模块不可用';
+      renderModuleError('当前模块不存在或未启用：' + routePath);
+      return;
+    }
+    try {
+      await ensureScript(m);
+    } catch (e) {
+      if (seq !== navigateSeq) return;
+      document.getElementById('route-title').textContent = m.displayName;
+      renderModuleError(e.message || '模块脚本加载失败');
+      return;
+    }
+    if (seq !== navigateSeq) return;
     document.querySelectorAll('#sidebar-nav button').forEach(b => {
       b.classList.toggle('active', b.dataset.hash === m.uiRouteHash);
     });
     document.getElementById('route-title').textContent = m.displayName;
-    const root = document.getElementById('module-root');
     root.innerHTML = '';
     const mod = AdminModules.registry[routePath];
-    if (mod && mod.mount) mod.mount(root);
-    else root.innerHTML = '<p class="msg">模块脚本未加载</p>';
+    if (!mod || !mod.mount) {
+      renderModuleError('模块脚本未注册：' + routePath);
+      return;
+    }
+    try {
+      await Promise.resolve(mod.mount(root));
+      if (seq !== navigateSeq) return;
+    } catch (e) {
+      if (seq !== navigateSeq) return;
+      renderModuleError('模块加载失败：' + (e && e.message ? e.message : 'unknown error'));
+    }
   }
 
   document.getElementById('login-btn').onclick = async () => {

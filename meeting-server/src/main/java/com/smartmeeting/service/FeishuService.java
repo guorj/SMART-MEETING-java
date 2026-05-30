@@ -20,6 +20,8 @@ import com.smartmeeting.matterprogress.feishu.FeishuSpreadsheetPlainTextFetcher;
 import com.smartmeeting.config.feishu.FeishuResourceKind;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.*;
 
 /**
@@ -335,6 +337,89 @@ public class FeishuService {
             log.error("Exception sending interactive card: {}", e.getMessage());
             return false;
         }
+    }
+
+    public record CalendarCreateResult(boolean success, String eventId, String message) {}
+
+    public record TaskCreateResult(boolean success, String taskId, String message) {}
+
+    /**
+     * 创建飞书日历事件（简化封装）。
+     * <p>
+     * 说明：若当前应用未开通 calendar scope，会返回失败但不抛异常，供上层做降级提示。
+     */
+    public CalendarCreateResult createCalendarEvent(String summary, LocalDateTime startAt, String roomHint, String chatId) {
+        try {
+            String token = getTenantToken();
+            String url = baseUrl + "/open-apis/calendar/v4/calendars/primary/events";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(token);
+
+            long startTs = toEpochSeconds(startAt != null ? startAt : LocalDateTime.now().plusMinutes(5));
+            long endTs = toEpochSeconds((startAt != null ? startAt : LocalDateTime.now().plusMinutes(5)).plusMinutes(60));
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("summary", summary == null || summary.isBlank() ? "会议邀约" : summary);
+            body.put("description", roomHint == null || roomHint.isBlank() ? "" : ("会议室建议：" + roomHint));
+            body.put("start_time", Map.of("timestamp", String.valueOf(startTs)));
+            body.put("end_time", Map.of("timestamp", String.valueOf(endTs)));
+
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
+                    url, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode data = resp.getBody() == null ? null : resp.getBody().path("data");
+            String eventId = data == null ? "" : data.path("event").path("event_id").asText("");
+            if (eventId.isBlank()) {
+                return new CalendarCreateResult(false, "", "empty_event_id");
+            }
+            if (chatId != null && !chatId.isBlank()) {
+                sendMessage(chatId, "日历邀约已创建：" + summary);
+            }
+            return new CalendarCreateResult(true, eventId, "ok");
+        } catch (Exception e) {
+            log.warn("createCalendarEvent failed: {}", e.getMessage());
+            return new CalendarCreateResult(false, "", e.getMessage());
+        }
+    }
+
+    /**
+     * 创建飞书任务（若任务 API 不可用则回退为文本提醒，保证流程不中断）。
+     */
+    public TaskCreateResult createTask(String title, String assigneeUserId, LocalDateTime dueAt, String externalRef) {
+        if (assigneeUserId == null || assigneeUserId.isBlank()) {
+            return new TaskCreateResult(false, "", "assignee missing");
+        }
+        try {
+            String token = getTenantToken();
+            String url = baseUrl + "/open-apis/task/v2/tasks";
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBearerAuth(token);
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("summary", title == null || title.isBlank() ? "会议待办" : title);
+            body.put("description", externalRef == null ? "" : externalRef);
+            body.put("origin", Map.of("platform_i18n_name", Map.of("zh_cn", "智能会议系统")));
+            body.put("assignees", List.of(Map.of("id", assigneeUserId, "type", "user_id")));
+            if (dueAt != null) {
+                body.put("due", Map.of("timestamp", String.valueOf(toEpochSeconds(dueAt))));
+            }
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
+                    url, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode data = resp.getBody() == null ? null : resp.getBody().path("data");
+            String taskId = data == null ? "" : data.path("task").path("id").asText("");
+            if (taskId.isBlank()) {
+                sendMessageToUserId(assigneeUserId, "待办同步（降级文本）：" + (title == null ? "会议待办" : title));
+                return new TaskCreateResult(false, "", "task_api_empty_id");
+            }
+            return new TaskCreateResult(true, taskId, "ok");
+        } catch (Exception e) {
+            log.warn("createTask failed, fallback to text: {}", e.getMessage());
+            sendMessageToUserId(assigneeUserId, "待办同步（降级文本）：" + (title == null ? "会议待办" : title));
+            return new TaskCreateResult(false, "", e.getMessage());
+        }
+    }
+
+    private long toEpochSeconds(LocalDateTime time) {
+        return time.atZone(ZoneId.of("Asia/Shanghai")).toEpochSecond();
     }
 
     // ==================== 文档管理 ====================

@@ -57,6 +57,7 @@ public class MeetingRuntimeConfigLoader {
                 case "meeting.host.tts-enabled" -> runtimeConfig.setTtsEnabled(bool);
                 case "meeting.host.roll-call-enabled" -> runtimeConfig.setRollCallEnabled(bool);
                 case "meeting.host.auto-roll-call-after-opening" -> runtimeConfig.setAutoRollCallAfterOpening(bool);
+                case "meeting.host.topic-timeout-strategy" -> runtimeConfig.setTopicTimeoutStrategy(node.asText("REMIND_ONLY"));
                 case "meeting.host.roll-call.window-seconds" -> runtimeConfig.getRollCall().setWindowSeconds(num);
                 case "meeting.host.roll-call.asr-grace-seconds" -> runtimeConfig.getRollCall().setAsrGraceSeconds(num);
                 case "meeting.host.roll-call.online-inventory-seconds" -> runtimeConfig.getRollCall().setOnlineInventorySeconds(num);

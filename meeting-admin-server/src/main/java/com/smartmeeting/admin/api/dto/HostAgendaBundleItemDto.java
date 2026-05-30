@@ -16,6 +16,8 @@ public class HostAgendaBundleItemDto {
     private int index;
     private String title;
     private Integer minutes;
+    @Builder.Default
+    private List<String> owners = new ArrayList<>();
     private boolean hasRollCallKeyword;
     /** 加载时存在 agenda_index 越界或未挂载的资料 */
     private boolean hasOrphanDocs;

@@ -39,21 +39,39 @@ public class PipelineAdminController {
         return ApiResponse.ok(Map.of("id", pipelineAdminService.saveStep(body)));
     }
 
+    @DeleteMapping("/templates/{id}")
+    public ApiResponse<Void> deleteTemplate(@PathVariable long id) {
+        pipelineAdminService.deleteTemplate(id);
+        return ApiResponse.ok();
+    }
+
+    @DeleteMapping("/steps/{id}")
+    public ApiResponse<Void> deleteStep(@PathVariable long id) {
+        pipelineAdminService.deleteStep(id);
+        return ApiResponse.ok();
+    }
+
     @GetMapping("/executions")
     public ApiResponse<List<PipelineExecutionDto>> listExecutions(@RequestParam(required = false) String meetingId) {
         return ApiResponse.ok(pipelineAdminService.listExecutions(meetingId));
     }
 
     @PostMapping("/execute")
-    public ApiResponse<Void> execute(@RequestBody ExecuteReq body) {
-        pipelineAdminService.executePipeline(body.getMeetingId(), body.getStage(), body.getTemplateCode());
-        return ApiResponse.ok();
+    public ApiResponse<Map<String, Object>> execute(@RequestBody ExecuteReq body) {
+        return ApiResponse.ok(pipelineAdminService.executePipeline(
+                body != null ? body.getMeetingId() : null,
+                body != null ? body.getPresetTypeCode() : null,
+                body != null ? body.getStage() : null,
+                body != null ? body.getTemplateCode() : null,
+                body != null ? body.getSkipExisting() : null));
     }
 
     @Data
     public static class ExecuteReq {
         private String meetingId;
+        private Integer presetTypeCode;
         private String stage;
         private String templateCode;
+        private Boolean skipExisting;
     }
 }

@@ -47,7 +47,7 @@ cd smart-meeting-java
 | `push-bot` | feishu-scheduled-bot **推送任务 / 日志**（经 `BotBridgeService` 代理 `/api/tasks`、`/api/logs`） |
 | `users` | **用户管理**：按 userId 一行聚合 `int_user_mapping_feishu`（仅 `feishu_user_id`）+ `int_voiceprint`；`GET/PUT /api/v1/admin/users` |
 | `meetings` | 会议列表/详情/主持与录音链接；详情可跳转 **会议推送日志** |
-| `pipeline` | **流水线编排**：模板/步骤/执行记录管理；触发 `meeting-server` 内部 pipeline 执行 |
+| `pipeline` | **流水线编排**：模板/步骤/执行记录管理；支持条件分支、回调等待（`WAITING_CALLBACK`）、PRE/POST 自动触发 |
 | `settings` | `int_meeting_system_config` + 通知 meeting-server 热加载 |
 
 > meeting-server 飞书指令体系已切换为统一入口：用户发送 `会议管理`，机器人返回 dashboard 入口卡片；开始会议、声纹注册、纪要查看均在 `dashboard.html` 内完成。
@@ -64,6 +64,11 @@ cd smart-meeting-java
 - `ADMIN_TOKEN` / `MEETING_SERVER_URL`
 - `MEETING_NOTIFY_BOT_URL` / `SCHEDULED_BOT_APIKEY`（默认 `jq_int_meeting_key`；三进程须相同）
 - 生产反代示例：`https://oa.qdyhjz.cn/scheduled-bot`（Nginx **不剥**前缀；bot `prod` 配置 `server.servlet.context-path=/scheduled-bot`，与 meeting-server `/meeting-server` 同理）
+
+> **重要（2026-05 更新）**  
+> `MEETING_SERVER_URL` 必须带 meeting-server 上下文前缀，推荐直接配置：  
+> `MEETING_SERVER_URL=http://127.0.0.1:8765/meeting-server`  
+> 否则 admin 桥接调用 pipeline internal（如 `POST /api/v1/internal/pipeline/execute-by-preset`）可能出现 `404 Not Found`。
 
 ## Bot 桥接（推送调度）
 
@@ -106,6 +111,27 @@ UI：`/admin#/push-bot`（任务 + 日志 Tab）；`/admin#/weekly-jobs`（对�
 - `int_processed_command`：命令幂等处理记录
 
 管理端新增 API（`/api/v1/admin/pipeline/*`）与页面（`/admin#/pipeline`）用于模板、步骤和执行触发管理。
+
+### 流水线增强（2026-05）
+
+当前版本已在 v0.17 基础上补齐以下能力（无需新增表结构）：
+
+- 执行态：新增 `WAITING_CALLBACK`（用于飞书卡片回调后续跑）
+- 分支能力：`configJson.condition` 条件表达式（meeting/context 字段匹配）
+- 上下文透传：`sharedContextJson`（跨步骤状态传递）
+- 调度触发：
+  - `PRE`：支持会前 **24h / 10min** 双时点自动触发（可分别绑定模板）
+  - `POST`：会议结束后自动触发
+  - `MID`：当前按业务要求保持手动/外部触发（暂不加自动触发器）
+
+推荐在 `application*.yml` 或环境变量配置：
+
+- `meeting.scheduler.pre-enabled`
+- `meeting.scheduler.pre-window-minutes`
+- `meeting.scheduler.pre-24h-template-code`
+- `meeting.scheduler.pre-10m-template-code`
+- `meeting.pipeline.post-auto-trigger.enabled`
+- `meeting.pipeline.post-auto-trigger.template-code`
 
 ### 三场景音频链路升级（v0.18）
 
@@ -162,6 +188,29 @@ DDL：除 `v0.12` 外，执行 `v0.13-meeting-system-config-audit.sql`（新库�
 | preset 缓存刷新 | 保存 preset 后自动刷 Redis；可手动触发 |
 | 飞书 OAuth | 可选替代静态 Token（默认关） |
 | 集成入口 | bot / meeting-server 外链与反代说明 |
+
+### Pipeline 管理员操作建议（最新）
+
+1. 在 `#/pipeline` 创建两套 PRE 模板：`pre_24h_default`、`pre_10m_default`。  
+2. 在服务配置中分别绑定 24h / 10min 模板编码。  
+3. POST 模板建议保持单套默认模板，开启自动触发。  
+4. 会中 MID 步骤按当前策略继续手动触发，避免误触发影响会中节奏。  
+5. 执行记录出现 `WAITING_CALLBACK` 时，先检查飞书卡片回调地址、token 与按钮点击链路。  
+6. 若需会前收集会序资料（URL/分钟数），可使用 `pre-agenda-fill-init` + `pre-agenda-fill-notify`，回填页面入口为 `/meeting-server/agenda-fill.html?token=...`。  
+
+### 会前流程编排（零基础操作）
+
+如果你希望由会务同学直接在后台搭建会前流程（不写代码），请直接使用：
+
+- [会前流程编排指南-零基础.md](会前流程编排指南-零基础.md)
+
+该指南覆盖：
+
+- 会前 24h / 10min 双模板搭建
+- 步骤顺序与可复制的 `configJson`
+- `WAITING_CALLBACK`、`FAILED`、`TIMEOUT` 排障
+- 上线前检查清单（非技术版本）
+- 会序资料回填链路（个人/群/混合通知）配置样例
 
 详见 [meeting-admin-p2.md](meeting-admin-p2.md)。
 

@@ -230,6 +230,23 @@ meeting:
     topic-confirm-timeout-action: WAIT  # 或 EXTEND_ONCE，与 PRD 定稿一致
 ```
 
+### 9.1 Admin ↔ meeting-server 内部桥接（联调必读）
+
+- `meeting-admin-server` 通过 `MEETING_SERVER_URL` 调用 meeting-server internal API。
+- 若 meeting-server 启用了 `server.servlet.context-path=/meeting-server`（默认即如此），则 `MEETING_SERVER_URL` 必须带该前缀。
+
+推荐：
+
+```bash
+MEETING_SERVER_URL=http://127.0.0.1:8765/meeting-server
+```
+
+常见现象：
+
+- pipeline 按 code 触发时报错  
+  `POST /api/v1/internal/pipeline/execute-by-preset -> 404 Not Found`
+- 根因通常为 `MEETING_SERVER_URL` 未带 `/meeting-server` 前缀或 admin 指向了旧实例。
+
 ---
 
 ## 10. 前端
@@ -267,3 +284,4 @@ meeting:
 | 2026-05-12 | 0.1 | 初稿：对齐 PRD v1.5 与 meeting-server 现状 |
 | 2026-05-12 | 0.2 | TTS 定案：讯飞在线语音合成 WebSocket API；**结束会议**单按钮同时结束主持与录音；WS `tts_meta` / `tts_audio_chunk` 草案；`meeting.tts`；PRD v1.6 |
 | 2026-05-12 | 0.3 | 首版代码落地：`/api/v1/host/meetings/*`、`/ws/host/{meetingId}`、`GET /api/v1/meetings/{id}/host-url`、`/host/{id}` 静态页；讯飞 `XfyunOnlineTtsSynthesizeService`；会中飞书 `MeetingHostFeishuMuteRegistry`；`MeetingRecordingSessionEndService` 前置 `MeetingHostMediaTeardownService`（结束会议=停 ASR+关音频 WS+清主持） |
+| 2026-05-30 | 0.4 | 补充联调约束：`MEETING_SERVER_URL` 必须与 meeting-server context-path 对齐（默认需带 `/meeting-server`），避免 internal pipeline 接口 404。 |

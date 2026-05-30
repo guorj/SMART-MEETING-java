@@ -34,6 +34,24 @@ spring:
 meeting:
   kafka:
     enabled: false
+  # ===== Pipeline 触发器（dev 推荐）=====
+  pipeline:
+    post-auto-trigger:
+      # 会议结束后自动触发 POST Pipeline
+      enabled: true
+      # 为空时按 stage=POST 默认启用模板执行；如需固定模板可填具体 templateCode
+      template-code: ""
+  scheduler:
+    # 会前自动触发 PRE
+    pre-enabled: true
+    # 调度扫描周期（毫秒）
+    scan-ms: 60000
+    # 触发窗口（分钟）
+    pre-window-minutes: 5
+    # 推荐：PRE 分成两套模板，分别在会前 24h 与 10min 触发
+    # 未配置时会回退到旧逻辑：24h 单次触发默认 PRE 模板
+    pre-24h-template-code: "pre_24h_default"
+    pre-10m-template-code: "pre_10m_default"
 
   # 公网入口：WSL frpc (tcp) → Windows 本机 8765；需与飞书/浏览器实际访问一致（无 TLS 反代时用 http + 端口）
   base-url: "https://oa.qdyhjz.cn/meeting-server"

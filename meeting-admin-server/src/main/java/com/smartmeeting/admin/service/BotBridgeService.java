@@ -96,7 +96,7 @@ public class BotBridgeService {
     private JsonNode exchange(HttpMethod method, String path, Map<String, String> query, Object body,
                               int... allowedStatuses) {
         if (!isConfigured()) {
-            throw new BusinessException("feishu-scheduled-bot 未配置：请设置 MEETING_NOTIFY_BOT_URL 与 SCHEDULED_BOT_APIKEY");
+            throw new BusinessException(502, "feishu-scheduled-bot 未配置：请设置 MEETING_NOTIFY_BOT_URL 与 SCHEDULED_BOT_APIKEY");
         }
         String base = bridgeProperties.getBotBaseUrl().replaceAll("/$", "");
         UriComponentsBuilder uri = UriComponentsBuilder.fromHttpUrl(base + path);
@@ -128,12 +128,16 @@ public class BotBridgeService {
             }
             String msg = e.getResponseBodyAsString();
             log.warn("bot {} {} failed: {} {}", method, path, e.getStatusCode(), msg);
-            throw new BusinessException("bot 请求失败 (" + e.getStatusCode() + "): " + summarizeError(msg));
+            throw new BusinessException(502,
+                    "feishu-scheduled-bot 请求失败: " + method + " " + path
+                            + ", HTTP " + e.getStatusCode().value()
+                            + ", detail=" + summarizeError(msg));
         } catch (BusinessException e) {
             throw e;
         } catch (Exception e) {
             log.warn("bot {} {} failed: {}", method, path, e.getMessage());
-            throw new BusinessException("bot 请求失败: " + e.getMessage());
+            throw new BusinessException(502,
+                    "feishu-scheduled-bot 调用异常: " + method + " " + path + ", error=" + e.getMessage());
         }
     }
 
