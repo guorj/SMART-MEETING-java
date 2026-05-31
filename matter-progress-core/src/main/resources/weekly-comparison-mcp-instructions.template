@@ -1,4 +1,4 @@
-## 会前事项对比 — 执行手册
+## 会前事项对比 — 执行手册（重构版）
 
 ### 0. 使用哪个 Skill、哪些 MCP（必须遵守）
 
@@ -13,14 +13,15 @@
 | **MCP 读 wiki** | `lark-mcp__wiki_v2_space_getNode` | URL 含 `/wiki/` 时解析节点再读 docx/bitable |
 
 - 飞书租户应用：**{{weeklyComparisonFeishuAppId}}**（与 Bot `feishu.weekly-comparison.app-id` 一致）
-- **禁止** 臆造数据；读不到的 URL 在报告中标注「未读取」及原因。
-- **禁止** 只输出摘要而不建 Doc。
+- **禁止**臆造数据；读不到的 URL 在报告中标注「未读取」及原因。
+- **禁止**只输出摘要而不建 Doc。
+- **禁止**不读取最新数据使用缓存。
 
 ### 1. 读取 SOURCE（事项表 / 资料）— 用 lark-mcp
 
 对数据块 **[source_feishu_urls]** 每一组 `config` + `url`：
 
-**A. URL 含 `/base/{app_token}?table={table_id}`（多维表格）**
+**A. URL 含 `/base/{app_token}`（多维表格）**
 1. `lark-mcp__bitable_v1_appTableField_list`(app_token, table_id) 了解列名。
 2. `lark-mcp__bitable_v1_appTableRecord_search`(app_token, table_id, page_size=500) 分页拉全表，直至无 page_token。
 3. 将每条记录整理为：事项名称、负责人、状态、计划/完成时间、优先级等（按实际字段名映射）。
@@ -38,39 +39,68 @@
 2. 对每行：`meeting_id`、`title`、`content_markdown`（空则尝试 `content_url`）。
 3. 仅使用 `generation_status='READY'` 的纪要。
 
-### 3. 数据怎么对比（核心逻辑）
+### 3. 数据处理（用于判定待办状态）
 
-在内存中完成下列分析，再写入通报 Doc：
+在内存中完成下列处理，不要把中间分析写入最终文档：
 
-1. **事项快照**：汇总各 SOURCE 中待办/事项（按状态统计：已完成/进行中/延期/未开始等）。
-2. **纪要对齐**：从纪要 `content_markdown` 提取决议、待办、责任人、时间节点，与 SOURCE 事项 **按标题/责任人/关键词** 做匹配。
-3. **差异清单**（表格）：
-   - SOURCE 有、纪要未提及 →「资料有/会议未覆盖」
-   - 纪要有、SOURCE 无 →「会议新增/资料未录入」
-   - 状态不一致（如 SOURCE=进行中、纪要写已完成）→ 标黄说明
-   - 日期/延期：SOURCE 计划日已过且未完成 → 列入「延期风险」
-4. **延期风险**：单独列出延期项、延期天数、责任方（若能从字段解析）。
-5. **附录**：列出所有 SOURCE config 名、飞书 URL、参与对比的 meeting_id 列表。
+1. 从 SOURCE 与会议纪要中抽取待办事项、责任人、时间节点。
+2. 对同名/同责任人/同关键词事项做归并，判定状态为：已完成、未完成/延期、进行中。
+3. 若状态冲突，按会议纪要最近时间描述优先；无法判断时归入「进行中」并在事项文案中标注「状态待确认」。
 
-### 4. 输出：生成飞书通报 Doc 并写入正文（MCP 写 Doc，必须完成）
+### 4. 输出规范（最终文档只允许以下内容）
+
+最终文档正文只输出截图同款结构，且不得追加差异清单、附录、来源会议等其他内容。
+
+#### 4.1 固定标题与时间
+
+第 1 行：
+- `# 会议纪要待办事项`
+
+第 2 行：
+- `生成时间：YYYY-MM-DD HH:mm:ss`
+
+#### 4.2 固定分组与顺序
+
+必须严格按以下顺序输出 3 组：
+
+1. `已完成事项`
+2. `未完成/延期事项`
+3. `进行中事项`
+
+#### 4.3 每项输出字段（禁止来源会议字段）
+
+每条事项按一行输出，字段要求如下（缺失写「未提及」）：
+
+- `事项`：任务内容
+- `责任人`：纪要中明确指派人
+- `时间节点`：截止时间/原计划时间/完成时间（择一或组合）
+- `状态`：已完成 / 未完成 / 延期 / 进行中
+
+推荐格式：
+- `- 事项：...，责任人：...，时间节点：...，状态：...`
+
+若某分组无数据，输出：
+- `- 无`
+
+### 5. 生成飞书通报 Doc 并写入正文（MCP 写 Doc，必须完成）
 
 1. 调用 **`lark-mcp__docx_v1_document_create`** 创建文档：
    - 标题：`{{outputDocTitle}}`
 {{folderTokenLine}}   - 从响应取 `document_id`（即根 block_id）与 Doc URL。
-2. 将第 3 节对比报告 Markdown **按行**转为文本 block（`block_type=2`，每行一个 `text_run`）。
+2. 将第 4 节产出的完整 Markdown **按行**转为文本 block（`block_type=2`，每行一个 `text_run`）。
 3. 调用 **`lark-mcp__docx_v1_documentBlockChildren_create`** 向根 block 追加 children：
    - 路径：`document_id` = 步骤 1 的 ID；**`block_id` = `document_id`**（根 block）。
    - **每批最多 50 个 children**；200 行正文应 ≤ 5 次 MCP 调用。
    - **禁止**逐行单独调用 MCP（一行一次会超时）。
    - 遇 429 限频可短暂等待后重试同一批。
-4. 记录浏览器可打开的 **完整 docx URL** 供步骤 6 使用。
+4. 记录浏览器可打开的 **完整 docx URL** 供步骤 7 使用。
 
-### 5. 写回 MySQL（可选；Bot JDBC 会补写）
+### 6. 写回 MySQL（可选；Bot JDBC 会补写）
 
-生产 `meeting-mysql` 常为只读账号，**优先**在步骤 6 输出 `generatedReportUrl=`，由 Bot JDBC 写回 `{{outputConfigName}}`。
+生产 `meeting-mysql` 常为只读账号，**优先**在步骤 7 输出 `generatedReportUrl=`，由 Bot JDBC 写回 `{{outputConfigName}}`。
 若 MCP 具备写权限且 UPDATE 成功亦可；失败不影响任务成功判定。
 
-### 6. 回复 Bot（必填）
+### 7. 回复 Bot（必填）
 
 最后一行且仅一行：
-generatedReportUrl=<步骤 4 的飞书 Doc 完整 URL>
+generatedReportUrl=<步骤 5 的飞书 Doc 完整 URL>
