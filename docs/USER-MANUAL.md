@@ -133,9 +133,9 @@ POST /api/v1/meetings
   "groupName": "经营委员会",
   "presetTypeCode": 5,
   "participants": [
-    {"userId": "ou_xxx1", "name": "张三", "attendanceMode": "OFFLINE"},
-    {"userId": "ou_xxx2", "name": "李四", "attendanceMode": "ONLINE"},
-    {"userId": "ou_xxx3", "name": "王五", "attendanceMode": "OFFLINE"}
+    {"userId": "feishu_user_id_zhangsan", "name": "张三", "attendanceMode": "OFFLINE"},
+    {"userId": "feishu_user_id_lisi", "name": "李四", "attendanceMode": "ONLINE"},
+    {"userId": "feishu_user_id_wangwu", "name": "王五", "attendanceMode": "OFFLINE"}
   ]
 }
 ```
@@ -150,8 +150,8 @@ POST /api/v1/meetings
   "meetingScenario": "ONLINE",
   "sourceAudioUrl": "https://open.feishu.cn/.../recording/xxx.mp4",
   "participants": [
-    {"userId": "ou_xxx1", "name": "张三", "attendanceMode": "ONLINE"},
-    {"userId": "ou_xxx2", "name": "李四", "attendanceMode": "ONLINE"}
+    {"userId": "feishu_user_id_zhangsan", "name": "张三", "attendanceMode": "ONLINE"},
+    {"userId": "feishu_user_id_lisi", "name": "李四", "attendanceMode": "ONLINE"}
   ]
 }
 ```
@@ -256,7 +256,7 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 {
   "presetCode": 1,
   "expireMinutes": 180,
-  "leaderUserIds": ["ou_leader_1"]
+  "leaderUserIds": ["feishu_user_id_leader"]
 }
 ```
 
@@ -270,8 +270,8 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 > {
 >   "version": 2,
 >   "items": [
->     { "title": "会序1", "minutes": 10, "owners": ["ou_user_a"] },
->     { "title": "会序2", "minutes": 5, "owners": ["ou_user_b", "ou_user_c"] }
+>     { "title": "会序1", "minutes": 10, "owners": ["feishu_user_id_owner_a"] },
+>     { "title": "会序2", "minutes": 5, "owners": ["feishu_user_id_owner_b", "feishu_user_id_owner_c"] }
 >   ]
 > }
 > ```
@@ -284,7 +284,7 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
   "groupInlineFillCard": false,
   "groupIds": ["oc_xxx_group_a"],
   "fallbackMeetingChat": true,
-  "extraUserIds": ["ou_ops_1"],
+  "extraUserIds": ["feishu_user_id_ops"],
   "userMessageTemplate": "请在会前完成你负责会序资料回填：{fillUrl}",
   "groupMessageTemplate": "会前会序资料回填已发起，请相关同事打开个人通知中的回填链接完成提交。"
 }
@@ -299,7 +299,7 @@ WARN  MeetingAudioMaterializerService - Failed to materialize cloud audio: ... e
 {
   "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
   "expireMinutes": 180,
-  "leaderUserIds": ["ou_leader_1"],
+  "leaderUserIds": ["feishu_user_id_leader"],
   "userMessageTemplate": "请确认并完善你负责的会序：{fillUrl}\\n会议：{meetingTitle}"
 }
 ```
@@ -434,7 +434,7 @@ configJson:
 {
   "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
   "expireMinutes": 1440,
-  "leaderUserIds": ["ou_leader_1"],
+  "leaderUserIds": ["feishu_user_id_leader"],
   "userMessageTemplate": "【会前24小时】请确认并完善你负责的会序：{fillUrl}\n会议：{meetingTitle}"
 }
 Step 2（可选）
@@ -457,7 +457,7 @@ configJson:
 {
   "entryUrl": "https://oa.qdyhjz.cn/meeting-server/agenda-fill.html",
   "expireMinutes": 120,
-  "leaderUserIds": ["ou_leader_1"],
+  "leaderUserIds": ["feishu_user_id_leader"],
   "userMessageTemplate": "【会前10分钟】请立即确认并完善你负责的会序：{fillUrl}\n会议：{meetingTitle}"
 }
 Step 2（可选）

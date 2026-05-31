@@ -179,7 +179,7 @@ class MeetingControllerTest extends BaseTest {
     @Order(11)
     @DisplayName("POST /api/v1/meetings/feishu-web/create-and-start - 带入口 JWT 创建并启动")
     void testFeishuWebCreateAndStart() throws Exception {
-        String token = jwtUtil.generateFeishuWebStartMeetingEntryToken("ou_test_web", "oc_test_web");
+        String token = jwtUtil.generateFeishuWebStartMeetingEntryToken("feishu_user_id_test_web", "oc_test_web");
         MeetingCreateRequest body = new MeetingCreateRequest();
         body.setPresetTypeCode(1);
 
@@ -190,7 +190,7 @@ class MeetingControllerTest extends BaseTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
                 .andExpect(jsonPath("$.data.status").value("STARTED"))
-                .andExpect(jsonPath("$.data.creatorId").value("ou_test_web"))
+                .andExpect(jsonPath("$.data.creatorId").value("feishu_user_id_test_web"))
                 .andExpect(jsonPath("$.data.chatId").value("oc_test_web"))
                 .andExpect(jsonPath("$.data.recordingUrl").isNotEmpty());
     }

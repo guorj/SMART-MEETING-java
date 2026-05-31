@@ -99,7 +99,7 @@ class DashboardServiceTest {
         meeting.setCreatedAt(LocalDateTime.now());
         when(meetingMapper.selectList(any())).thenReturn(List.of(meeting));
 
-        List<DashboardService.MeetingSummary> list = dashboardService.getRecentMeetings("ou_3", 10);
+        List<DashboardService.MeetingSummary> list = dashboardService.getRecentMeetings("feishu_user_id_3", 10);
         assertEquals(1, list.size());
         assertEquals("m1", list.get(0).getId());
     }

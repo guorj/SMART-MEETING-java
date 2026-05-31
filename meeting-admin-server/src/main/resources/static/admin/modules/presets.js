@@ -719,7 +719,7 @@ AdminModules.register({
                 </label>
                 <label class="agenda-owner-label" title="${AdminHints.presets.agendaOwners.replace(/"/g, '&quot;')}">
                   <span>负责人</span>
-                  <input class="ag-owners" type="text" placeholder="ou_xxx_a,ou_xxx_b" value="${esc(ownersText)}"/>
+                  <input class="ag-owners" type="text" placeholder="feishu_user_id_a,feishu_user_id_b" value="${esc(ownersText)}"/>
                 </label>
                 <div class="agenda-owner-picker">
                   <select class="ag-owner-sel" data-i="${i}">${ownerOptions}</select>

@@ -35,7 +35,7 @@ meeting:
         app-secret: ${FEISHU_APP_SECRET}
         redirect-uri: http://127.0.0.1:8766/admin/oauth/feishu/callback
         allowed-user-ids:   # 非空则白名单
-          - ou_xxx
+          - feishu_user_id_admin
 ```
 
 流程：`/admin/oauth/feishu/start` → 飞书授权 → 回调签发 session token → 存入浏览器 `sessionStorage`（与 `X-Admin-Token` 同头传递）。

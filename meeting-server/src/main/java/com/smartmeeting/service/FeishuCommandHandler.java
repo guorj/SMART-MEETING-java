@@ -713,13 +713,12 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 未识别文本时发送短提示（不自动附带全文帮助）。
+     * 未识别文本时静默处理，不向用户发送任何提示。
      *
      * @param chatId 会话 chat_id
      */
     public void handleUnknown(String chatId) {
-        feishuService.sendMessage(chatId,
-                "未识别该消息。请发送「会议管理」打开统一会议前台，或发「帮助」查看说明。");
+        log.debug("Ignored unknown command silently, chatId={}", chatId);
     }
 
     /**
