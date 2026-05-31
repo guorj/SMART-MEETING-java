@@ -15,6 +15,7 @@ AdminModules.register({
       'preset-sync', 'settings-reload', 'weekly-job', 'push-notification',
       'pre-confirm-card', 'pre-inventory-card', 'pre-push-doc-link', 'pre-voiceprint-check', 'pre-agenda-notify',
       'pre-agenda-owner-confirm-notify',
+      'pre-agenda-leader-notify',
       'pre-agenda-fill-init', 'pre-agenda-fill-notify',
       'post-todo-remind', 'post-auto-delayed', 'post-auto-next-meeting',
       'pre-confirm-persist', 'pre-key-decliner-alert', 'pre-agenda-confirm', 'pre-calendar-create',

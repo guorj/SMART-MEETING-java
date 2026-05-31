@@ -199,7 +199,7 @@ public class XfyunOnlineTtsSynthesizeService {
         business.put("auf", "audio/L16;rate=16000");
         business.put("vcn", vcn);
         // 讯飞文档：语速/音量常用 0～100，50 为默认档
-        business.put("speed", 50);
+        business.put("speed", 60);
         business.put("volume", 50);
         business.put("tte", "UTF8");
         ObjectNode data = root.putObject("data");

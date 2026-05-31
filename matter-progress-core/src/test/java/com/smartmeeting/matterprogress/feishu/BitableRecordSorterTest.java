@@ -111,13 +111,23 @@ class BitableRecordSorterTest {
     @Test
     void displayCategory_delayedAndCompleted() {
         assertThat(BitableRecordSorter.displayCategory(
-                record("d", "未完成", "已延期", daysAgo(5), daysAgo(5), null)))
+                record("d", "未完成", "已延期", daysAgo(5), daysAgo(5), daysAgo(1))))
                 .isEqualTo(BitableRecordSorter.CATEGORY_DELAYED);
         assertThat(BitableRecordSorter.displayCategory(
                 record("c", "已完成", "", daysAgo(5), daysAgo(2), null)))
                 .isEqualTo(BitableRecordSorter.CATEGORY_COMPLETED);
         assertThat(BitableRecordSorter.displayCategory(
                 record("p", "进行中", "还有10天到期", daysAgo(5), daysAgo(5), null)))
+                .isEqualTo(BitableRecordSorter.CATEGORY_IN_PROGRESS);
+    }
+
+    @Test
+    void displayCategory_noDeadlineNeverDelayed() {
+        assertThat(BitableRecordSorter.displayCategory(
+                record("no_deadline_status", "延期", "已延期", daysAgo(5), daysAgo(5), null)))
+                .isEqualTo(BitableRecordSorter.CATEGORY_IN_PROGRESS);
+        assertThat(BitableRecordSorter.displayCategory(
+                record("no_deadline_days", "未完成", "-3天", daysAgo(5), daysAgo(5), null)))
                 .isEqualTo(BitableRecordSorter.CATEGORY_IN_PROGRESS);
     }
 

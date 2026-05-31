@@ -67,6 +67,7 @@ public class PreAgendaOwnerConfirmNotifyStepExecutor implements StepExecutor {
         }
         boolean leaderResolveAlertSent = meetingMode && notifyLeaderResolveIssueIfNeeded(context, cfg, leaderResolve);
         req.setLeaderUserIds(leaderUserIds);
+        Set<String> leaderUserIdSet = new LinkedHashSet<>(leaderUserIds);
         Map<String, List<Integer>> participantAgenda = parseParticipantAgenda(cfg.path("participantAgenda"));
         if (participantAgenda.isEmpty()) {
             participantAgenda = meetingMode
@@ -92,6 +93,10 @@ public class PreAgendaOwnerConfirmNotifyStepExecutor implements StepExecutor {
                 if (userId == null || userId.isBlank() || token == null || token.isBlank()) {
                     continue;
                 }
+                if (leaderUserIdSet.contains(userId)) {
+                    // leader 通知拆分到 pre-agenda-leader-notify，当前步骤仅发送 owners
+                    continue;
+                }
                 String fillUrl = withToken(entryUrl, token);
                 String text = userTemplate
                         .replace("{fillUrl}", fillUrl)
@@ -113,12 +118,18 @@ public class PreAgendaOwnerConfirmNotifyStepExecutor implements StepExecutor {
         out.put("agendaFillMeetingId", meetingMode ? context.getMeetingId() : "");
         out.put("agendaFillPresetCode", presetCode);
         out.put("agendaFillPresetMode", !meetingMode);
-        out.put("agendaOwnerTotal", created.getTokenByUser() == null ? 0 : created.getTokenByUser().size());
+        int ownerTotal = created.getTokenByUser() == null ? 0
+                : (int) created.getTokenByUser().keySet().stream().filter(uid -> !leaderUserIdSet.contains(uid)).count();
+        out.put("agendaOwnerTotal", ownerTotal);
         out.put("agendaOwnerSent", sentUsers);
         out.put("leaderNameFromPreset", leaderResolve.leaderName == null ? "" : leaderResolve.leaderName);
         out.put("leaderResolvedUserId", leaderResolve.userId == null ? "" : leaderResolve.userId);
         out.put("leaderResolveStatus", leaderResolve.status);
         out.put("leaderResolveAlertSent", leaderResolveAlertSent);
+        ArrayNode leaderUserIdsOut = out.putArray("agendaFillLeaderUserIds");
+        for (String uid : leaderUserIds) {
+            leaderUserIdsOut.add(uid);
+        }
         out.set("failedUsers", failedUsers);
         return StepExecutionResult.ok("agenda-owner-confirm-notify-ok", out.toString());
     }

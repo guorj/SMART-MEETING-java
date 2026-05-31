@@ -89,10 +89,13 @@ public class InternalPipelineController {
                 .sorted(Comparator.comparingInt(s -> s.getOrderNo() == null ? Integer.MAX_VALUE : s.getOrderNo()))
                 .toList();
         List<PipelineStep> targetSteps = steps.stream()
-                .filter(s -> s != null && "pre-agenda-owner-confirm-notify".equalsIgnoreCase(s.getStepType()))
+                .filter(s -> s != null && (
+                        "pre-agenda-owner-confirm-notify".equalsIgnoreCase(s.getStepType())
+                                || "pre-agenda-leader-notify".equalsIgnoreCase(s.getStepType())
+                ))
                 .toList();
         if (targetSteps.isEmpty()) {
-            throw new IllegalArgumentException("模板中不存在 pre-agenda-owner-confirm-notify 步骤");
+            throw new IllegalArgumentException("模板中不存在 pre-agenda-owner-confirm-notify/pre-agenda-leader-notify 步骤");
         }
         String sharedContext = "{\"presetTypeCode\":" + body.getPresetTypeCode() + "}";
         int successCount = 0;

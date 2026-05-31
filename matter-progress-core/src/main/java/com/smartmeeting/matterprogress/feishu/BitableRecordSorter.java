@@ -109,6 +109,11 @@ public final class BitableRecordSorter {
         if (isCompleted(record)) {
             return false;
         }
+        Long deadlineMs = extractDeadlineDateMs(record);
+        // 业务规则：无截止日期一律不归类为「延期」，统一落到「进行中」分类。
+        if (deadlineMs == null || deadlineMs <= 0) {
+            return false;
+        }
         String status = resolveStatusText(record);
         if (status != null) {
             String s = status.trim();
@@ -127,7 +132,6 @@ public final class BitableRecordSorter {
                 return true;
             }
         }
-        Long deadlineMs = extractDeadlineDateMs(record);
         return deadlineMs != null && deadlineMs < System.currentTimeMillis() - 86_400_000L;
     }
 

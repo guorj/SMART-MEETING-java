@@ -36,6 +36,8 @@ meeting:
     enabled: false
   # ===== Pipeline 触发器（dev 推荐）=====
   pipeline:
+    # 本地测试可改为 false：建会后跳过 PRE 流水线（不发会前通知）
+    pre-on-create-enabled: false
     post-auto-trigger:
       # 会议结束后自动触发 POST Pipeline
       enabled: true

@@ -1395,21 +1395,21 @@
         if (bitableRecordIsCompleted(rec)) return false;
         var daysText = '';
         var status = '';
+        var deadlineMs = 0;
         (rec.fields || []).forEach(function (f) {
           if (!f.name) return;
           if (f.name.indexOf('距离截止') >= 0) daysText = String(f.value || '');
           if (f.name.indexOf('状态') >= 0 || f.name.indexOf('完成情况') >= 0) {
             status = String(f.value || '');
           }
-        });
-        if (status && /延期|逾期|超期|过期/.test(status)) return true;
-        if (daysText && (/已延期|逾期|超期|过期/.test(daysText) || /-\d+\s*天/.test(daysText))) return true;
-        var deadlineMs = 0;
-        (rec.fields || []).forEach(function (f) {
-          if (f.name && f.name.indexOf('截止日期') >= 0 && f.name.indexOf('距离') < 0) {
+          if (f.name.indexOf('截止日期') >= 0 && f.name.indexOf('距离') < 0) {
             deadlineMs = Math.max(deadlineMs, parseBitableFieldDateMs(f.value));
           }
         });
+        // 业务规则：无截止日期一律不归为延期，归入进行中/待办。
+        if (!(deadlineMs > 0)) return false;
+        if (status && /延期|逾期|超期|过期/.test(status)) return true;
+        if (daysText && (/已延期|逾期|超期|过期/.test(daysText) || /-\d+\s*天/.test(daysText))) return true;
         return deadlineMs > 0 && deadlineMs < Date.now() - 86400000;
       }
 

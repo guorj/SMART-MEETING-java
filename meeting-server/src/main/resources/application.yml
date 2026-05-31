@@ -69,6 +69,8 @@ spring:
 # ============================================================
 meeting:
   pipeline:
+    # 建会后是否立即执行 PRE 流水线（测试压测时可关闭避免批量飞书通知）
+    pre-on-create-enabled: ${MEETING_PIPELINE_PRE_ON_CREATE_ENABLED:true}
     post-auto-trigger:
       # 会议结束后自动触发 POST 流水线；仅补会后触发，不涉及 MID 触发器
       enabled: ${MEETING_PIPELINE_POST_AUTO_TRIGGER_ENABLED:true}
