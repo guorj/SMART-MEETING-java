@@ -17,7 +17,7 @@ public class MeetingMinute {
     /** 所属会议 ID（主键），外键关联 {@code int_meeting.id} */
     @TableId
     private String meetingId;
-    /** 会务预设类型：1-5 模板会，6 自定义，冗余自主表 */
+    /** 会务预设类型：正整数模板编码，冗余自主表 */
     private Integer presetTypeCode;
     /** 纪要正文（Markdown 格式） */
     private String contentMarkdown;

@@ -13,13 +13,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 会务类型预设 REST 控制器。
  * <p>
- * 基础路径 {@code /api/v1/meeting-type-presets}，返回固定 1–5 类库表预设及虚拟第 6 项「其他会议」。
+ * 基础路径 {@code /api/v1/meeting-type-presets}，返回库表中的全部会议模板预设。
  *
  * @see MeetingTypePresetService
  * @see MeetingPresetResponse
@@ -33,34 +32,20 @@ public class MeetingPresetController {
     private final PresetAgendaDocService presetAgendaDocService;
 
     /**
-     * 固定 1-5 类会务预设 + 虚拟第 6 项「其他会议」（不入库，由前端/用户填主题）。
-     *
-     * @return 预设列表，最后一项 code=6 表示自定义主题会议
+     * 返回库表中的全部会务模板预设（含临时会议模板）。
      */
     @GetMapping
     public ApiResponse<List<MeetingPresetResponse>> listPresets() {
-        List<MeetingPresetResponse> list = new ArrayList<>(meetingTypePresetService.listPresets());
-        list.add(MeetingPresetResponse.builder()
-                .code(6)
-                .displayName("其他会议（需填写会议主题）")
-                .company(MeetingTypePresetService.DEFAULT_COMPANY)
-                .groupName(MeetingTypePresetService.OTHER_GROUP)
-                .scheduleNote(null)
-                .agendaSummary("自定义主题与议程")
-                .organizerName(null)
-                .leaderName(null)
-                .participantNames(List.of())
-                .build());
-        return ApiResponse.ok(list);
+        return ApiResponse.ok(meetingTypePresetService.listPresets());
     }
 
     /**
-     * 运维：从 DB 强制刷新指定 preset 的 Redis 缓存（code 1～5）。
+     * 运维：从 DB 强制刷新指定 preset 的 Redis 缓存（正整数 code）。
      */
     @PostMapping("/{code}/cache/refresh")
     public ApiResponse<String> refreshPresetCache(@PathVariable int code) {
-        if (code < 1 || code > 5) {
-            throw new BusinessException(400, "仅支持 preset code 1-5");
+        if (code <= 0) {
+            throw new BusinessException(400, "仅支持正整数 preset code");
         }
         PresetBundle bundle = presetAgendaDocService.refreshPresetBundle(code);
         int docCount = bundle != null ? bundle.embeddedDocCount() : 0;

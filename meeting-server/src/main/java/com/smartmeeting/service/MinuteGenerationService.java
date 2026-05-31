@@ -12,6 +12,7 @@ import com.smartmeeting.enums.MinuteGenerationStatus;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.config.MeetingMinuteProperties;
+import com.smartmeeting.config.MeetingTodoProperties;
 import com.smartmeeting.entity.TranscriptSegment;
 import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
@@ -52,6 +53,7 @@ public class MinuteGenerationService {
     private final MinuteAIEnhancer minuteAIEnhancer;
     private final MeetingMinuteService meetingMinuteService;
     private final MeetingMinuteProperties minuteProperties;
+    private final MeetingTodoProperties todoProperties;
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
     private final MeetingAudioMaterializerService meetingAudioMaterializerService;
@@ -204,7 +206,11 @@ public class MinuteGenerationService {
             if (!minuteText.isEmpty()) {
                 meetingMinuteService.updateContentUrl(meetingId, docUrl);
             }
-            domainEventPublisher.publish(new MinuteGeneratedEvent(meetingId, System.currentTimeMillis()));
+            if (todoProperties.isExtractionEnabled()) {
+                domainEventPublisher.publish(new MinuteGeneratedEvent(meetingId, System.currentTimeMillis()));
+            } else {
+                log.info("Todo extraction skipped by config (meeting.todo.extraction-enabled=false): meetingId={}", meetingId);
+            }
 
             log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);

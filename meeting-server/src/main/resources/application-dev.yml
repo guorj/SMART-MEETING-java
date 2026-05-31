@@ -53,6 +53,16 @@ meeting:
     pre-24h-template-code: "pre_24h_default"
     pre-10m-template-code: "pre_10m_default"
 
+  minute:
+    # 会后是否生成纪要（false 时结束会议不触发 minute-generate / todo-extract）
+    generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:false}
+
+  todo:
+    # 会后是否提取并同步待办（false 时跳过 TODO 提取、待办通知、待办状态推进）
+    extraction-enabled: ${MEETING_TODO_EXTRACTION_ENABLED:false}
+    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
+    reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
+
   # 公网入口：WSL frpc (tcp) → Windows 本机 8765；需与飞书/浏览器实际访问一致（无 TLS 反代时用 http + 端口）
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 
@@ -109,13 +119,6 @@ meeting:
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
         
-    minute:
-    # 库内持久化纪要正文（与飞书 doc_url 双写）
-    persist-enabled: true
-    expose-content-in-api: true
-    # LLM 初稿后是否走 AI 纪要增强（OpenClaw minute-enhancement / 直调 LLM）；false 仅用初稿
-    ai-enhancement-enabled: false
-
   # ---- 讯飞 ISV 声纹 ----
   isv:
     enabled: true

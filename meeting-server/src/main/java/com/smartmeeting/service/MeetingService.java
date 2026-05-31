@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
+import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
@@ -59,6 +60,7 @@ public class MeetingService {
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
     private final MeetingScenarioResolver meetingScenarioResolver;
+    private final MeetingMinuteProperties minuteProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -84,7 +86,8 @@ public class MeetingService {
                           MeetingFeishuNotifier meetingFeishuNotifier,
                           MeetingStateMachineService meetingStateMachineService,
                           DomainEventPublisher domainEventPublisher,
-                          MeetingScenarioResolver meetingScenarioResolver) {
+                          MeetingScenarioResolver meetingScenarioResolver,
+                          MeetingMinuteProperties minuteProperties) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.feishuService = feishuService;
@@ -97,6 +100,7 @@ public class MeetingService {
         this.meetingStateMachineService = meetingStateMachineService;
         this.domainEventPublisher = domainEventPublisher;
         this.meetingScenarioResolver = meetingScenarioResolver;
+        this.minuteProperties = minuteProperties;
     }
 
     /**
@@ -108,7 +112,7 @@ public class MeetingService {
     @Transactional
     public MeetingResponse createMeeting(MeetingCreateRequest request) {
         Integer presetForRefresh = request.getPresetTypeCode();
-        if (presetForRefresh != null && presetForRefresh >= 1 && presetForRefresh <= 5) {
+        if (presetForRefresh != null && presetForRefresh > 0) {
             presetAgendaDocService.refreshPresetBundle(presetForRefresh);
         }
         meetingTypePresetService.mergeIntoCreateRequest(request);
@@ -118,7 +122,7 @@ public class MeetingService {
         meeting.setTitle(request.getTitle());
         meeting.setAgenda(request.getAgenda() != null ? toJson(request.getAgenda()) : null);
         Integer presetCode = request.getPresetTypeCode();
-        if (presetCode != null && presetCode >= 1 && presetCode <= 5) {
+        if (presetCode != null && presetCode > 0) {
             meeting.setHostAgenda(presetAgendaDocService.syncHostAgendaForCreate(presetCode, request.getHostAgendaItems()));
         } else {
             meeting.setHostAgenda(hostAgendaItemsToJson(request.getHostAgendaItems()));
@@ -227,15 +231,23 @@ public class MeetingService {
         }
         meetingMapper.updateById(meeting);
 
-        String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
-                ? meeting.getAudioPath()
-                : meeting.getSourceAudioUrl();
-        domainEventPublisher.publish(new MeetingEndedEvent(
-                meetingId,
-                eventAudioSource,
-                List.of(),
-                null,
-                System.currentTimeMillis()));
+        if (minuteProperties.isGenerationEnabled()) {
+            String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
+                    ? meeting.getAudioPath()
+                    : meeting.getSourceAudioUrl();
+            domainEventPublisher.publish(new MeetingEndedEvent(
+                    meetingId,
+                    eventAudioSource,
+                    List.of(),
+                    null,
+                    System.currentTimeMillis()));
+        } else {
+            // 关闭纪要链路时，结束会议后直接收敛为 COMPLETED，避免长驻 PROCESSING。
+            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
+            meeting.setStatus(MeetingStatus.COMPLETED.name());
+            meetingMapper.updateById(meeting);
+            log.info("Minute generation disabled, meeting completed directly: id={}", meetingId);
+        }
 
         log.info("Meeting ended: id={}, duration={}s", meetingId, meeting.getDurationSeconds());
         return toResponse(meeting);
@@ -301,8 +313,7 @@ public class MeetingService {
         resp.setHostAgendaItems(hostItems);
         if ((hostItems == null || hostItems.isEmpty())
                 && meeting.getPresetTypeCode() != null
-                && meeting.getPresetTypeCode() >= 1
-                && meeting.getPresetTypeCode() <= 5) {
+                && meeting.getPresetTypeCode() > 0) {
             List<HostAgendaItemDto> fromPreset =
                     meetingTypePresetService.hostAgendaItemsForPresetCode(meeting.getPresetTypeCode());
             if (fromPreset != null && !fromPreset.isEmpty()) {
@@ -311,8 +322,7 @@ public class MeetingService {
         }
         if (resp.getHostAgendaItems() != null
                 && meeting.getPresetTypeCode() != null
-                && meeting.getPresetTypeCode() >= 1
-                && meeting.getPresetTypeCode() <= 5) {
+                && meeting.getPresetTypeCode() > 0) {
             presetAgendaDocService.enrichHostAgendaItems(meeting.getPresetTypeCode(), resp.getHostAgendaItems());
         }
         resp.setCompany(meeting.getCompany());
@@ -429,6 +439,8 @@ public class MeetingService {
                 return null;
             }
             List<HostAgendaItemDto> out = new ArrayList<>();
+            int docsV2Items = 0;
+            int parsedRefCount = 0;
             for (JsonNode n : items) {
                 String title = n.path("title").asText("").trim();
                 if (title.isEmpty()) {
@@ -441,39 +453,95 @@ public class MeetingService {
                 if (!detail.isEmpty()) {
                     dto.setDetail(detail);
                 }
-                JsonNode docsNode = n.path("feishuDocs");
-                if (docsNode.isArray() && docsNode.size() > 0) {
+                JsonNode docsV2 = n.path("docs");
+                if (docsV2.isArray() && docsV2.size() > 0) {
+                    docsV2Items++;
                     List<com.smartmeeting.api.dto.FeishuDocRefDto> refs = new ArrayList<>();
-                    for (JsonNode d : docsNode) {
+                    for (JsonNode d : docsV2) {
+                        String role = d.path("role").asText("").trim();
+                        if (role.isEmpty()) {
+                            role = d.path("configRole").asText("").trim();
+                        }
+                        if (role.isEmpty()) {
+                            role = d.path("config_role").asText("").trim();
+                        }
+                        if (role.isEmpty()) {
+                            role = "SOURCE";
+                        }
+                        String normalizedRole = role.toUpperCase(java.util.Locale.ROOT);
+                        if (!"SOURCE".equals(normalizedRole)
+                                && !"BOTH".equals(normalizedRole)
+                                && !"OUTPUT".equals(normalizedRole)) {
+                            continue;
+                        }
                         String url = d.path("url").asText("").trim();
                         if (url.isEmpty()) {
                             url = d.path("feishuDocUrl").asText("").trim();
                         }
                         if (url.isEmpty()) {
+                            String legacyId = d.path("token").asText("").trim();
+                            if (legacyId.isEmpty()) {
+                                legacyId = d.path("feishuDocToken").asText("").trim();
+                            }
+                            url = com.smartmeeting.config.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                            if (url == null) {
+                                url = "";
+                            }
+                        }
+                        if (url.isEmpty()) {
                             continue;
                         }
                         String kind = d.path("kind").asText("").trim();
+                        if (kind.isEmpty()) {
+                            kind = d.path("docKind").asText("").trim();
+                        }
                         refs.add(com.smartmeeting.api.dto.FeishuDocRefDto.builder().kind(kind).url(url).build());
                     }
                     if (!refs.isEmpty()) {
+                        parsedRefCount += refs.size();
                         dto.setFeishuDocs(refs);
                         dto.setFeishuDocUrl(refs.get(0).getUrl());
+                    } else {
+                        log.warn("hostAgendaItemsFromJson docs[] parsed empty: title={}, docsNodeCount={}",
+                                title, docsV2.size());
                     }
                 } else {
-                    String docUrl = n.path("feishuDocUrl").asText("").trim();
-                    if (docUrl.isEmpty()) {
-                        String legacyId = n.path("feishuDocToken").asText("").trim();
-                        docUrl = com.smartmeeting.config.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
-                        if (docUrl == null) {
-                            docUrl = "";
+                    JsonNode docsNode = n.path("feishuDocs");
+                    if (docsNode.isArray() && docsNode.size() > 0) {
+                        List<com.smartmeeting.api.dto.FeishuDocRefDto> refs = new ArrayList<>();
+                        for (JsonNode d : docsNode) {
+                            String url = d.path("url").asText("").trim();
+                            if (url.isEmpty()) {
+                                url = d.path("feishuDocUrl").asText("").trim();
+                            }
+                            if (url.isEmpty()) {
+                                continue;
+                            }
+                            String kind = d.path("kind").asText("").trim();
+                            refs.add(com.smartmeeting.api.dto.FeishuDocRefDto.builder().kind(kind).url(url).build());
                         }
-                    }
-                    if (!docUrl.isEmpty()) {
-                        dto.setFeishuDocUrl(docUrl);
+                        if (!refs.isEmpty()) {
+                            dto.setFeishuDocs(refs);
+                            dto.setFeishuDocUrl(refs.get(0).getUrl());
+                        }
+                    } else {
+                        String docUrl = n.path("feishuDocUrl").asText("").trim();
+                        if (docUrl.isEmpty()) {
+                            String legacyId = n.path("feishuDocToken").asText("").trim();
+                            docUrl = com.smartmeeting.config.feishu.FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                            if (docUrl == null) {
+                                docUrl = "";
+                            }
+                        }
+                        if (!docUrl.isEmpty()) {
+                            dto.setFeishuDocUrl(docUrl);
+                        }
                     }
                 }
                 out.add(dto);
             }
+            log.info("hostAgendaItemsFromJson parsed: agendaItems={}, docsV2Items={}, parsedRefs={}",
+                    out.size(), docsV2Items, parsedRefCount);
             return out.isEmpty() ? null : out;
         } catch (Exception e) {
             log.warn("Failed to deserialize host_agenda", e);

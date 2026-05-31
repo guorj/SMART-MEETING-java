@@ -8,7 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /**
- * 定时将 preset 1～5 的会务预设与飞书资料配置从 DB 预热到 Redis。
+ * 定时将库表中的全部模板会务预设与飞书资料配置从 DB 预热到 Redis。
  */
 @Slf4j
 @Component

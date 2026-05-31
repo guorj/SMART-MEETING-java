@@ -6,6 +6,7 @@ import com.smartmeeting.event.DomainEventPublisher;
 import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
+import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.statemachine.MeetingEvent;
@@ -54,6 +55,7 @@ public class RecordingService {
 
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
+    private final MeetingMinuteProperties minuteProperties;
 
     // 会议ID → 录音状态追踪
     private final Map<String, RecordingState> recordingStates = new ConcurrentHashMap<>();
@@ -211,17 +213,27 @@ public class RecordingService {
                 .filter(fid -> fid != null && !fid.isEmpty())
                 .toList();
 
-        // 发送纪要生成领域事件（由 Outbox 监听器转为可重试消息）
-        domainEventPublisher.publish(new MeetingEndedEvent(
-                meetingId,
-                audioPath,
-                featureIds,
-                modelName,
-                System.currentTimeMillis()));
+        String finalStatus = "PROCESSING";
+        if (minuteProperties.isGenerationEnabled()) {
+            // 发送纪要生成领域事件（由 Outbox 监听器转为可重试消息）
+            domainEventPublisher.publish(new MeetingEndedEvent(
+                    meetingId,
+                    audioPath,
+                    featureIds,
+                    modelName,
+                    System.currentTimeMillis()));
+        } else {
+            // 关闭纪要链路时，录音结束后直接完成会议状态。
+            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
+            meeting.setStatus(MeetingStatus.COMPLETED.name());
+            meetingMapper.updateById(meeting);
+            finalStatus = "COMPLETED";
+            log.info("Minute generation disabled, meeting completed directly after stopRecording: id={}", meetingId);
+        }
 
         return Map.of(
                 "meetingId", meetingId,
-                "status", "PROCESSING",
+                "status", finalStatus,
                 "audioPath", audioPath,
                 "durationSeconds", meeting.getDurationSeconds(),
                 "fileSize", fileSize

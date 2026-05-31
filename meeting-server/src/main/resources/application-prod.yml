@@ -28,6 +28,10 @@ meeting:
   minute:
     ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
 
+  todo:
+    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
+    reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
+
   # 与 dev 一致：公网入口（frp / 反代）
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 

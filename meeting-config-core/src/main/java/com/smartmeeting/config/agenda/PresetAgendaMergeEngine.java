@@ -27,7 +27,7 @@ public final class PresetAgendaMergeEngine {
                                             String presetHostAgendaJson,
                                             List<HostAgendaItem> requestItems,
                                             List<AgendaDocBindingSnapshot> sourceBindings) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return HostAgendaJsonCodec.toJson(objectMapper, requestItems);
         }
         List<HostAgendaItem> items = copyHostAgendaItems(requestItems);
@@ -48,7 +48,7 @@ public final class PresetAgendaMergeEngine {
     public static void enrichHostAgendaItems(int presetTypeCode, String presetHostAgendaJson,
                                              List<HostAgendaItem> items,
                                              List<AgendaDocBindingSnapshot> sourceBindings) {
-        if (items == null || items.isEmpty() || presetTypeCode < 1 || presetTypeCode > 5) {
+        if (items == null || items.isEmpty() || presetTypeCode <= 0) {
             return;
         }
         List<AgendaDocBindingSnapshot> enabled = filterSourceBindings(sourceBindings);
@@ -95,7 +95,7 @@ public final class PresetAgendaMergeEngine {
                 return FeishuDocRefs.mergeDistinct(refs);
             }
         }
-        if (presetTypeCode != null && presetTypeCode >= 1 && presetTypeCode <= 5) {
+        if (presetTypeCode != null && presetTypeCode > 0) {
             HostAgendaItem fromTemplate = HostAgendaJsonCodec.parseItemAtIndex(mapper, presetHostAgendaJson, agendaIndex);
             if (fromTemplate != null && fromTemplate.getDocs() != null) {
                 for (HostAgendaDocBinding doc : fromTemplate.getDocs()) {

@@ -7,11 +7,8 @@ import com.smartmeeting.entity.Meeting;
  */
 public final class MeetingPresetTypeCodes {
 
-    /** 固定会务模板会（综合管理会等） */
+    /** 模板会：任意正整数 preset_type_code。 */
     public static final int TEMPLATE_MIN = 1;
-    public static final int TEMPLATE_MAX = 5;
-    /** 自定义会（非 1-5 模板） */
-    public static final int CUSTOM_OTHER = 6;
 
     private MeetingPresetTypeCodes() {
     }
@@ -21,10 +18,10 @@ public final class MeetingPresetTypeCodes {
     }
 
     public static boolean isTemplateMeeting(Integer code) {
-        return code != null && code >= TEMPLATE_MIN && code <= TEMPLATE_MAX;
+        return code != null && code >= TEMPLATE_MIN;
     }
 
     public static boolean isCustomMeeting(Integer code) {
-        return code != null && code == CUSTOM_OTHER;
+        return false;
     }
 }

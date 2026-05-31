@@ -17,7 +17,7 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class MeetingPresetResponse {
-    /** 预设编号 1–6（6 为虚拟「其他会议」） */
+    /** 预设编号（来源于 int_meeting_type_preset.code） */
     private Integer code;
     private String displayName;
     private String company;

@@ -36,9 +36,6 @@ public class MeetingTypePresetService {
 
     /** 预设未指定集团时的默认集团名称。 */
     public static final String DEFAULT_COMPANY = "吉青汽车科技集团";
-    /** 预设 code 6「其他会议」的默认会议组名称。 */
-    public static final String OTHER_GROUP = "其他会议";
-
     private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
     private final PresetAgendaDocService presetAgendaDocService;
@@ -80,28 +77,19 @@ public class MeetingTypePresetService {
     /**
      * 按 {@link MeetingCreateRequest#getPresetTypeCode()} 将预设字段合并到创建请求（会修改 request）。
      *
-     * <p>code 1～5：从库加载完整预设（标题、议程、参会人、主持议题等）；
-     * code 6：仅补全默认集团与「其他会议」组名，主题须由调用方提供。
+     * <p>所有 {@code presetTypeCode>0} 均按模板会处理：从库加载完整预设
+     * （标题、议程、参会人、主持议题等），不再区分「其他会议」手填主题模式。
      *
      * @param request 会议创建请求，{@code presetTypeCode} 为 null 时不做处理
-     * @throws BusinessException {@code presetTypeCode} 非法或 1～5 对应预设不存在
+     * @throws BusinessException {@code presetTypeCode} 非法或对应预设不存在
      */
     public void mergeIntoCreateRequest(MeetingCreateRequest request) {
         Integer code = request.getPresetTypeCode();
         if (code == null) {
             return;
         }
-        if (code == 6) {
-            if (request.getCompany() == null || request.getCompany().isBlank()) {
-                request.setCompany(DEFAULT_COMPANY);
-            }
-            if (request.getGroupName() == null || request.getGroupName().isBlank()) {
-                request.setGroupName(OTHER_GROUP);
-            }
-            return;
-        }
-        if (code < 1 || code > 5) {
-            throw new BusinessException(400, "presetTypeCode 仅支持 1-6");
+        if (code <= 0) {
+            throw new BusinessException(400, "presetTypeCode 必须为正整数");
         }
         MeetingTypePreset p = presetAgendaDocService.getPresetCached(code);
         if (p == null) {
@@ -137,23 +125,18 @@ public class MeetingTypePresetService {
             entries.add(e);
         }
         request.setParticipants(entries);
-        if ((request.getHostAgendaItems() == null || request.getHostAgendaItems().isEmpty())
-                && p.getHostAgenda() != null && !p.getHostAgenda().isBlank()) {
-            List<HostAgendaItemDto> fromPreset = hostAgendaItemsFromPresetJson(p.getHostAgenda());
-            if (fromPreset != null && !fromPreset.isEmpty()) {
-                request.setHostAgendaItems(fromPreset);
-            }
-        }
+        // 不在此阶段回填 hostAgendaItems，避免把模板 host_agenda(v2 docs[])降级成旧字段后再写回 meeting 快照。
+        // createMeeting 中的 syncHostAgendaForCreate 会直接基于最新 preset.host_agenda 生成会议快照。
     }
 
     /**
      * 按预设 code 返回主持议题项列表（与 merge 解析逻辑一致，供会议详情 API 补全）。
      *
-     * @param code 预设类型码，仅 1～5 有效
+     * @param code 预设类型码（正整数有效）
      * @return 主持议题 DTO 列表；code 非法、无预设或 JSON 为空时返回 {@code null}
      */
     public List<HostAgendaItemDto> hostAgendaItemsForPresetCode(int code) {
-        if (code < 1 || code > 5) {
+        if (code <= 0) {
             return null;
         }
         MeetingTypePreset p = presetAgendaDocService.getPresetCached(code);

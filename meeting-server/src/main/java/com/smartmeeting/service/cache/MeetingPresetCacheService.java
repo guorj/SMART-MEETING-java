@@ -44,7 +44,7 @@ public class MeetingPresetCacheService {
     }
 
     public MeetingTypePreset getPreset(int presetTypeCode, Supplier<MeetingTypePreset> loader) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || loader == null) {
+        if (presetTypeCode <= 0 || loader == null) {
             return null;
         }
         String key = PRESET_KEY + presetTypeCode;
@@ -72,7 +72,7 @@ public class MeetingPresetCacheService {
     }
 
     public PresetBundle putPresetBundle(int presetTypeCode, MeetingTypePreset preset) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return new PresetBundle(null);
         }
         if (preset != null) {
@@ -82,7 +82,7 @@ public class MeetingPresetCacheService {
     }
 
     public void evictPreset(int presetTypeCode) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return;
         }
         localPreset.remove(presetTypeCode);

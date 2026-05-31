@@ -126,16 +126,7 @@ public class DashboardService {
     }
 
     public List<MeetingPresetResponse> getMeetingPresets() {
-        List<MeetingPresetResponse> list = new ArrayList<>(presetService.listPresets());
-        list.add(MeetingPresetResponse.builder()
-                .code(6)
-                .displayName("其他会议（需填写会议主题）")
-                .company(MeetingTypePresetService.DEFAULT_COMPANY)
-                .groupName(MeetingTypePresetService.OTHER_GROUP)
-                .agendaSummary("自定义主题与议程")
-                .participantNames(List.of())
-                .build());
-        return list;
+        return new ArrayList<>(presetService.listPresets());
     }
 
     public ActiveMeetingResult getActiveMeeting(String feishuUserId) {

@@ -90,11 +90,19 @@ meeting:
     validate-seed-on-startup: ${MEETING_DB_VALIDATE_SEED:true}
 
   minute:
+    # 会后是否生成纪要（false 时结束会议不触发 minute-generate / todo-extract）
+    generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:false}
     # 库内持久化纪要正文（与飞书 doc_url 双写）
     persist-enabled: ${MEETING_MINUTE_PERSIST:true}
     expose-content-in-api: ${MEETING_MINUTE_EXPOSE_API:true}
     # LLM 初稿后是否走 AI 纪要增强（OpenClaw minute-enhancement / 直调 LLM）；false 仅用初稿
     ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
+
+  todo:
+    # 会后是否提取并同步待办（false 时跳过 TODO 提取、待办通知、待办状态推进）
+    extraction-enabled: ${MEETING_TODO_EXTRACTION_ENABLED:false}
+    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
+    reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
 
   notification:
     # 会后通知经 feishu-scheduled-bot POST /api/push（方案二）
@@ -136,7 +144,7 @@ meeting:
     eng-speaker-match: 1
     audio-encode: pcm_s16le
     # 会中实时转写（录音页/主持页字幕、int_transcript_segment）；false 时仅本地录音，会后依赖离线 ASR
-    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:true}
+    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:false}
     mock-enabled: ${MOCK_ASR:false}
     xfyun:
       app-id: ${XFYUN_APP_ID:test}

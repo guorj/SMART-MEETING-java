@@ -156,7 +156,7 @@ public class DirectLlmAgentProvider implements AgentProvider {
 
     private String getMeetingTypeName(Integer typeCode) {
         if (typeCode == null) {
-            return "其他会议";
+            return "临时会议";
         }
         return switch (typeCode) {
             case 1 -> "综合管理会";
@@ -164,7 +164,7 @@ public class DirectLlmAgentProvider implements AgentProvider {
             case 3 -> "市场经营会";
             case 4 -> "财务月会";
             case 5 -> "经营委员会";
-            case 6 -> "其他会议";
+            case 6 -> "临时会议";
             default -> "未知类型";
         };
     }

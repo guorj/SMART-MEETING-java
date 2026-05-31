@@ -25,7 +25,7 @@ public class InternalMeetingAdminService {
 
     public RefreshHostAgendaResult refreshHostAgenda(RefreshHostAgendaRequest req) {
         int preset = req.getPresetTypeCode() != null ? req.getPresetTypeCode() : 0;
-        if (preset < 1 || preset > 5) {
+        if (preset <= 0) {
             throw new BusinessException("invalid presetTypeCode");
         }
         presetAgendaDocService.refreshPresetBundle(preset);
@@ -58,7 +58,7 @@ public class InternalMeetingAdminService {
     }
 
     public void refreshPresetCache(int presetTypeCode) {
-        if (presetTypeCode >= 1 && presetTypeCode <= 5) {
+        if (presetTypeCode > 0) {
             presetAgendaDocService.refreshPresetBundle(presetTypeCode);
         } else {
             presetAgendaDocService.refreshAllPresetBundles();

@@ -8,6 +8,7 @@ import com.smartmeeting.entity.MeetingTodo;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.Priority;
 import com.smartmeeting.enums.TodoStatus;
+import com.smartmeeting.config.MeetingTodoProperties;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
@@ -53,6 +54,7 @@ public class TodoExtractionService {
     private final MeetingMinuteService meetingMinuteService;
     private final MeetingStateMachineService meetingStateMachineService;
     private final FeishuTaskService feishuTaskService;
+    private final MeetingTodoProperties todoProperties;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
 
@@ -85,6 +87,10 @@ public class TodoExtractionService {
      */
     @Transactional
     public List<MeetingTodo> extractTodos(String meetingId, String minuteText) {
+        if (!todoProperties.isExtractionEnabled()) {
+            log.info("Todo extraction disabled by config, skip meetingId={}", meetingId);
+            return List.of();
+        }
         String resolved = resolveMinuteText(meetingId, minuteText);
         log.info("Extracting todos for meeting: {}, minute length={}", meetingId, resolved.length());
         if (resolved.isEmpty()) {

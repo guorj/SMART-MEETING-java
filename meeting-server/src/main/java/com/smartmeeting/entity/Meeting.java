@@ -34,7 +34,7 @@ public class Meeting {
     private String department;
     /** 所属群组/班组名称 */
     private String groupName;
-    /** 会务类型预设编码：1-5 为固定预设，6 表示「其他」，NULL 表示未使用预设 */
+    /** 会务类型预设编码：正整数表示模板会，NULL 表示未使用预设 */
     private Integer presetTypeCode;
     /** 会议状态，对应 {@link com.smartmeeting.enums.MeetingStatus} 枚举名 */
     private String status;

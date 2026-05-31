@@ -124,8 +124,6 @@ async function init(){
       <div class="card">
         <h2>开始会议</h2>
         <div class="btn-grid">${presetButtons}</div>
-        <input id="other-title" class="other-input" placeholder="输入自定义会议主题…"/>
-        <button class="btn btn-secondary" id="btn-other" style="grid-column:1/3;width:100%">创建其他会议</button>
         <p id="create-msg" class="msg hidden"></p>
       </div>
       ${activeMeeting ? `<div class="card">${activeHtml}</div>` : ''}
@@ -145,14 +143,9 @@ async function init(){
     document.querySelectorAll('[data-code]').forEach(btn=>{
       btn.onclick=async()=>{
         const code=parseInt(btn.dataset.code);
-        await doCreateMeeting(code,null);
+        await doCreateMeeting(code);
       };
     });
-    document.getElementById('btn-other').onclick=async()=>{
-      const title=document.getElementById('other-title').value.trim();
-      if(!title){showMsg('create-msg','请输入会议主题',true);return;}
-      await doCreateMeeting(6,title);
-    };
     document.getElementById('btn-register').onclick=async()=>{
       try{
         const r=await api('/api/v1/dashboard/voiceprint-register-url');
@@ -204,14 +197,13 @@ async function init(){
   }
 }
 
-async function doCreateMeeting(presetCode,title){
+async function doCreateMeeting(presetCode){
   const msgEl=document.getElementById('create-msg');
   msgEl.classList.remove('hidden');
   msgEl.className='msg msg-info';
   msgEl.textContent='正在创建会议…';
   try{
     const body={presetTypeCode:presetCode};
-    if(title)body.title=title;
     const r=await api('/api/v1/dashboard/create-meeting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     msgEl.className='msg msg-ok';
     if(r && r.recordingUrl){

@@ -47,7 +47,7 @@ public class PresetAgendaDocService {
     private final ObjectMapper objectMapper;
 
     public PresetBundle refreshPresetBundle(int presetTypeCode) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return new PresetBundle(null);
         }
         MeetingTypePreset preset = presetMapper.selectById(presetTypeCode);
@@ -55,17 +55,23 @@ public class PresetAgendaDocService {
     }
 
     public void refreshAllPresetBundles() {
-        for (int code = 1; code <= 5; code++) {
-            try {
-                refreshPresetBundle(code);
-            } catch (Exception e) {
-                log.warn("refreshPresetBundle code={} failed: {}", code, e.getMessage());
-            }
+        if (presetMapper == null) {
+            return;
         }
+        presetMapper.selectList(null).stream()
+                .map(MeetingTypePreset::getCode)
+                .filter(code -> code != null && code > 0)
+                .forEach(code -> {
+                    try {
+                        refreshPresetBundle(code);
+                    } catch (Exception e) {
+                        log.warn("refreshPresetBundle code={} failed: {}", code, e.getMessage());
+                    }
+                });
     }
 
     public String syncHostAgendaForCreate(int presetTypeCode, List<HostAgendaItemDto> requestItems) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return PresetAgendaMergeEngine.toHostAgendaJson(objectMapper, HostAgendaDtoConverter.toCoreList(requestItems));
         }
         refreshPresetBundle(presetTypeCode);
@@ -83,7 +89,7 @@ public class PresetAgendaDocService {
     }
 
     public List<AgendaDocBindingSnapshot> listEnabledByPreset(int presetTypeCode) {
-        if (presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode <= 0) {
             return List.of();
         }
         return PresetAgendaMergeEngine.filterSourceBindings(
@@ -92,7 +98,7 @@ public class PresetAgendaDocService {
     }
 
     public Optional<AgendaReportBinding> findReportBindingForAgenda(int presetTypeCode, int agendaIndex) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
+        if (presetTypeCode <= 0 || agendaIndex < 0) {
             return Optional.empty();
         }
         return PresetAgendaMergeEngine.findReportBindingInHostAgenda(
@@ -104,7 +110,7 @@ public class PresetAgendaDocService {
     }
 
     public List<AgendaDocBindingSnapshot> listConfigsForAgenda(int presetTypeCode, int agendaIndex) {
-        if (presetTypeCode < 1 || presetTypeCode > 5 || agendaIndex < 0) {
+        if (presetTypeCode <= 0 || agendaIndex < 0) {
             return List.of();
         }
         return PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
@@ -148,7 +154,7 @@ public class PresetAgendaDocService {
         Integer preset = meeting != null ? meeting.getPresetTypeCode() : null;
         String presetJson = preset != null ? presetHostAgendaJson(preset) : null;
         List<AgendaDocBindingSnapshot> bindings = List.of();
-        if (preset != null && preset >= 1 && preset <= 5) {
+        if (preset != null && preset > 0) {
             bindings = listConfigsForAgenda(preset, agendaIndex);
         }
         return PresetAgendaMergeEngine.resolveAllResources(
@@ -166,7 +172,7 @@ public class PresetAgendaDocService {
     }
 
     public MeetingTypePreset getPresetCached(int presetTypeCode) {
-        if (presetMapper == null || presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetMapper == null || presetTypeCode <= 0) {
             return null;
         }
         return presetCache.getPreset(presetTypeCode, () -> presetMapper.selectById(presetTypeCode));

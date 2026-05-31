@@ -6,6 +6,7 @@ import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.service.DashboardService;
 import com.smartmeeting.util.JwtUtil;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -82,7 +83,7 @@ public class DashboardController {
     @PostMapping("/create-meeting")
     public ApiResponse<MeetingResponse> createMeeting(
             @RequestParam("token") String token,
-            @RequestBody MeetingCreateRequest request) {
+            @Valid @RequestBody MeetingCreateRequest request) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
         return ApiResponse.ok(dashboardService.createMeeting(entry.feishuUserId(), entry.chatId(), request));
     }

@@ -25,7 +25,7 @@ public class PresetSyncStepExecutor implements StepExecutor {
     public StepExecutionResult execute(StepExecutionContext context) {
         JsonNode cfg = support.parseConfig(context.getStep().getConfigJson());
         int presetTypeCode = support.number(cfg, "presetTypeCode", 0);
-        if (presetTypeCode >= 1 && presetTypeCode <= 5) {
+        if (presetTypeCode > 0) {
             presetAgendaDocService.refreshPresetBundle(presetTypeCode);
             log.info("Pipeline preset-sync executed: meetingId={}, step={}, presetTypeCode={}",
                     context.getMeetingId(), context.getStep().getStepCode(), presetTypeCode);

@@ -22,7 +22,7 @@
 </head>
 <body>
     <h1>创建会议</h1>
-    <p class="sub" id="intro">与飞书「开始会议」一致：前 5 类为吉青汽车科技集团固定会务；第 6 类为其他会议，需填写主题。数据来源：<code>GET /api/v1/meeting-type-presets</code></p>
+    <p class="sub" id="intro">与飞书「开始会议」一致：所有按钮均为会议模板（含临时模板）。数据来源：<code>GET /api/v1/meeting-type-presets</code></p>
 
     <div id="feishuBanner" class="sub hidden">已从飞书入口带入会话，请直接选择类型并创建；无需填写 user_id / chat_id。</div>
 
@@ -36,9 +36,6 @@
 
     <label for="preset">会议类型</label>
     <select id="preset"></select>
-
-    <label for="customTitle">会议主题（选「其他会议」时必填）</label>
-    <input id="customTitle" placeholder="例如：季度经营复盘">
 
     <div class="preview" id="preview">请选择类型…</div>
 
@@ -95,14 +92,7 @@
         const msg = document.getElementById('msg');
         msg.textContent = '';
         const code = parseInt(document.getElementById('preset').value, 10);
-        const customTitle = document.getElementById('customTitle').value.trim();
-        if (code === 6 && !customTitle) {
-            msg.className = 'err';
-            msg.textContent = '选择「其他会议」时请填写会议主题';
-            return;
-        }
         const body = { presetTypeCode: code };
-        if (code === 6) body.title = customTitle;
 
         let url = apiBase + '/api/v1/meetings';
         const headers = { 'Content-Type': 'application/json' };

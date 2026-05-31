@@ -144,7 +144,7 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 处理会议类型消息卡片回传（预设 1–5 或「其他会议」）。
+     * 处理会议类型消息卡片回传（所有模板会议）。
      *
      * @param openId 操作人 open_id
      * @param chatId 会话 chat_id
@@ -158,13 +158,14 @@ public class FeishuCommandHandler {
         String cmd = value.path("cmd").asText("");
         if ("preset".equals(cmd)) {
             int code = value.path("code").asInt(0);
-            if (code >= 1 && code <= 5) {
+            if (code > 0) {
                 handleStartMeetingPreset(openId, chatId, code);
             } else {
                 log.warn("卡片回调 preset code 非法: {}", code);
             }
         } else if ("other_prompt".equals(cmd)) {
-            handleStartMeetingOtherPrompt(openId, chatId);
+            // 兼容旧卡片：other_prompt 统一映射为「临时会议模板(code=6)」
+            handleStartMeetingPreset(openId, chatId, 6);
         } else if ("pipeline-callback".equals(cmd)) {
             String callbackKey = value.path("callbackKey").asText("");
             boolean ok = pipelineCallbackRouter.completeByCallbackKey(callbackKey, openId, value);
@@ -366,7 +367,7 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 类型菜单展示后，用户下一条文本：单字 1–5 选预设，否则作为「其他会议」主题。
+     * 类型菜单展示后，用户下一条文本：仅接受模板编号（单字数字）。
      *
      * @param openId  操作人 open_id
      * @param chatId  会话 chat_id
@@ -381,20 +382,20 @@ public class FeishuCommandHandler {
         }
         if (t.length() == 1) {
             char c = t.charAt(0);
-            if (c >= '1' && c <= '5') {
+            if (c >= '1' && c <= '9') {
                 handleStartMeetingPreset(openId, chatId, c - '0');
                 return;
             }
         }
-        handleStartMeetingOtherWithTitle(openId, chatId, t);
+        feishuService.sendMessage(chatId, "请输入模板编号（例如：开始会议 6）");
     }
 
     /**
-     * 按预设类型编码（1–5）创建并启动会议。
+     * 按预设类型编码（正整数）创建并启动会议。
      *
      * @param openId   操作人 open_id
      * @param chatId   会话 chat_id
-     * @param typeCode 预设类型 1–5
+     * @param typeCode 预设类型编码（如 1、2、6）
      */
     public void handleStartMeetingPreset(String openId, String chatId, int typeCode) {
         try {
@@ -408,71 +409,39 @@ public class FeishuCommandHandler {
     }
 
     /**
-     * 选择「其他会议」(类型 6) 后，提示用户回复主题并标记 pending。
-     *
-     * @param openId 操作人 open_id
-     * @param chatId 会话 chat_id
+     * 兼容旧入口：统一映射为临时会议模板（code=6）。
      */
     public void handleStartMeetingOtherPrompt(String openId, String chatId) {
-        startMeetingPendingStore.markTypeSixThemePending(openId, chatId);
-        feishuService.sendMessage(chatId,
-                "已选择「其他会议」。请直接回复会议主题，或发送：主题:会议名称\n（30 分钟内有效，发送「开始会议 1」等可取消等待）");
+        handleStartMeetingPreset(openId, chatId, 6);
     }
 
     /**
-     * 使用给定主题创建「其他会议」(预设类型 6)。
-     *
-     * @param openId 操作人 open_id
-     * @param chatId 会话 chat_id
-     * @param title  会议主题
+     * 兼容旧入口：忽略自由输入主题，统一按临时会议模板(code=6)创建。
      */
     public void handleStartMeetingOtherWithTitle(String openId, String chatId, String title) {
-        try {
-            startMeetingPendingStore.clear(openId, chatId);
-            MeetingCreateRequest request = new MeetingCreateRequest();
-            request.setPresetTypeCode(6);
-            request.setTitle(title.trim());
-            doCreateAndStart(openId, chatId, request);
-        } catch (Exception e) {
-            log.error("创建其他会议失败", e);
-            feishuService.sendMessage(chatId, "❌ 创建会议失败：" + e.getMessage());
-        }
+        handleStartMeetingPreset(openId, chatId, 6);
     }
 
     /**
-     * 处理类型 6 待输入主题状态下的用户回复。
-     *
-     * @param openId  操作人 open_id
-     * @param chatId  会话 chat_id
-     * @param rawText 用户原文（可含「主题:」前缀）
+     * 处理旧版「类型6待输入主题」状态：统一转为模板编号提示。
      */
     public void handlePendingOtherMeetingTitle(String openId, String chatId, String rawText) {
         startMeetingPendingStore.clear(openId, chatId);
-        String t = rawText.trim();
-        if (t.startsWith("主题：") || t.startsWith("主题:")) {
-            t = t.replaceFirst("^主题[:：]\\s*", "").trim();
-        }
-        if (t.isEmpty() || "取消".equals(t)) {
-            feishuService.sendMessage(chatId, "已取消。请重新发送「开始会议」选择类型。");
-            return;
-        }
-        handleStartMeetingOtherWithTitle(openId, chatId, t);
+        feishuService.sendMessage(chatId, "已切换为模板会议模式，请发送模板编号（例如：开始会议 6）");
     }
 
     /**
-     * 处理「会议类型 N」快捷指令（1–6）。
+     * 处理「会议类型 N」快捷指令（正整数模板编号）。
      *
      * @param openId 操作人 open_id
      * @param chatId 会话 chat_id
-     * @param n      类型序号 1–6
+     * @param n      类型序号（如 1、2、6）
      */
     public void handleMeetingTypeShort(String openId, String chatId, int n) {
-        if (n >= 1 && n <= 5) {
+        if (n > 0) {
             handleStartMeetingPreset(openId, chatId, n);
-        } else if (n == 6) {
-            handleStartMeetingOtherPrompt(openId, chatId);
         } else {
-            feishuService.sendMessage(chatId, "序号应为 1-6");
+            feishuService.sendMessage(chatId, "序号应为正整数模板编号");
         }
     }
 

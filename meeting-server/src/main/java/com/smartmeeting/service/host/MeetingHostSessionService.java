@@ -234,7 +234,7 @@ public class MeetingHostSessionService {
      * 开启主持会话：加载议程、静音飞书群、启动 tick、播报开场白；若预设有应到名单则开场播完后调度自动检点。
      *
      * @param meetingId 会议主键，须与 JWT/主持 token 中会议一致
-     * @param body      可选；非空且含 {@code items} 时优先用请求体议程，否则走预设 1～5 / 会议 host_agenda / 默认 JSON / 硬编码
+     * @param body      可选；非空且含 {@code items} 时优先用请求体议程，否则走模板预设 / 会议 host_agenda / 默认 JSON / 硬编码
      * @throws BusinessException 主持未启用、会话已存在、会议不存在、议程为空等
      */
     public void start(String meetingId, HostStartRequest body) {
@@ -250,10 +250,12 @@ public class MeetingHostSessionService {
         }
         List<HostTopic> topics = resolveTopics(meeting, body);
         if (topics.isEmpty()) {
-            throw new BusinessException(400, "议题为空：请提供 items；preset 1-5 时配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
+            throw new BusinessException(400, "议题为空：请提供 items；模板会议请配置 int_meeting_type_preset.host_agenda；否则配置 int_meeting.host_agenda 或使用默认模板");
         }
         sanitizeTopicsFeishuRefs(topics);
         mergePresetAgendaDocs(meeting.getPresetTypeCode(), topics, meetingId);
+        log.info("Host start topics resolved: meetingId={}, topicCount={}, docBoundTopics={}, docSummary={}",
+                meetingId, topics.size(), countDocBoundTopics(topics), topicDocSummary(topics));
 
         muteRegistry.muteChat(meeting.getChatId());
 
@@ -1015,17 +1017,17 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 从会务预设读取 participants_names 解析为应到名单；仅支持 preset 1～5。
+     * 从会务预设读取 participants_names 解析为应到名单；支持任意正整数模板 code。
      * 与 {@link #startRollCall} 使用同一快照逻辑。
      *
-     * @param meeting 当前会议，须含 presetTypeCode 1～5
+     * @param meeting 当前会议，须含正整数 presetTypeCode
      * @return 人名列表（顺序即点名顺序）
-     * @throws BusinessException 类型不在 1～5、预设不存在、名单字段为空等
+     * @throws BusinessException 类型非法、预设不存在、名单字段为空等
      */
     private List<String> loadRollCallSnapshot(Meeting meeting) {
         Integer code = meeting.getPresetTypeCode();
-        if (code == null || code < 1 || code > 5) {
-            throw new BusinessException(400, "会议检点需使用会务类型 1～5，以便从预设读取应到名单");
+        if (code == null || code <= 0) {
+            throw new BusinessException(400, "会议检点需使用有效模板类型，以便从预设读取应到名单");
         }
         MeetingTypePreset preset = presetAgendaDocService.getPresetCached(code);
         if (preset == null) {
@@ -1278,7 +1280,7 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 解析主持议题列表：优先 POST /start 的 items；否则 preset 1～5 的 host_agenda；再本会 host_agenda；
+     * 解析主持议题列表：优先 POST /start 的 items；否则模板 preset 的 host_agenda；再本会 host_agenda；
      * 再 {@link HostAgendaConstants#DEFAULT_HOST_AGENDA_JSON}；最后硬编码保底。
      *
      * @param meeting 会议实体
@@ -1287,28 +1289,40 @@ public class MeetingHostSessionService {
      */
     private List<HostTopic> resolveTopics(Meeting meeting, HostStartRequest body) {
         if (body != null && body.getItems() != null && !body.getItems().isEmpty()) {
-            return topicsFromDtos(body.getItems());
+            List<HostTopic> fromBody = topicsFromDtos(body.getItems());
+            log.info("resolveTopics source=request-body meetingId={}, topicCount={}, docBoundTopics={}",
+                    meeting.getId(), fromBody.size(), countDocBoundTopics(fromBody));
+            return fromBody;
         }
         // 本会 host_agenda 为创建时快照（含飞书绑定），优先于预设模板
         List<HostTopic> fromOwn = topicsFromHostAgendaJson(meeting.getHostAgenda(), true);
         if (!fromOwn.isEmpty()) {
+            log.info("resolveTopics source=meeting.host_agenda meetingId={}, topicCount={}, docBoundTopics={}",
+                    meeting.getId(), fromOwn.size(), countDocBoundTopics(fromOwn));
             return fromOwn;
         }
         Integer presetCode = meeting.getPresetTypeCode();
-        if (presetCode != null && presetCode >= 1 && presetCode <= 5) {
+        if (presetCode != null && presetCode > 0) {
             MeetingTypePreset preset = presetAgendaDocService.getPresetCached(presetCode);
             if (preset != null) {
                 List<HostTopic> fromPreset = topicsFromHostAgendaJson(preset.getHostAgenda(), true);
                 if (!fromPreset.isEmpty()) {
+                    log.info("resolveTopics source=preset.host_agenda meetingId={}, presetTypeCode={}, topicCount={}, docBoundTopics={}",
+                            meeting.getId(), presetCode, fromPreset.size(), countDocBoundTopics(fromPreset));
                     return fromPreset;
                 }
             }
         }
         List<HostTopic> fromDefaultJson = topicsFromHostAgendaJson(HostAgendaConstants.DEFAULT_HOST_AGENDA_JSON, true);
         if (!fromDefaultJson.isEmpty()) {
+            log.info("resolveTopics source=default-host-agenda-json meetingId={}, topicCount={}, docBoundTopics={}",
+                    meeting.getId(), fromDefaultJson.size(), countDocBoundTopics(fromDefaultJson));
             return fromDefaultJson;
         }
-        return defaultHostTopicsHardcoded();
+        List<HostTopic> hardcoded = defaultHostTopicsHardcoded();
+        log.warn("resolveTopics source=hardcoded-fallback meetingId={}, topicCount={}, docBoundTopics={}",
+                meeting.getId(), hardcoded.size(), countDocBoundTopics(hardcoded));
+        return hardcoded;
     }
 
     /**
@@ -1376,23 +1390,37 @@ public class MeetingHostSessionService {
                         t.detail = detail;
                     }
                     if (includeFeishuBindings) {
-                        JsonNode docsArr = n.path("feishuDocs");
-                        if (docsArr.isArray() && docsArr.size() > 0) {
-                            for (JsonNode d : docsArr) {
+                        JsonNode docsV2 = n.path("docs");
+                        if (docsV2.isArray() && docsV2.size() > 0) {
+                            int beforeCount = t.feishuDocs != null ? t.feishuDocs.size() : 0;
+                            for (JsonNode d : docsV2) {
+                                if (!isSourceRoleDocNode(d)) {
+                                    continue;
+                                }
                                 appendDocNodeToTopic(t, d);
                             }
+                            int afterCount = t.feishuDocs != null ? t.feishuDocs.size() : 0;
+                            log.info("host_agenda docs parsed: title={}, docsNodeCount={}, acceptedDocs={}, primaryUrl={}",
+                                    title, docsV2.size(), Math.max(0, afterCount - beforeCount), t.feishuDocUrl);
                         } else {
-                            String docUrl = n.path("feishuDocUrl").asText("").trim();
-                            if (docUrl.isEmpty()) {
-                                String legacyId = n.path("feishuDocToken").asText("").trim();
-                                docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
-                                if (docUrl == null) {
-                                    docUrl = "";
+                            JsonNode docsArr = n.path("feishuDocs");
+                            if (docsArr.isArray() && docsArr.size() > 0) {
+                                for (JsonNode d : docsArr) {
+                                    appendDocNodeToTopic(t, d);
                                 }
-                            }
-                            if (!docUrl.isEmpty()) {
-                                t.feishuDocUrl = docUrl;
-                                applyFeishuRefToHostTopic(t);
+                            } else {
+                                String docUrl = n.path("feishuDocUrl").asText("").trim();
+                                if (docUrl.isEmpty()) {
+                                    String legacyId = n.path("feishuDocToken").asText("").trim();
+                                    docUrl = FeishuResourceResolver.legacyDocIdToDocxUrl(legacyId);
+                                    if (docUrl == null) {
+                                        docUrl = "";
+                                    }
+                                }
+                                if (!docUrl.isEmpty()) {
+                                    t.feishuDocUrl = docUrl;
+                                    applyFeishuRefToHostTopic(t);
+                                }
                             }
                         }
                     }
@@ -1457,6 +1485,63 @@ public class MeetingHostSessionService {
             }
         }
         appendResourceRefToTopic(t, FeishuResourceResolver.resolve(url));
+    }
+
+    /**
+     * host_agenda v2 docs[] 在主持页展示 SOURCE/BOTH/OUTPUT 三类角色资料。
+     */
+    private static boolean isSourceRoleDocNode(JsonNode d) {
+        if (d == null || d.isNull()) {
+            return false;
+        }
+        String role = d.path("role").asText("").trim();
+        if (role.isEmpty()) {
+            role = d.path("configRole").asText("").trim();
+        }
+        if (role.isEmpty()) {
+            role = d.path("config_role").asText("").trim();
+        }
+        if (role.isEmpty()) {
+            role = "SOURCE";
+        }
+        String normalized = role.toUpperCase(Locale.ROOT);
+        return "SOURCE".equals(normalized)
+                || "BOTH".equals(normalized)
+                || "OUTPUT".equals(normalized);
+    }
+
+    private static int countDocBoundTopics(List<HostTopic> topics) {
+        if (topics == null || topics.isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        for (HostTopic t : topics) {
+            if (topicHasFeishuBinding(t)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String topicDocSummary(List<HostTopic> topics) {
+        if (topics == null || topics.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < topics.size(); i++) {
+            HostTopic t = topics.get(i);
+            int docs = (t != null && t.feishuDocs != null) ? t.feishuDocs.size() : 0;
+            String title = (t != null && t.title != null) ? t.title : "";
+            String primary = (t != null && t.feishuDocUrl != null) ? t.feishuDocUrl : "";
+            if (i > 0) {
+                sb.append("; ");
+            }
+            sb.append(i).append(":").append(title)
+                    .append("|docs=").append(docs)
+                    .append("|url=").append(primary);
+        }
+        sb.append("]");
+        return sb.toString();
     }
 
     /** 将解析后的飞书资源引用去重追加到议题的 feishuDocs 列表。 */
@@ -1544,7 +1629,7 @@ public class MeetingHostSessionService {
      * 若预设模板 {@code host_agenda} 或当前议题已绑定飞书（含 POST /start 显式传入），则跳过该会序的配置表行。
      */
     private void mergePresetAgendaDocs(Integer presetTypeCode, List<HostTopic> topics, String meetingId) {
-        if (presetTypeCode == null || presetTypeCode < 1 || presetTypeCode > 5) {
+        if (presetTypeCode == null || presetTypeCode <= 0) {
             if (meetingId != null) {
                 log.debug("mergePresetAgendaDocs skipped: presetTypeCode={} meetingId={}", presetTypeCode, meetingId);
             }
@@ -1667,7 +1752,7 @@ public class MeetingHostSessionService {
             o.put("detail", t.detail == null ? "" : t.detail);
             o.put("feishuDocUrl", t.feishuDocUrl == null ? "" : t.feishuDocUrl);
             o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
-            if (rt.presetTypeCode != null && rt.presetTypeCode >= 1 && rt.presetTypeCode <= 5) {
+            if (rt.presetTypeCode != null && rt.presetTypeCode > 0) {
                 presetAgendaDocService.findReportBindingForAgenda(rt.presetTypeCode, i).ifPresent(b -> {
                     if (b.generatedReportUrl() != null && !b.generatedReportUrl().isBlank()) {
                         o.put("generatedReportUrl", b.generatedReportUrl());
@@ -1833,7 +1918,7 @@ public class MeetingHostSessionService {
         String meetingId;
         /** 飞书群 chat_id，用于静音/恢复 */
         String chatId;
-        /** 会务类型 preset（1～5 模板会议），用于会序周报链接绑定 */
+        /** 会务类型 preset（正整数模板编码），用于会序周报链接绑定 */
         Integer presetTypeCode;
         /** 议程项列表，顺序即会序 */
         List<HostTopic> topics;

@@ -10,12 +10,12 @@ import org.apache.ibatis.type.JdbcType;
 /**
  * 固定会务类型预设实体，对应数据库表 {@code int_meeting_type_preset}。
  * <p>
- * 存储吉青汽车科技集团等固定会务类型（1-5）的模板信息；编码 6「其他」不入库。
+ * 存储吉青汽车科技集团等会务模板信息（由 code 区分，如 1~6）。
  */
 @Data
 @TableName("int_meeting_type_preset")
 public class MeetingTypePreset {
-    /** 预设类型编码（主键），取值 1-5 */
+    /** 预设类型编码（主键），正整数。 */
     @TableId
     private Integer code;
     /** 预设展示名称（如「综合例会」） */
@@ -36,7 +36,7 @@ public class MeetingTypePreset {
     private String leaderName;
     /** 中文顿号、逗号或「及」连接的默认与会人名单 */
     private String participantsNames;
-    /** AI 主持议题模板 JSON：{@code {"items":[{"title","minutes"},...]}}，业务会议 preset_type_code=1～5 时仅按 code 读本表 */
+    /** AI 主持议题模板 JSON：{@code {"items":[{"title","minutes"},...]}}，模板会议按 code 读取本表 */
     @TableField(value = "host_agenda", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
     private String hostAgenda;
 }

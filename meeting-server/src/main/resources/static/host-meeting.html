@@ -2400,7 +2400,7 @@
           var items = null;
           if (d.hostAgendaItems && d.hostAgendaItems.length) {
             items = d.hostAgendaItems.map(hostAgendaItemFromApi);
-          } else if (d.presetTypeCode >= 1 && d.presetTypeCode <= 5) {
+          } else if (d.presetTypeCode > 0) {
             var pr = await fetch(meetingApi('/api/v1/meeting-type-presets'));
             var pj = await pr.json();
             if (pj.code === 0 && pj.data) {
@@ -2556,9 +2556,6 @@
         recorder.onTranscript = function (r) { addTranscriptLine(r); };
         recorder.onError = function (msg) { showErr(msg); };
         recorder.onWarning = function (m) { console.warn(m); };
-        var agendaBody = plannedTopicsCache.length
-            ? { items: plannedTopicsCache }
-            : null;
         try {
           hostTtsAvatar.warmUpAudio();
           await recorder.start();
@@ -2566,8 +2563,7 @@
             throw new Error('录音未能启动（请检查麦克风权限）');
           }
           var st = await hostApi('/start', {
-            method: 'POST',
-            body: agendaBody != null ? JSON.stringify(agendaBody) : '{}'
+            method: 'POST'
           });
           if (st && st.topics && st.topics.length) {
             plannedTopicsCache = st.topics.map(hostTopicToCacheItem);
