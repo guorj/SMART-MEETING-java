@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 飞书 Webhook 与卡片回调控制器。
@@ -42,6 +43,18 @@ import java.util.concurrent.CompletableFuture;
 @RequestMapping("/api/v1/feishu")
 public class FeishuWebhookController {
     private static final int BODY_PREVIEW_MAX = 400;
+
+    /**
+     * 临时兜底映射：当飞书回调中 user_id 为空时，按 open_id 映射到一个临时 userId，
+     * 使该用户能正常使用会议管理等功能。待飞书侧修复该用户身份问题后移除。
+     * <p>
+     * key = open_id, value = 临时分配的 userId（用于会话状态、日志追踪）
+     */
+    // TODO 待飞书侧修复该用户身份问题后移除此映射及 handleImMessageReceive 中的兜底逻辑。
+    private static final Map<String, String> OPEN_ID_TEMP_USER_MAP = new ConcurrentHashMap<>();
+    static {
+        OPEN_ID_TEMP_USER_MAP.put("ou_5809ce881ece7dabbccf8402848e32bd", "temp_user_ou_5809ce881ece7dabbccf8402848e32bd");
+    }
 
     private final FeishuCommandRouter commandRouter;
     private final FeishuCommandHandler commandHandler;
@@ -186,7 +199,7 @@ public class FeishuWebhookController {
             String msgType = message.path("message_type").asText();
             String msgContent = message.path("content").asText();
             String chatId = message.path("chat_id").asText();
-            String userId = resolvePrincipalUserId(sender.path("sender_id"));
+            String userId = resolveSenderUserId(sender.path("sender_id"));
 
             log.info("Feishu message received: type={}, chat={}, sender={}", msgType, chatId, userId);
             // 供「菜单 - 推送事件」无 chat_id 时回退到用户最近活跃会话（群或单聊）
@@ -697,6 +710,28 @@ public class FeishuWebhookController {
                 body.has("action"),
                 body.path("event").has("action"),
                 body.has("open_message_id"));
+    }
+
+    /**
+     * 从消息发送者身份节点解析 userId；当 {@code user_id} 为空时尝试临时 open_id 映射兜底。
+     *
+     * @param senderId 飞书 {@code sender_id} 节点
+     * @return 主身份 userId，或临时映射 userId；均无则空串
+     */
+    private String resolveSenderUserId(JsonNode senderId) {
+        String userId = resolvePrincipalUserId(senderId);
+        if (!userId.isEmpty()) {
+            return userId;
+        }
+        // TODO 待飞书侧修复该用户身份问题后移除（OPEN_ID_TEMP_USER_MAP 与此段兜底逻辑）。
+        String openId = senderId.path("open_id").asText("").trim();
+        String fallback = OPEN_ID_TEMP_USER_MAP.get(openId);
+        if (fallback != null) {
+            log.warn("user_id empty, apply temp open_id fallback: openId={}, fallbackUserId={}",
+                    openId, fallback);
+            return fallback;
+        }
+        return userId;
     }
 
     /**

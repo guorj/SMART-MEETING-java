@@ -18,5 +18,5 @@ public class MeetingAsrProperties {
      * 是否启用会中实时转写（浏览器 PCM → 讯飞实时 ASR → 字幕/库表）。
      * 关闭后仍缓存录音文件，会后纪要可走离线 ASR。
      */
-    private boolean realtimeEnabled = true;
+    private boolean realtimeEnabled = false;
 }

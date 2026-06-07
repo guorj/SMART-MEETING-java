@@ -147,6 +147,8 @@ meeting:
     audio-encode: pcm_s16le
     # 会中实时转写（录音页/主持页字幕、int_transcript_segment）；false 时仅本地录音，会后依赖离线 ASR
     realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:false}
+    # 离线 IST 上传是否开启说话人分离（roleType=1）
+    offline-role-enabled: ${MEETING_ASR_OFFLINE_ROLE_ENABLED:true}
     mock-enabled: ${MOCK_ASR:false}
     xfyun:
       app-id: ${XFYUN_APP_ID:test}
@@ -166,6 +168,12 @@ meeting:
         backoff-ms: 1000
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
+
+  voiceprint:
+    offline-label-enabled: ${MEETING_VOICEPRINT_OFFLINE_LABEL:true}
+    offline-min-slice-ms: ${MEETING_VOICEPRINT_OFFLINE_MIN_SLICE_MS:3000}
+    offline-max-slice-ms: ${MEETING_VOICEPRINT_OFFLINE_MAX_SLICE_MS:10000}
+    offline-max-speakers: ${MEETING_VOICEPRINT_OFFLINE_MAX_SPEAKERS:8}
 
   # 讯飞在线语音合成（主持 TTS），鉴权复用 meeting.asr.xfyun 的 app-id / api-key / api-secret
   tts:

@@ -106,39 +106,61 @@ public class VoiceprintService {
      * @param audioSegment 音频片段（PCM格式，建议3-5秒）
      * @return 说话人姓名；无法识别时返回 {@code speaker_unknown} 或 {@code speaker_<featureId前缀>}
      */
-    public String identifySpeaker(String meetingId, byte[] audioSegment) {
-        log.debug("Identifying speaker for meeting: {}, audioLen={}bytes", meetingId, audioSegment.length);
-
-        // 调用ISV识别
-        String featureId = isvClient.identifyVoiceprint(audioSegment);
-        if (featureId == null || featureId.equals("speaker_unknown")) {
+    /**
+     * ISV 1:N 识别，返回 featureId 或 speaker_unknown。
+     */
+    public String identifyFeatureId(byte[] audioSegment) {
+        if (audioSegment == null || audioSegment.length == 0) {
             return "speaker_unknown";
         }
-
-        // 从缓存查找 userId → userName
-        String userId = isvClient.getUserIdByFeatureId(featureId);
-        if (userId != null) {
-            // 从数据库获取用户名
-            Voiceprint vp = voiceprintMapper.selectOne(
-                    new LambdaQueryWrapper<Voiceprint>()
-                            .eq(Voiceprint::getFeatureId, featureId));
-            if (vp != null) {
-                return vp.getUserName();
-            }
+        String featureId = isvClient.identifyVoiceprint(audioSegment);
+        if (featureId == null || featureId.isBlank() || "speaker_unknown".equals(featureId)) {
+            return "speaker_unknown";
         }
+        return featureId;
+    }
 
-        // 从会议参会人中查找（featureId 可能已关联到 Participant）
+    /**
+     * 将 featureId 解析为展示姓名（参会人优先，其次声纹库）。
+     */
+    public String resolveDisplayName(String featureId, String meetingId) {
+        if (featureId == null || featureId.isBlank() || "speaker_unknown".equals(featureId)) {
+            return null;
+        }
         Participant participant = participantMapper.selectOne(
                 new LambdaQueryWrapper<Participant>()
                         .eq(Participant::getMeetingId, meetingId)
-                        .eq(Participant::getFeatureId, featureId));
-        if (participant != null) {
+                        .eq(Participant::getFeatureId, featureId)
+                        .last("LIMIT 1"));
+        if (participant != null && participant.getName() != null && !participant.getName().isBlank()) {
             return participant.getName();
         }
+        Voiceprint vp = voiceprintMapper.selectOne(
+                new LambdaQueryWrapper<Voiceprint>()
+                        .eq(Voiceprint::getFeatureId, featureId)
+                        .last("LIMIT 1"));
+        if (vp != null && vp.getUserName() != null && !vp.getUserName().isBlank()) {
+            if (participant == null) {
+                log.warn("Voiceprint matched outside meeting participants: meetingId={}, featureId={}, name={}",
+                        meetingId, featureId, vp.getUserName());
+            }
+            return vp.getUserName();
+        }
+        return null;
+    }
 
-        // 降级：返回 featureId（后续可手动标注）
+    public String identifySpeaker(String meetingId, byte[] audioSegment) {
+        log.debug("Identifying speaker for meeting: {}, audioLen={}bytes", meetingId, audioSegment.length);
+        String featureId = identifyFeatureId(audioSegment);
+        if ("speaker_unknown".equals(featureId)) {
+            return "speaker_unknown";
+        }
+        String name = resolveDisplayName(featureId, meetingId);
+        if (name != null && !name.isBlank()) {
+            return name;
+        }
         log.warn("Speaker identified but name not found: featureId={}", featureId);
-        return "speaker_" + featureId.substring(0, 8);
+        return "speaker_" + featureId.substring(0, Math.min(8, featureId.length()));
     }
 
     /**

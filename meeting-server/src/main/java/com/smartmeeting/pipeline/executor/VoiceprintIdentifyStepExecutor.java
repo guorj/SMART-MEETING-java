@@ -20,6 +20,7 @@ public class VoiceprintIdentifyStepExecutor implements StepExecutor {
 
     @Override
     public StepExecutionResult execute(StepExecutionContext context) {
+        // 离线路径已在 OfflineTranscriptVoiceprintService 标注；此处仅对实时转写做 featureId→姓名 兜底
         int updated = voiceprintService.updateTranscriptSpeakers(context.getMeetingId());
         return StepExecutionResult.ok("voiceprint-identify-finished", "{\"updatedSegments\":" + updated + "}");
     }

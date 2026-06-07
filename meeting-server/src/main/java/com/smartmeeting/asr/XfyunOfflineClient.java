@@ -46,6 +46,9 @@ public class XfyunOfflineClient {
     @Value("${meeting.asr.xfyun.api-secret:}")
     private String accessKeySecret;  // 文档中叫 accessKeySecret
 
+    @Value("${meeting.asr.offline-role-enabled:true}")
+    private boolean offlineRoleEnabled;
+
     private static final String BASE_URL = "https://office-api-ist-dx.iflyaisol.com";
     private static final int MAX_RETRIES = 60;
     private static final int POLL_INTERVAL_MS = 5000;
@@ -79,7 +82,7 @@ public class XfyunOfflineClient {
             params.put("fileName", filename);
             params.put("language", "autodialect");  // 中英+方言免切
             params.put("duration", String.valueOf(duration));
-            params.put("roleType", "1");  // 开启角色分离
+            params.put("roleType", offlineRoleEnabled ? "1" : "0");
 
             // 生成签名
             String signature = generateSignature(params);
@@ -345,71 +348,6 @@ public class XfyunOfflineClient {
      * @return 分段列表，至少可能含一段降级文本
      */
     private List<TranscriptSegment> parseResult(String orderResult) {
-        try {
-            JsonNode latticeData = objectMapper.readTree(orderResult);
-            List<TranscriptSegment> segments = new ArrayList<>();
-
-            // 解析 lattice 数组
-            JsonNode latticeList = latticeData.path("lattice");
-            if (latticeList.isArray()) {
-                for (JsonNode lattice : latticeList) {
-                    String json1best = lattice.path("json_1best").asText("");
-                    if (json1best.isEmpty()) continue;
-
-                    // 解析 json_1best（嵌套JSON）
-                    JsonNode best = objectMapper.readTree(json1best);
-                    JsonNode st = best.path("st");
-                    JsonNode rtList = st.path("rt");
-                    
-                    if (rtList.isArray()) {
-                        for (JsonNode rt : rtList) {
-                            TranscriptSegment ts = new TranscriptSegment();
-                            ts.setId(UUID.randomUUID().toString());
-                            ts.setStartTimeMs(rt.path("bg").asInt(0));
-                            ts.setEndTimeMs(rt.path("ed").asInt(0));
-
-                            // 解析文本
-                            StringBuilder text = new StringBuilder();
-                            JsonNode wsList = rt.path("ws");
-                            if (wsList.isArray()) {
-                                for (JsonNode ws : wsList) {
-                                    JsonNode cwList = ws.path("cw");
-                                    if (cwList.isArray()) {
-                                        for (JsonNode cw : cwList) {
-                                            text.append(cw.path("w").asText(""));
-                                        }
-                                    }
-                                }
-                            }
-                            
-                            ts.setText(text.toString().trim());
-                            ts.setSpeakerId("speaker_0");  // 新版API需要roleType=1才有角色分离
-                            ts.setConfidence(1.0);
-                            ts.setIsFinal(true);
-                            ts.setCorrected(false);
-                            
-                            if (!ts.getText().isEmpty()) {
-                                segments.add(ts);
-                            }
-                        }
-                    }
-                }
-            }
-
-            log.info("【离线ASR】Parsed {} segments", segments.size());
-            return segments;
-
-        } catch (Exception e) {
-            log.error("【离线ASR】Parse failed: {}", e.getMessage());
-            // 降级：直接作为单段返回
-            TranscriptSegment ts = new TranscriptSegment();
-            ts.setId(UUID.randomUUID().toString());
-            ts.setStartTimeMs(0);
-            ts.setEndTimeMs(0);
-            ts.setText(orderResult);
-            ts.setIsFinal(true);
-            ts.setCorrected(false);
-            return List.of(ts);
-        }
+        return OfflineAsrLatticeParser.parse(orderResult);
     }
 }

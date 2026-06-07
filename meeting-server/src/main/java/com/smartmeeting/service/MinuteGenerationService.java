@@ -57,6 +57,7 @@ public class MinuteGenerationService {
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
     private final MeetingAudioMaterializerService meetingAudioMaterializerService;
+    private final TranscriptSegmentHelper transcriptSegmentHelper;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -102,39 +103,32 @@ public class MinuteGenerationService {
             log.info("Found {} participants, {} with voiceprint features", 
                     participants.size(), featureIds.size());
 
-            // 2. 先查询实时转写结果（优先）
-            log.info("Step 2: Querying realtime transcript segments...");
-            LambdaQueryWrapper<TranscriptSegment> transcriptWrapper = new LambdaQueryWrapper<>();
-            transcriptWrapper.eq(TranscriptSegment::getMeetingId, meetingId)
-                            .eq(TranscriptSegment::getIsFinal, true)
-                            .orderByAsc(TranscriptSegment::getStartTimeMs);
-            List<TranscriptSegment> segments = transcriptMapper.selectList(transcriptWrapper);
-            
-            String correctedText = "";
-            if (segments != null && !segments.isEmpty()) {
-                // 使用实时转写结果构建全文（Python版 build_transcript_text）
-                StringBuilder sb = new StringBuilder();
-                for (TranscriptSegment seg : segments) {
-                    sb.append(seg.getSpeakerId()).append(": ").append(seg.getText()).append("\n");
-                }
-                correctedText = sb.toString();
-                log.info("Step 2: Using realtime transcript, {} segments, length={}", segments.size(), correctedText.length());
+            // 2. 转写全文：有会中实时定稿分段则优先 DB；否则离线分离+声纹
+            log.info("Step 2: Resolving transcript for meeting {}", meetingId);
+            String correctedText;
+            if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
+                correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
+                        transcriptSegmentHelper.listFinalSegments(meetingId));
+                log.info("Step 2: Using realtime/final DB segments, length={}", correctedText.length());
             } else {
-                // 降级：调用离线ASR校正
                 String effectiveAudioPath = meetingAudioMaterializerService.materialize(
                         meetingId,
                         audioPath,
                         meeting.getSourceAudioUrl());
-                log.info("Step 2: effective audio source resolved, meetingId={}, path={}", meetingId, effectiveAudioPath);
-                log.info("Step 2: No realtime transcript, calling offline ASR...");
+                log.info("Step 2: No final segments, offline path audio={}", effectiveAudioPath);
                 correctedText = correctionService.correct(meetingId, effectiveAudioPath);
-                log.info("Step 2: Offline correction completed, text length={}", correctedText.length());
+                log.info("Step 2: Offline transcript+voiceprint completed, length={}", correctedText.length());
             }
 
-            // 3. 调用 ISV 声纹识别 → 映射 speaker_N → 真实姓名
-            log.info("Step 3: Voiceprint identification...");
-            // TODO: 实际声纹识别实现
-            log.info("Step 3: Voiceprint identification completed");
+            // 3. 实时路径下可对仅有 speaker_id 的分段做姓名回写（离线路径已在 correct 内完成）
+            if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
+                int updated = voiceprintService.updateTranscriptSpeakers(meetingId);
+                if (updated > 0) {
+                    correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
+                            transcriptSegmentHelper.listFinalSegments(meetingId));
+                }
+                log.info("Step 3: Realtime speaker name refresh, updated={}", updated);
+            }
 
             // 4. 调用 LLM 生成纪要
             log.info("Step 4: LLM minute generation...");
