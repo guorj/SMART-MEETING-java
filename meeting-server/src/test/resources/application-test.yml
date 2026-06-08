@@ -1,18 +1,25 @@
-# 与 application-dev.yml 叠加使用（@ActiveProfiles({"dev", "test"})，test 在后覆盖）
-# 此处只保留「跑集成测试」所需增量，其余飞书/讯飞/LLM/JWT 等沿用 dev 真实配置
+# =============================================================================
+# Test Profile — meeting-server 集成测试增量配置
+# =============================================================================
+# 激活：@ActiveProfiles({"dev", "test"})，test 在后覆盖 dev
+# 仅保留跑集成测试所需增量；飞书/讯飞/LLM/JWT 等仍 largely 沿用 dev
 #
-# 数据源：由 BaseTest 的 @DynamicPropertySource 注册（默认 Testcontainers MySQL，或见 BaseTest 类注释中的外部 JDBC）。
-# 切勿在「开发用 intelligence 库」上跑集成测试；旧版 BaseTest 曾在 @BeforeEach 全表 delete，已移除。
+# 数据源：BaseTest @DynamicPropertySource 注入（Testcontainers MySQL 或外部 JDBC）
+# 切勿对开发用 intelligence 库跑集成测试
+#
+# 会后链路：kafka.enabled=false → LocalEventBus；与线上一致可测 offline-asr + minute 编排
+# =============================================================================
 
 spring:
   autoconfigure:
     exclude:
+      # 测试环境无 Kafka / Redis 依赖
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
       - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
 
   sql:
     init:
-      # 仅集成测试 profile；schema-data 对已有行不覆盖 feishu_doc_url / host_agenda
+      # 测试库每次启动灌 schema + 种子（对已有行不覆盖 feishu_doc_url / host_agenda）
       mode: always
       schema-locations: classpath:schema.sql,classpath:schema-data.sql
 
@@ -20,10 +27,10 @@ meeting:
   kafka:
     enabled: false
   audio:
+    # 测试 PCM 隔离目录，避免污染 ./data/audio
     cache-dir: ./test-data/audio
-# ============================================================
-# AI Agent 配置（测试环境禁用 OpenClaw，走 LLM 降级）
-# ============================================================
+
+# OpenClaw 测试禁用，纪要/Agent 走直调 LLM 降级
 openclaw:
   enabled: false
   agent:

@@ -1,25 +1,52 @@
+# =============================================================================
+# smart-meeting-server 默认配置（全环境基线）
+# =============================================================================
+# 生效顺序（高 → 低）：环境变量 > application-{profile}.yml > 本文件
+# 默认 profile：dev（见 spring.profiles.active，可用 SPRING_PROFILES_ACTIVE 覆盖）
+#
+# 会后链路（2026-06-07 解耦后）：
+#   meeting.asr.offline-enabled     — 会议结束独立触发离线转写（Outbox OFFLINE_ASR）
+#   meeting.minute.generation-enabled — 仅控制纪要/待办链路；与离线开关解耦
+#   两者皆 true 时：先离线转写入库，再触发纪要（纪要只读 DB，不再内联调离线 ASR）
+#   meeting.kafka.enabled=false 时由 LocalEventBus 异步执行（dev/prod 常用）
+#   meeting.kafka.enabled=true  时需 topic：meeting.events、meeting.offline.asr、todo.extract
+#
+# 修改后须重启服务；@ConditionalOnProperty 组件（如 Kafka 消费者）同样需重启注册。
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# HTTP 服务
+# -----------------------------------------------------------------------------
 server:
+  # 监听端口；生产若经反代暴露，此处仍为进程本地端口
   port: ${SERVER_PORT:8765}
   servlet:
+    # 上下文路径；对外 URL 一般为 {base-url} = http(s)://host:port + context-path
     context-path: ${MEETING_CONTEXT_PATH:/meeting-server}
     encoding:
       charset: UTF-8
       enabled: true
       force: true
 
+# -----------------------------------------------------------------------------
+# Spring 框架与基础设施
+# -----------------------------------------------------------------------------
 spring:
   application:
     name: smart-meeting-server
 
   profiles:
+    # 激活的配置文件后缀：dev / prod 等
     active: ${SPRING_PROFILES_ACTIVE:dev}
 
   servlet:
     multipart:
+      # 声纹注册等上传接口的单文件/整请求大小上限
       max-file-size: ${MEETING_VOICEPRINT_MAX_FILE_SIZE:10MB}
       max-request-size: ${MEETING_VOICEPRINT_MAX_REQUEST_SIZE:10MB}
 
   datasource:
+    # MySQL 主库（会议、转写、纪要、Outbox 等）；字符集 utf8mb4
     url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
     username: ${DB_USERNAME:intelligence}
     password: ${DB_PASSWORD:intelligence@2026}
@@ -31,6 +58,7 @@ spring:
 
   data:
     redis:
+      # 会务预设缓存、主持会话状态等；不可用时部分能力降级
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
       password: ${REDIS_PASSWORD:}
@@ -39,11 +67,12 @@ spring:
 
   sql:
     init:
-      # 禁止应用启动时自动执行 schema-data.sql（生产/开发均不覆盖库内飞书 URL）
+      # 禁止应用启动时自动执行 schema-data.sql（避免覆盖库内飞书 URL 等种子数据）
       mode: never
       encoding: UTF-8
 
   kafka:
+    # 仅 meeting.kafka.enabled=true 时生效；dev/prod profile 通常排除 KafkaAutoConfiguration
     bootstrap-servers: ${KAFKA_SERVERS:localhost:9092}
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
@@ -59,85 +88,117 @@ spring:
     listener:
       concurrency: 3
       ack-mode: manual
+
   web:
     resources:
-      # 录音前端仅维护 meeting-server/src/main/resources/static/（打包进 classpath）
+      # 静态页：录音页 /rec、主持页 /host、工作台等，打包在 classpath:/static/
       static-locations: classpath:/static/
 
-# ============================================================
-# 业务配置（默认值，各 profile 可覆盖）
-# ============================================================
+# =============================================================================
+# 业务配置 meeting.*（默认值；各 profile 可覆盖）
+# =============================================================================
 meeting:
+
+  # ----- 流水线（会前 PRE / 会后 POST）-----
   pipeline:
-    # 建会后是否立即执行 PRE 流水线（测试压测时可关闭避免批量飞书通知）
+    # 建会成功后是否立即跑 PRE 流水线（压测或本地调试可关，避免批量飞书通知）
     pre-on-create-enabled: ${MEETING_PIPELINE_PRE_ON_CREATE_ENABLED:true}
     post-auto-trigger:
-      # 会议结束后自动触发 POST 流水线；仅补会后触发，不涉及 MID 触发器
+      # 会议结束后是否自动触发 POST 流水线（与纪要生成独立，走 Pipeline 模板）
       enabled: ${MEETING_PIPELINE_POST_AUTO_TRIGGER_ENABLED:true}
-      # 为空时按 stage=POST 的默认启用模板执行；可指定模板编码精确触发
+      # 为空：按 stage=POST 的默认启用模板；非空：指定 templateCode
       template-code: ${MEETING_PIPELINE_POST_TEMPLATE_CODE:}
+
+  # ----- 会前定时调度 -----
   scheduler:
     # PRE 自动触发总开关（会前 24h / 10min 双时点）
     pre-enabled: ${MEETING_SCHEDULER_PRE_ENABLED:true}
-    # 触发窗口（分钟），用于容忍定时任务扫描误差
+    # 触发容忍窗口（分钟），补偿定时扫描周期误差
     pre-window-minutes: ${MEETING_SCHEDULER_PRE_WINDOW_MINUTES:5}
-    # 会前 24h 对应 PRE 模板编码（为空则不触发该时点；两项都为空时回退旧逻辑：24h 单次触发默认 PRE 模板）
+    # 会前 24h 使用的 PRE 模板编码（空=不触发该时点）
     pre-24h-template-code: ${MEETING_SCHEDULER_PRE_24H_TEMPLATE_CODE:}
-    # 会前 10min 对应 PRE 模板编码（为空则不触发该时点）
+    # 会前 10min 使用的 PRE 模板编码（空=不触发该时点）
     pre-10m-template-code: ${MEETING_SCHEDULER_PRE_10M_TEMPLATE_CODE:}
     # 调度扫描周期（毫秒）
     scan-ms: ${MEETING_SCHEDULER_SCAN_MS:300000}
+
   database:
-    # 启动时只读校验会序飞书配置（不写库）；关闭可设 MEETING_DB_VALIDATE_SEED=false
+    # 启动时只读校验会序飞书种子（不写库）；关闭：MEETING_DB_VALIDATE_SEED=false
     validate-seed-on-startup: ${MEETING_DB_VALIDATE_SEED:true}
 
+  # ----- 会后纪要链路（与离线 ASR 解耦）-----
   minute:
-    # 会后是否生成纪要（false 时结束会议不触发 minute-generate / todo-extract）
+    # 会后是否生成纪要主链路（MeetingEndedEvent → MINUTE_GENERATE）
+    # false：不自动纪要；不影响 offline-enabled 触发的离线转写
     generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:false}
-    # 库内持久化纪要正文（与飞书 doc_url 双写）
+    # 是否将纪要正文写入 int_meeting_minute（与飞书 doc_url 可双写）
     persist-enabled: ${MEETING_MINUTE_PERSIST:true}
+    # GET 纪要 API 是否返回全文（false 仅元信息）
     expose-content-in-api: ${MEETING_MINUTE_EXPOSE_API:true}
-    # LLM 初稿后是否走 AI 纪要增强（OpenClaw minute-enhancement / 直调 LLM）；false 仅用初稿
+    # 是否调用 LLM 生成结构化初稿；false 时用转写拼接简易纪要
+    llm-enabled: ${MEETING_MINUTE_LLM_ENABLED:true}
+    # LLM 初稿后是否 AI 增强（OpenClaw / 直调 LLM）
     ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
+    # 是否创建/更新飞书文档
+    feishu-doc-enabled: ${MEETING_MINUTE_FEISHU_DOC_ENABLED:true}
+    # 纪要完成后是否推送飞书卡片/文本
+    notify-enabled: ${MEETING_MINUTE_NOTIFY_ENABLED:true}
 
+  # ----- 会后待办 -----
   todo:
-    # 会后是否提取并同步待办（false 时跳过 TODO 提取、待办通知、待办状态推进）
+    # 纪要完成后是否提取待办（MinuteGeneratedEvent → TODO_EXTRACT）
     extraction-enabled: ${MEETING_TODO_EXTRACTION_ENABLED:false}
-    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
+    # 待办到期提醒 Cron 任务总开关（false 不注册 TodoReminderScheduler）
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
 
   notification:
-    # 会后通知经 feishu-scheduled-bot POST /api/push（方案二）
+    # 会后部分通知经 feishu-scheduled-bot POST /api/push
     bot-enabled: ${MEETING_NOTIFY_BOT:false}
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
+    # bot 不可用时是否回退直连飞书 API
     fallback-direct: ${MEETING_NOTIFY_FALLBACK:true}
 
+  # ----- 异步消息（Kafka / LocalEventBus）-----
   kafka:
+    # false：单进程 LocalEventBus（offline-asr + minute-generate + todo-extract）
+    # true ：KafkaProducer + MinuteGenerateConsumer + OfflineAsrConsumer + TodoExtractConsumer
     enabled: ${KAFKA_ENABLED:false}
 
+  # 对外根 URL（飞书卡片链接、JWT 跳转、录音/主持页入口），须与浏览器实际访问一致
   base-url: ${BASE_URL:http://localhost:8765/meeting-server}
 
   web:
-    # 浏览器缓存 /static/**（秒）；前端发布后若仍见旧壳可调小或提高 page-cache-buster
+    # /static/** 浏览器缓存秒数；发版后若壳页旧可减小或设置 page-cache-buster
     static-cache-seconds: ${MEETING_STATIC_CACHE_SECONDS:300}
-    # 非空时拼在 /rec、/host 的 URL 上 &v=...，改环境变量或此处后重新「取录音链接」或飞书重新开会以更新库
+    # 非空时拼到 /rec、/host URL 的 &v= 参数，强制刷新前端缓存
     page-cache-buster: ${MEETING_PAGE_CACHE_BUSTER:}
 
+  # ----- 会序本地上传资料（与 meeting-admin-server 共用目录）-----
+  agenda-material:
+    # 本地上传 doc/图片落盘目录；admin 上传、runtime 下载须同路径
+    storage-dir: ${AGENDA_MATERIAL_DIR:./data/agenda-materials}
+    max-image-bytes: ${AGENDA_MATERIAL_MAX_IMAGE_BYTES:10485760}
+    max-doc-bytes: ${AGENDA_MATERIAL_MAX_DOC_BYTES:20971520}
+
+  # ----- 会议录音 PCM 缓存 -----
   audio:
     sample-rate: 16000
     bit-depth: 16
     channels: 1
     frame-duration-ms: 40
     max-duration-hours: 4
+    # 会中长时间静音自动暂停录音（分钟）
     silence-auto-pause-min: 30
     cache-retention-hours: 72
+    # 单场 PCM 默认路径：{cache-dir}/{meetingId}.pcm，并写入 int_meeting.audio_path
     cache-dir: ./data/audio
-    # 纯线上/混合场景：允许把云端录音 URL 拉取到本地，复用离线 ASR 链路
+    # 仅有云端 source_audio_url 时，是否下载到本地供离线 ASR 使用
     cloud-download-enabled: ${MEETING_AUDIO_CLOUD_DOWNLOAD_ENABLED:true}
     queue-maxsize: 100
     write-flush-interval: 25
 
+  # ----- 语音识别 ASR -----
   asr:
     primary: xfyun
     fallback: tencent
@@ -145,10 +206,16 @@ meeting:
     role-type: 2
     eng-speaker-match: 1
     audio-encode: pcm_s16le
-    # 会中实时转写（录音页/主持页字幕、int_transcript_segment）；false 时仅本地录音，会后依赖离线 ASR
+    # 会中实时转写（WebSocket → 讯飞实时 ASR → int_transcript_segment isFinal=true）
+    # false：会中仅录 PCM，无实时字幕
     realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:false}
+    # 会后离线转写（独立触发，不依赖 generation-enabled）
+    # true + 无实时定稿分段 + 有音频 → 会议结束发布 OfflineAsrRequestedEvent
+    # 结果写入 int_transcript_segment；纪要开启时在离线完成后才触发
+    offline-enabled: ${MEETING_ASR_OFFLINE_ENABLED:true}
     # 离线 IST 上传是否开启说话人分离（roleType=1）
     offline-role-enabled: ${MEETING_ASR_OFFLINE_ROLE_ENABLED:true}
+    # true：跳过真实讯飞调用（本地联调）
     mock-enabled: ${MOCK_ASR:false}
     xfyun:
       app-id: ${XFYUN_APP_ID:test}
@@ -161,7 +228,7 @@ meeting:
       send-max-retries: 2
       ws-handshake-timeout: 10
       receive-timeout: 30
-      # WebSocket 握手成功后额外等待再视为「就绪」（旧版 Demo 曾用 1500ms 避首帧异常）；默认 0 以降低首字延迟，不稳时再调大
+      # WebSocket 握手后额外等待（毫秒）；首帧异常时可调大，默认 0 降低首字延迟
       post-open-wait-ms: ${XFYUN_POST_OPEN_WAIT_MS:0}
       reconnect:
         max-retries: 5
@@ -169,56 +236,49 @@ meeting:
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
 
+  # ----- 离线转写后的声纹说话人标注 -----
   voiceprint:
     offline-label-enabled: ${MEETING_VOICEPRINT_OFFLINE_LABEL:true}
     offline-min-slice-ms: ${MEETING_VOICEPRINT_OFFLINE_MIN_SLICE_MS:3000}
     offline-max-slice-ms: ${MEETING_VOICEPRINT_OFFLINE_MAX_SLICE_MS:10000}
     offline-max-speakers: ${MEETING_VOICEPRINT_OFFLINE_MAX_SPEAKERS:8}
 
-  # 讯飞在线语音合成（主持 TTS），鉴权复用 meeting.asr.xfyun 的 app-id / api-key / api-secret
+  # ----- 主持页 TTS（讯飞在线合成，鉴权复用 asr.xfyun）-----
   tts:
     ws-url: ${XFYUN_TTS_WS_URL:wss://tts-api.xfyun.cn/v2/tts}
     vcn: ${XFYUN_TTS_VCN:x4_yezi}
     connect-timeout-sec: 15
-    # 长稿合成可能超过 60s；分段后单段一般更快，仍适当放宽
     read-timeout-sec: ${XFYUN_TTS_READ_TIMEOUT_SEC:120}
-    # 讯飞文档：单次 data.text 的 base64 长度须 <8000 字节；原文 UTF-8 建议留余量（约 5300 字节）
+    # 单段 UTF-8 原文上限（讯飞 base64 包 <8000 字节）
     max-text-utf8-bytes: ${XFYUN_TTS_MAX_TEXT_UTF8_BYTES:5300}
 
-  # AI 会议主持人（Web 主持页 + 会中零飞书）
+  # ----- Redis 会务预设缓存 -----
   cache:
-    # 会务预设 / 会序飞书资料配置 Redis 缓存 TTL（需 spring.data.redis 可用）
     preset-ttl-hours: ${MEETING_CACHE_PRESET_TTL_HOURS:24}
-    # 定时全量预热 preset 1～5（改库后无新会议时仍能对齐 Redis）
     refresh-enabled: ${MEETING_CACHE_REFRESH_ENABLED:true}
     refresh-cron: ${MEETING_CACHE_REFRESH_CRON:0 */10 * * * ?}
 
+  # ----- 内部运维 API（刷新预设、主持会序等）-----
   internal:
     reload-enabled: ${MEETING_INTERNAL_RELOAD_ENABLED:true}
     reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
 
+  # ----- AI 主持（Web 主持页，会中零飞书群消息）-----
   host:
     enabled: ${MEETING_HOST_ENABLED:true}
-    # 会序推进（下一议题/跳过/加时）；轻量主持须保持 true
     agenda-enabled: ${MEETING_HOST_AGENDA_ENABLED:true}
-    # 讯飞 TTS 播报与主持页 tts_* WebSocket；false 时仅计时与 host_state
     tts-enabled: ${MEETING_HOST_TTS_ENABLED:true}
-    # 混合检点（线上盘点 + 线下点名）
     roll-call-enabled: ${MEETING_HOST_ROLL_CALL_ENABLED:true}
-    # 开场白播完后自动进入检点（须 roll-call-enabled=true 且预设有应到名单）
     auto-roll-call-after-opening: ${MEETING_HOST_AUTO_ROLL_CALL_AFTER_OPENING:true}
-    # 时间类提醒经 WebSocket host_toast 在主持页右下角展示（3s 自动消失），不走 TTS
     reminder:
       topic-minutes-left: 1
       meeting-minutes-left: "10,3"
     roll-call:
-      # 线上参会人个人链接盘点等待秒数，结束后进入线下答到点名
       online-inventory-seconds: ${MEETING_HOST_ROLL_CALL_ONLINE_INVENTORY_SEC:60}
-      # 每人「请某某答到」话术推送完成后的基础作答秒数（至少 5 生效）
       window-seconds: ${MEETING_HOST_ROLL_CALL_WINDOW_SEC:12}
-      # 定稿常晚于实际开口：叠在 window 之上；与未到超时、答到判定共用 deadline（计时在点名话术播完后起算）
       asr-grace-seconds: ${MEETING_HOST_ROLL_CALL_ASR_GRACE_SEC:6}
-  # 讯飞 ISV 声纹
+
+  # ----- 讯飞 ISV 声纹 1:N -----
   isv:
     enabled: ${ISV_ENABLED:false}
     group-id: ${ISV_GROUP_ID:smart_meeting_vp}
@@ -228,7 +288,8 @@ meeting:
     register-timeout: 5.0
     debug-log: ${ISV_DEBUG_LOG:false}
     ttl-years: 10
-  # 大模型
+
+  # ----- 大模型（纪要初稿、待办提取等）-----
   llm:
     provider: ${LLM_PROVIDER:deepseek}
     api-key: ${LLM_API_KEY:test}
@@ -237,7 +298,7 @@ meeting:
     timeout-seconds: 120
     max-retries: 2
 
-  # 飞书
+  # ----- 飞书开放平台 -----
   feishu:
     app-id: ${FEISHU_APP_ID:test}
     app-secret: ${FEISHU_APP_SECRET:test}
@@ -245,34 +306,27 @@ meeting:
     encrypt-key: ${FEISHU_ENCRYPT_KEY:}
     base-url: https://open.feishu.cn
     token-cache-seconds: 7200
-    # 进群欢迎、首次「开始会议」说明卡片、自定义菜单 event_key（见 MeetingFeishuBotUxProperties）
-    # 混合方案：开放平台建议仅订阅 card.action.trigger；服务端仍兼容 card.action.trigger_v1
     bot-ux:
       welcome-on-bot-join: true
       instruction-card-on-first-start: false
       menu-event-key-start-meeting: start_meeting
       menu-v6-fallback-to-last-group-chat: true
-  
+
   jwt:
     secret: ${JWT_SECRET:this-is-…mum-key-change-in-production}
     expire-hours: 4
-    # 飞书卡片「打开 Web 选会」链接中的 JWT 有效期（分钟）
     feishu-web-entry-expire-minutes: ${FEISHU_WEB_ENTRY_EXPIRE_MINUTES:30}
-    # Dashboard 工作台 JWT 有效期（小时）
     feishu-web-dashboard-expire-hours: ${FEISHU_WEB_DASHBOARD_EXPIRE_HOURS:8}
 
   heartbeat:
     interval: ${HEARTBEAT_INTERVAL:30}
     frontend-ws-close-timeout: ${FRONTEND_WS_CLOSE_TIMEOUT:5}
 
-# ============================================================
-# AI Agent 配置（策略模式：llm / mcp）
-# ============================================================
+# =============================================================================
+# OpenClaw AI Agent（纪要增强、会前分析等；provider=llm 或 mcp）
+# =============================================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:true}
-  # Agent 提供者：
-  #   llm  — 直调 LLM Chat API（默认，不依赖 OpenClaw 部署）
-  #   mcp  — OpenClaw Gateway WebSocket + MCP + Skill（需部署 Gateway + MCP Server）
   agent:
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
@@ -280,12 +334,11 @@ openclaw:
   timeout-seconds: ${OPENCLAW_TIMEOUT:60}
   auth-token: ${OPENCLAW_AUTH_TOKEN:}
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
-  # Skill 模式开关（仅 provider=mcp 时生效）：
-  #   true  — prompt 精简为 /skill:xxx + 业务数据，由 SKILL.md 定义工具调用和输出格式
-  #   false — 使用完整 prompt（兼容无 Skill 部署）
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
-  # comprehensive-bitable 配置已下线（v0.9）：会前进度改由 feishu-scheduled-bot + matter-progress-core 处理
 
+# -----------------------------------------------------------------------------
+# 日志
+# -----------------------------------------------------------------------------
 logging:
   level:
     root: INFO

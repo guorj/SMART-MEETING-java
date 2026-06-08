@@ -18,6 +18,11 @@ public class AgendaDocBindingSnapshot {
     private Integer agendaIndex;
     private Integer resourceSlot;
     private String feishuDocUrl;
+    /** FEISHU（默认）或 LOCAL */
+    private String storageKind;
+    private String fileId;
+    private String originalFilename;
+    private String mimeType;
     private Integer enabled;
     private String configRole;
     private String bitableDisplayMode;

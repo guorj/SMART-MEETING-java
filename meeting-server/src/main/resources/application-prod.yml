@@ -1,13 +1,23 @@
-# ============================================================
-# Prod Profile — 业务参数与 application-dev.yml 对齐（同库、同三方密钥）
-# 本环境不上 Kafka / Redis：排除自动配置 + meeting.kafka.enabled=false → LocalEventBus
-# MyBatis SQL 日志走 Slf4j（非 dev 的 stdout）
-# ============================================================
+# =============================================================================
+# Prod Profile — meeting-server 生产/准生产
+# =============================================================================
+# 激活：SPRING_PROFILES_ACTIVE=prod
+# 与 dev 对齐：同库、同三方密钥、同 base-url；差异主要在会后开关默认值
+#
+# 本环境典型会后组合：
+#   asr.offline-enabled=true + minute.generation-enabled=true（下方）
+#   → 先离线转写，再纪要生成 → COMPLETED
+#
+# 消息：排除 Kafka + meeting.kafka.enabled=false → LocalEventBus（与 dev 一致）
+#       若上 Kafka：设 KAFKA_ENABLED=true、取消 exclude，并创建 topic
+#       meeting.offline.asr / meeting.events / todo.extract
+# =============================================================================
 
 spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
+      # 若启用 Redis 预设缓存，可取消下一行注释并配置 spring.data.redis
       # - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
 
   datasource:
@@ -18,7 +28,6 @@ spring:
 
   sql:
     init:
-      # 禁止启动时执行 schema-data.sql，避免覆盖库内飞书 URL（校验见 DatabaseSeedStartupValidator）
       mode: never
 
 meeting:
@@ -26,13 +35,17 @@ meeting:
     enabled: false
 
   minute:
+    # prod 默认开启完整纪要链路（LLM + 飞书文档 + 通知）
+    generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:true}
+    persist-enabled: ${MEETING_MINUTE_PERSIST:true}
+    llm-enabled: ${MEETING_MINUTE_LLM_ENABLED:true}
     ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
+    feishu-doc-enabled: ${MEETING_MINUTE_FEISHU_DOC_ENABLED:true}
+    notify-enabled: ${MEETING_MINUTE_NOTIFY_ENABLED:true}
 
   todo:
-    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
 
-  # 与 dev 一致：公网入口（frp / 反代）
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 
   feishu:
@@ -44,6 +57,8 @@ meeting:
     token-cache-seconds: 7200
 
   asr:
+    # 会后独立离线转写；与 generation-enabled 配合时顺序：离线 → 纪要
+    offline-enabled: ${MEETING_ASR_OFFLINE_ENABLED:true}
     primary: xfyun
     fallback: tencent
     lang: "autodialect"
@@ -106,16 +121,11 @@ meeting:
     interval: 30
     frontend-ws-close-timeout: 5
 
-# ============================================================
-# AI Agent 配置（策略模式：llm / mcp）
-# 生产环境推荐 provider: mcp（需部署 OpenClaw Gateway + MCP Server）
-# 若未部署 Gateway，保持默认 llm 即可
-# ============================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:true}
   agent:
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
-  # 与 Gateway 同机部署时用 127.0.0.1（可获得 operator.write）；跨机请配 device-token
+  # Gateway 同机用 127.0.0.1；跨机须配 device-token 获 operator.write
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}

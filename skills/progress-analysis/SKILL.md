@@ -5,7 +5,7 @@ description: "综合管理会会前进度通报：读取飞书多维表格与MyS
 allowed-tools:
   - lark-mcp__bitable_v1_appTableField_list      # bitable.v1.appTableField.list — 字段结构
   - lark-mcp__bitable_v1_appTableRecord_search   # bitable.v1.appTableRecord.search — 读表记录
-  - meeting-mysql__query                         # SQL 查 int_meeting_todo 统计
+  - meeting-mysql__mysql_query                   # SQL 查 int_meeting_todo 统计
 ---
 
 # 上次待办进度分析
@@ -34,7 +34,7 @@ delayedItems=（可选）延期项详情
    - 筛选与当前会议组相关的待办事项
 
 2. **查询 MySQL 待办统计**
-   - 调用 `meeting-mysql__query` 查询 `int_meeting_todo` 表：
+   - 调用 `meeting-mysql__mysql_query` 查询 `int_meeting_todo` 表：
      ```sql
      SELECT status, COUNT(*) as cnt
      FROM int_meeting_todo

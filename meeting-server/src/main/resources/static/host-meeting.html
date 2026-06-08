@@ -11,7 +11,7 @@
       background: #f0f2f5;
       color: #1a1a1a;
       min-height: 100vh;
-      padding: 16px 20px max(20px, calc(11.5rem + env(safe-area-inset-bottom, 0px)));
+      padding: 16px 20px max(20px, env(safe-area-inset-bottom, 0px));
     }
     .host-header { margin-bottom: 12px; }
     .host-header h1 { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 4px; }
@@ -36,31 +36,70 @@
     }
     .host-col-right { min-height: 0; display: flex; flex-direction: column; }
     .card-agenda-progress { flex-shrink: 0; }
-    /* 实时字幕：固定于视口底部 */
-    .host-transcript-dock {
-      position: fixed;
-      left: 0;
+    .row-primary-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-left: auto;
+      flex-shrink: 0;
+    }
+    /* 录音模块：主持栏右上角紧凑角标（离线状态 / 实时字幕 flyout） */
+    .host-recording-widget {
+      position: relative;
+      flex-shrink: 0;
+      max-width: min(200px, 36vw);
+    }
+    .host-recording-chip {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 8px;
+      background: #f7f8fa;
+      border: 1px solid #e0e0e0;
+      box-shadow: 0 1px 2px rgba(0,0,0,.05);
+    }
+    .recording-status-panel { display: flex; flex-direction: column; gap: 0; min-width: 0; }
+    .transcript-panel-hidden { display: none; }
+    .rec-status-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .rec-status-dot {
+      width: 8px; height: 8px; border-radius: 50%; background: #bdbdbd; flex-shrink: 0;
+    }
+    .rec-status-dot.recording { background: #e53935; animation: rec-pulse 1s infinite; }
+    .rec-status-dot.paused { background: #ff9800; }
+    .rec-status-dot.reconnecting { background: #2196f3; animation: rec-pulse 0.5s infinite; }
+    .rec-status-dot.idle, .rec-status-dot.stopped { background: #9e9e9e; }
+    @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+    .rec-status-main {
+      font-size: 12px; font-weight: 600; flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .rec-status-timer {
+      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
+      letter-spacing: 0.5px; color: #333; flex-shrink: 0;
+    }
+    .rec-status-sub { display: none; }
+    .host-recording-transcript-flyout {
+      position: absolute;
+      top: calc(100% + 6px);
       right: 0;
-      bottom: 0;
-      z-index: 100;
-      padding: 0 12px max(10px, env(safe-area-inset-bottom, 0px)) 12px;
-      pointer-events: none;
+      width: min(340px, calc(100vw - 32px));
+      z-index: 150;
+      background: #fff;
+      border: 1px solid #e0e0e0;
+      border-radius: 10px;
+      box-shadow: 0 8px 24px rgba(0,0,0,.12);
+      padding: 8px;
     }
-    .host-transcript-dock-card {
-      pointer-events: auto;
-      max-width: 1200px;
-      margin: 0 auto;
-      border-radius: 12px 12px 0 0;
-      padding: 10px 14px 12px;
-      box-shadow: 0 -6px 20px rgba(0,0,0,.1);
-      border-bottom: none;
+    .host-recording-transcript-label {
+      font-size: 11px; font-weight: 600; color: #757575;
+      margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid #eee;
     }
-    .host-transcript-dock-title { font-size: 13px; margin-bottom: 8px; padding-bottom: 6px; }
-    /* 时间类提醒：固定右下角，高于底部字幕 dock */
+    /* 时间类提醒：固定右下角 */
     .host-toast-stack {
       position: fixed;
       right: 16px;
-      bottom: calc(11.5rem + env(safe-area-inset-bottom, 0px));
+      bottom: max(16px, env(safe-area-inset-bottom, 0px));
       z-index: 200;
       display: flex;
       flex-direction: column;
@@ -152,7 +191,6 @@
     .panel-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
     .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
     .row-primary { align-items: center; }
-    .row-primary .btn-danger { margin-left: auto; }
     .row-extend { align-items: center; }
     .extend-label { font-size: 14px; font-weight: 600; color: #333; white-space: nowrap; }
     .extend-select {
@@ -208,12 +246,12 @@
     .rc-row.SKIPPED .rc-st { color: #e65100; }
     .muted { color: #757575; font-size: 13px; line-height: 1.5; }
     .transcript-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; overflow: hidden; }
-    /* 底部字幕区：可滚动，高度随视口略变 */
+    /* 实时字幕 flyout：可滚动小窗 */
     .transcript-host-viewport {
       flex: none;
-      min-height: 5rem;
-      max-height: min(32vh, 11rem);
-      height: 8.5rem;
+      min-height: 4rem;
+      max-height: min(28vh, 9rem);
+      height: 7rem;
       overflow-y: auto;
       overflow-x: hidden;
       scroll-behavior: smooth;
@@ -450,6 +488,43 @@
     }
     .feishu-part-block { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e8ecef; }
     .feishu-part-block:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+    .local-material-block { width: 100%; }
+    .local-material-gallery { display: flex; flex-direction: column; gap: 14px; width: 100%; }
+    .local-material-figure { margin: 0; width: 100%; }
+    .local-material-figure figcaption { font-size: 13px; color: #666; margin-bottom: 6px; }
+    .local-material-img,
+    .local-doc-embed-img,
+    .local-material-preview img {
+      width: 100%;
+      max-width: 100%;
+      height: auto;
+      max-height: min(560px, calc(100vh - 320px));
+      object-fit: contain;
+      border-radius: 6px;
+      display: block;
+      margin: 8px auto 0;
+      background: #fafafa;
+    }
+    .local-material-file { margin: 8px 0 0; font-size: 14px; }
+    .local-material-preview {
+      margin-top: 10px;
+      padding: 12px 14px;
+      background: #fafafa;
+      border: 1px solid #e8e8e8;
+      border-radius: 6px;
+      max-height: min(560px, calc(100vh - 320px));
+      overflow: auto;
+      font-size: 14px;
+      line-height: 1.7;
+      color: #333;
+      width: 100%;
+    }
+    .local-material-preview.local-doc-preview { white-space: normal; }
+    .local-doc-body p { margin: 0 0 10px; }
+    .local-doc-body p:last-child { margin-bottom: 0; }
+    .local-doc-extra-media { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
+    .local-material-loading { margin-top: 8px; font-size: 13px; color: #888; }
+    .local-material-error { margin-top: 8px; font-size: 13px; color: #c62828; }
     .feishu-fetch-error {
       background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px;
       padding: 10px 14px; font-size: 13px; color: #e65100; margin: 8px 0; line-height: 1.5;
@@ -481,7 +556,8 @@
       .feishu-bitable-table { min-width: 360px; font-size: 12px; }
       .host-workspace { grid-template-columns: 1fr; min-height: auto; }
       .host-col-right { order: 3; }
-      .row-primary .btn-danger { margin-left: 0; }
+      .row-primary-right { margin-left: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; }
+      .host-recording-widget { max-width: 100%; }
     }
   </style>
 </head>
@@ -501,7 +577,29 @@
           <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
           <button class="btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
           <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
-          <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
+          <div class="row-primary-right">
+            <div class="host-recording-widget" id="hostRecordingWidget" role="region" aria-label="录音模块">
+              <div class="host-recording-chip">
+                <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
+                  <div class="rec-status-row">
+                    <span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
+                    <span class="rec-status-main" id="recStatusMain">未开始</span>
+                    <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
+                  </div>
+                  <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
+                </div>
+              </div>
+              <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
+                <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
+                <div class="transcript-inner" id="transcriptHost">
+                  <div class="transcript-host-viewport" id="transcriptViewport">
+                    <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
+          </div>
         </div>
         <div class="row">
           <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
@@ -569,18 +667,7 @@
 
   <div id="hostToastStack" class="host-toast-stack" aria-live="polite" aria-atomic="false"></div>
 
-  <div class="host-transcript-dock" role="region" aria-label="录音模块">
-    <section class="card-light host-transcript-dock-card">
-      <h2 class="panel-title host-transcript-dock-title">录音模块 · 实时字幕</h2>
-      <div class="transcript-inner" id="transcriptHost">
-        <div class="transcript-host-viewport" id="transcriptViewport">
-          <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V -->
+  <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V；host 内联脚本变更记 sm-20260607-4 -->
   <script>
     (function () {
       var p = location.pathname || '';
@@ -593,7 +680,7 @@
   <script src="static/meeting-context.js?v=sm-20260525-1"></script>
   <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
-  <script src="static/recorder.js?v=sm-20260524-1"></script>
+  <script src="static/recorder.js?v=sm-20260607-2"></script>
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
@@ -604,6 +691,12 @@
       let recorder = null;
       /** 当前一条「进行中」转写行：同发言人连续 partial 在此行内刷新，定稿后清空以便下一句新开一行。 */
       let hostTranscriptLiveSlot = null;
+      /** offline | realtime：默认离线录音状态条；收到 asr_started 后切实时字幕 */
+      let recordingUiMode = 'offline';
+      let recTimerInterval = null;
+      let recTimerStartMs = null;
+      let recTimerAccumSec = 0;
+      let recTimerRunning = false;
       let meetingLive = false;
       /** 从会议/预设解析；未开始时右侧议程详情为预览，开始后为实时状态 */
       let plannedTopicsCache = [];
@@ -613,6 +706,8 @@
       let agendaDocFetchingIndex = -1;
       /** 左侧会序区上次渲染状态键，避免每秒 host_state 重复重绘 */
       let agendaDocLastStateKey = '';
+      /** 本地上传资料 blob URL 缓存（fileId -> object URL） */
+      var localMaterialBlobCache = {};
 
       /**
        * 主持 TTS（PCM）+ 虚拟形象口型。
@@ -919,8 +1014,134 @@
         return !!(topic && topic.outputFeishuDocUrl && String(topic.outputFeishuDocUrl).trim());
       }
 
+      function topicHasLocalMaterial(topic) {
+        return !!(topic && topic.localMaterials && topic.localMaterials.length);
+      }
+
       function topicHasReportOrFeishu(topic) {
-        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasOutputFeishuDoc(topic);
+        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasOutputFeishuDoc(topic)
+            || topicHasLocalMaterial(topic);
+      }
+
+      function isImageMimeType(mime) {
+        return String(mime || '').toLowerCase().indexOf('image/') === 0;
+      }
+
+      function isImageMaterial(m) {
+        if (!m) return false;
+        if (isImageMimeType(m.mimeType)) return true;
+        var name = String(m.originalFilename || m.fileId || '').toLowerCase();
+        return /\.(png|jpe?g|gif|webp)$/.test(name);
+      }
+
+      function isDocMaterial(m) {
+        if (!m) return false;
+        var mime = String(m.mimeType || '').toLowerCase();
+        if (mime.indexOf('word') >= 0 || mime === 'application/msword') return true;
+        var name = String(m.originalFilename || m.fileId || '').toLowerCase();
+        return /\.(docx?)$/.test(name);
+      }
+
+      function agendaMaterialUrl(fileId) {
+        return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
+            + '/agenda-materials/' + encodeURIComponent(fileId)
+            + '?token=' + encodeURIComponent(token || ''));
+      }
+
+      function agendaMaterialPreviewUrl(fileId) {
+        return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
+            + '/agenda-materials/' + encodeURIComponent(fileId) + '/preview'
+            + '?token=' + encodeURIComponent(token || ''));
+      }
+
+      function fetchAgendaMaterialBlob(fileId) {
+        if (!fileId) return Promise.reject(new Error('fileId 为空'));
+        if (localMaterialBlobCache[fileId]) {
+          return Promise.resolve(localMaterialBlobCache[fileId]);
+        }
+        return fetch(agendaMaterialUrl(fileId), {
+          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        }).then(function (res) {
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          return res.blob();
+        }).then(function (blob) {
+          var url = URL.createObjectURL(blob);
+          localMaterialBlobCache[fileId] = url;
+          return url;
+        });
+      }
+
+      function fetchAgendaMaterialPreviewText(fileId) {
+        return fetch(agendaMaterialPreviewUrl(fileId), {
+          headers: token ? { 'Authorization': 'Bearer ' + token } : {}
+        }).then(function (res) {
+          return res.json().catch(function () { return {}; }).then(function (j) {
+            if (!res.ok || j.code !== 0) {
+              throw new Error(j.message || ('HTTP ' + res.status));
+            }
+            return j.data || {};
+          });
+        });
+      }
+
+      function sanitizeLocalDocHtml(html) {
+        if (!html) return '';
+        if (typeof DOMPurify === 'undefined') return html;
+        return DOMPurify.sanitize(html, {
+          USE_PROFILES: { html: true },
+          ADD_TAGS: ['img', 'br', 'p', 'div'],
+          ADD_ATTR: ['src', 'alt', 'class'],
+          ALLOWED_URI_REGEXP: /^(?:(?:https?|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i
+        });
+      }
+
+      function bindLocalMaterialImage(img, fileId) {
+        if (!img || !fileId) return;
+        fetchAgendaMaterialBlob(fileId).then(function (url) {
+          img.src = url;
+          img.onload = function () {
+            img.classList.add('local-material-loaded');
+          };
+        }).catch(function () {
+          img.alt = '图片加载失败';
+          img.classList.add('local-material-error');
+        });
+      }
+
+      function bindLocalMaterialDocPreview(container, fileId) {
+        if (!container || !fileId) return;
+        container.textContent = '正在加载文档预览…';
+        container.className = 'local-material-preview local-material-loading';
+        fetchAgendaMaterialPreviewText(fileId).then(function (data) {
+          container.className = 'local-material-preview local-doc-preview';
+          if (data && data.html) {
+            container.innerHTML = sanitizeLocalDocHtml(data.html);
+          } else if (data && data.plainText) {
+            container.style.whiteSpace = 'pre-wrap';
+            container.textContent = data.plainText;
+          } else {
+            container.textContent = '（文档为空或无法提取正文）';
+          }
+        }).catch(function (err) {
+          container.className = 'local-material-preview local-material-error';
+          container.textContent = '文档预览失败：' + (err.message || '');
+        });
+      }
+
+      function bindLocalMaterialDownloadLink(link, fileId, filename) {
+        if (!link || !fileId) return;
+        link.textContent = '下载';
+        link.addEventListener('click', function (e) {
+          e.preventDefault();
+          fetchAgendaMaterialBlob(fileId).then(function (url) {
+            var a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'file';
+            a.click();
+          }).catch(function (err) {
+            alert('下载失败：' + (err.message || ''));
+          });
+        });
       }
 
       /**
@@ -931,8 +1152,11 @@
         if (!topic) return String(agendaIndex) + '|empty';
         var refs = collectFeishuDocRefsFromTopic(topic);
         var refKeys = refs.map(function (r) { return feishuDocDedupeKey(r.url); }).sort().join(',');
+        var localKeys = (topic.localMaterials || []).map(function (m) {
+          return m && m.fileId ? m.fileId : '';
+        }).filter(Boolean).sort().join(',');
         return agendaIndex + '|' + (topic.generatedReportUrl || '') + '|' + (topic.outputFeishuDocUrl || '')
-            + '|' + (topic.generatedReportAt || '') + '|' + refKeys;
+            + '|' + (topic.generatedReportAt || '') + '|' + refKeys + '|local:' + localKeys;
       }
 
       /** 从 host_state topic 收集 SOURCE 飞书链接（feishuDocs + feishuDocUrl），按 feishuDocDedupeKey 去重。 */
@@ -1047,9 +1271,83 @@
        * 会序主区完整渲染（无正文 API）：SOURCE 外链列表 + 会前对比/OUTPUT 外链。
        * 正文场景由 loadAgendaDocContent 先 renderAgendaDocParts 再 appendWeeklyReportBlocks。
        */
+      function renderLocalMaterials(panel, topic) {
+        if (!panel || !topicHasLocalMaterial(topic)) return;
+        var materials = (topic.localMaterials || []).filter(function (m) { return m && m.fileId; });
+        var imageMaterials = materials.filter(isImageMaterial);
+        var otherMaterials = materials.filter(function (m) { return !isImageMaterial(m); });
+
+        if (imageMaterials.length) {
+          var galleryBlock = document.createElement('section');
+          galleryBlock.className = 'feishu-part-block local-material-block local-material-gallery-wrap';
+          if (imageMaterials.length === 1) {
+            var singleTitle = document.createElement('h4');
+            singleTitle.textContent = (imageMaterials[0].configName && imageMaterials[0].configName.trim())
+                ? imageMaterials[0].configName.trim() : (imageMaterials[0].originalFilename || '本地图片');
+            galleryBlock.appendChild(singleTitle);
+          } else {
+            var galleryTitle = document.createElement('h4');
+            galleryTitle.textContent = '本地图片（' + imageMaterials.length + ' 张）';
+            galleryBlock.appendChild(galleryTitle);
+          }
+          var gallery = document.createElement('div');
+          gallery.className = 'local-material-gallery';
+          imageMaterials.forEach(function (m) {
+            var figure = document.createElement('figure');
+            figure.className = 'local-material-figure';
+            if (imageMaterials.length > 1) {
+              var cap = document.createElement('figcaption');
+              cap.textContent = (m.configName && m.configName.trim()) ? m.configName.trim() : (m.originalFilename || m.fileId);
+              figure.appendChild(cap);
+            }
+            var img = document.createElement('img');
+            img.className = 'local-material-img';
+            img.alt = m.originalFilename || m.fileId || '本地图片';
+            figure.appendChild(img);
+            gallery.appendChild(figure);
+            bindLocalMaterialImage(img, m.fileId);
+          });
+          galleryBlock.appendChild(gallery);
+          panel.appendChild(galleryBlock);
+        }
+
+        otherMaterials.forEach(function (m) {
+          var block = document.createElement('section');
+          block.className = 'feishu-part-block local-material-block';
+          var title = document.createElement('h4');
+          title.textContent = (m.configName && m.configName.trim()) ? m.configName.trim() : '本地资料';
+          block.appendChild(title);
+          var name = m.originalFilename || m.fileId;
+          if (isDocMaterial(m)) {
+            var p = document.createElement('p');
+            p.className = 'local-material-file';
+            p.textContent = '📄 ' + name + ' ';
+            var link = document.createElement('a');
+            link.href = '#';
+            p.appendChild(link);
+            block.appendChild(p);
+            bindLocalMaterialDownloadLink(link, m.fileId, name);
+            var preview = document.createElement('div');
+            block.appendChild(preview);
+            bindLocalMaterialDocPreview(preview, m.fileId);
+          } else {
+            var p2 = document.createElement('p');
+            p2.className = 'local-material-file';
+            p2.textContent = '📄 ' + name + ' ';
+            var link2 = document.createElement('a');
+            link2.href = '#';
+            p2.appendChild(link2);
+            block.appendChild(p2);
+            bindLocalMaterialDownloadLink(link2, m.fileId, name);
+          }
+          panel.appendChild(block);
+        });
+      }
+
       function renderAgendaDocPanelContent(el, topic, opts) {
         renderAgendaDocLinksOnly(el, topic, opts);
         var panel = el.querySelector('.feishu-doc-panel');
+        renderLocalMaterials(panel, topic);
         appendWeeklyReportBlocks(panel, topic);
       }
 
@@ -1173,10 +1471,58 @@
       }
 
       var BITABLE_STATUS_GROUPS = [
-        { id: 'completed', title: '已完成', marker: '已完成' },
         { id: 'delayed', title: '延期', marker: '延期' },
+        { id: 'completed', title: '已完成', marker: '已完成' },
         { id: 'in_progress', title: '进行中', marker: '进行中' }
       ];
+
+      function isBitableStatusSectionLabel(label) {
+        return label === '已完成' || label === '延期' || label === '进行中';
+      }
+
+      function bitableStatusSectionSortKey(title) {
+        if (title === '延期') return 0;
+        if (title === '已完成') return 1;
+        if (title === '进行中') return 2;
+        return 99;
+      }
+
+      function isBitableTimeSectionLabel(label) {
+        if (!label || label.indexOf('数据表：') === 0) return false;
+        if (isBitableStatusSectionLabel(label)) return false;
+        return label.indexOf('近三个月') >= 0
+            || label.indexOf('三个月以前') >= 0
+            || label.indexOf('更早') >= 0;
+      }
+
+      function buildBitableTimeSection(sectionLabel, secBody) {
+        var isRecent = sectionLabel.indexOf('近三个月') >= 0;
+        if (sectionLabel.indexOf('三个月以前') >= 0 || sectionLabel.indexOf('更早') >= 0) {
+          isRecent = false;
+        }
+        var secId = isRecent ? 'recent' : 'older';
+        var statusGroups = secId === 'recent' ? parseBitableStatusGroups(secBody) : null;
+        var records = statusGroups
+            ? statusGroups.reduce(function (acc, g) { return acc.concat(g.records || []); }, [])
+            : parseBitableRecordBlocks(secBody);
+        return {
+          id: secId,
+          title: sectionLabel.replace(/^§/, ''),
+          records: records,
+          statusGroups: statusGroups
+        };
+      }
+
+      function sortBitableTimeSections(sections) {
+        if (!sections || sections.length < 2) return sections || [];
+        var statusOnly = sections.every(function (sec) {
+          return sec.id === 'recent' && isBitableStatusSectionLabel(sec.title);
+        });
+        if (!statusOnly) return sections;
+        return sections.slice().sort(function (a, b) {
+          return bitableStatusSectionSortKey(a.title) - bitableStatusSectionSortKey(b.title);
+        });
+      }
 
       function parseBitableStatusGroups(secBody) {
         var groups = [];
@@ -1209,37 +1555,40 @@
       function parseBitableTimeSections(body) {
         var sections = [];
         var block = body == null ? '' : String(body).trim();
-        if (block.indexOf('=== §') >= 0) {
-          var secParts = block.split(/===\s*(§[^\n=]+?)\s*===/);
-          for (var si = 1; si < secParts.length; si += 2) {
-            var sectionLabel = (secParts[si] || '').trim();
-            if (sectionLabel.indexOf('数据表：') === 0) continue;
-            if (sectionLabel === '已完成' || sectionLabel === '延期' || sectionLabel === '进行中') {
-              continue;
-            }
-            var secBody = (secParts[si + 1] || '').trim();
-            var isRecent = sectionLabel.indexOf('近三个月') >= 0
-                || (sectionLabel.indexOf('以前') < 0 && sectionLabel.indexOf('更早') < 0
-                    && sectionLabel.indexOf('三个月') < 0);
-            if (sectionLabel.indexOf('以前') >= 0 || sectionLabel.indexOf('更早') >= 0) {
-              isRecent = false;
-            }
-            var secId = isRecent ? 'recent' : 'older';
-            var statusGroups = secId === 'recent' ? parseBitableStatusGroups(secBody) : null;
-            var records = statusGroups
-                ? statusGroups.reduce(function (acc, g) { return acc.concat(g.records || []); }, [])
-                : parseBitableRecordBlocks(secBody);
-            sections.push({
-              id: secId,
-              title: sectionLabel.replace(/^§/, ''),
-              records: records,
-              statusGroups: statusGroups
-            });
-          }
-        } else {
+        if (block.indexOf('=== §') < 0) {
           sections.push({ id: 'all', title: '', records: parseBitableRecordBlocks(block) });
+          return sections;
         }
-        return sections;
+        var markers = [];
+        var re = /===\s*(§[^\n=]+?)\s*===/g;
+        var m;
+        while ((m = re.exec(block)) !== null) {
+          var label = (m[1] || '').trim().replace(/^§/, '');
+          if (!isBitableTimeSectionLabel(label)) continue;
+          markers.push({ label: label, start: m.index, headerEnd: m.index + m[0].length });
+        }
+        if (!markers.length) {
+          var onlyStatusGroups = parseBitableStatusGroups(block);
+          if (onlyStatusGroups) {
+            sections.push({
+              id: 'recent',
+              title: '近三个月（按创建日期）',
+              records: onlyStatusGroups.reduce(function (acc, g) {
+                return acc.concat(g.records || []);
+              }, []),
+              statusGroups: onlyStatusGroups
+            });
+            return sections;
+          }
+          sections.push({ id: 'all', title: '', records: parseBitableRecordBlocks(block) });
+          return sections;
+        }
+        for (var i = 0; i < markers.length; i++) {
+          var end = i + 1 < markers.length ? markers[i + 1].start : block.length;
+          var secBody = block.substring(markers[i].headerEnd, end).trim();
+          sections.push(buildBitableTimeSection(markers[i].label, secBody));
+        }
+        return sortBitableTimeSections(sections);
       }
 
       function parseBitablePlainText(text) {
@@ -1944,7 +2293,9 @@
         var weeklyReport = res.data && res.data.weeklyReport ? res.data.weeklyReport : null;
         if (res.ok && res.data && res.data.parts && res.data.parts.length) {
           renderAgendaDocParts(targets.body, res.data.parts, opts);
-          appendWeeklyReportBlocks(targets.body.querySelector('.feishu-doc-panel'), topic, weeklyReport);
+          var partsPanel = targets.body.querySelector('.feishu-doc-panel');
+          renderLocalMaterials(partsPanel, topic);
+          appendWeeklyReportBlocks(partsPanel, topic, weeklyReport);
           var firstUrl = res.data.feishuDocUrl;
           var firstKind = res.data.docKind;
           if (!firstUrl && res.data.parts[0]) {
@@ -1961,6 +2312,7 @@
           targets.body.innerHTML = '';
           var panel = ensureFeishuDocPanel(targets.body);
           panel.classList.add('feishu-doc-panel-weekly-only');
+          renderLocalMaterials(panel, topic);
           appendWeeklyReportBlocks(panel, topic, weeklyReport);
           return;
         }
@@ -1969,6 +2321,7 @@
           return;
         }
         renderAgendaDocLinksOnly(targets.body, topic, opts);
+        renderLocalMaterials(targets.body.querySelector('.feishu-doc-panel'), topic);
         var errPanel = targets.body.querySelector('.feishu-doc-panel');
         if (errPanel) {
           var errBox = document.createElement('div');
@@ -2042,9 +2395,9 @@
           var kindLbl = docCount > 1 ? ('共 ' + docCount + ' 份') : (docCount === 1 ? feishuKindLabel(uniqueRefs[0].kind) : feishuKindLabel(curTopic.feishuDocKind));
           var mainBodyEl = document.getElementById('progressReportBody');
           var hasInlineBody = mainBodyEl && !!mainBodyEl.querySelector('.feishu-doc-body');
-          var panelPrefix = (topicHasWeeklyReport(curTopic) && !topicHasFeishuDoc(curTopic))
+          var panelPrefix = (topicHasWeeklyReport(curTopic) && !topicHasFeishuDoc(curTopic) && !topicHasLocalMaterial(curTopic))
               ? '会前对比通报'
-              : (hasInlineBody || topicHasFeishuDoc(curTopic) ? '会序资料' : '会序飞书链接');
+              : (hasInlineBody || topicHasFeishuDoc(curTopic) || topicHasLocalMaterial(curTopic) ? '会序资料' : '会序飞书链接');
           titleEl.textContent = panelPrefix + (kindLbl ? ('（' + kindLbl + '）') : '') + ' · '
               + (curTopic.title || ('第 ' + (curTopicIdx + 1) + ' 项'));
         }
@@ -2328,6 +2681,119 @@
         updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length);
       }
 
+      function setRecordingUiMode(mode) {
+        recordingUiMode = mode === 'realtime' ? 'realtime' : 'offline';
+        var statusPanel = document.getElementById('recordingStatusPanel');
+        var transcriptPanel = document.getElementById('transcriptPanel');
+        var subtitle = document.getElementById('recordingDockSubtitle');
+        var sub = document.getElementById('recStatusSub');
+        var chip = statusPanel ? statusPanel.closest('.host-recording-chip') : null;
+        if (recordingUiMode === 'realtime') {
+          if (chip) chip.style.display = 'none';
+          if (transcriptPanel) transcriptPanel.classList.remove('transcript-panel-hidden');
+          if (subtitle) subtitle.textContent = '实时字幕';
+        } else {
+          if (chip) chip.style.display = '';
+          if (statusPanel) statusPanel.style.display = 'flex';
+          if (transcriptPanel) transcriptPanel.classList.add('transcript-panel-hidden');
+          if (subtitle) subtitle.textContent = '实时字幕';
+          if (sub) sub.textContent = '离线录音 · 音频持续保存，会后自动转写';
+          if (statusPanel) statusPanel.title = sub ? sub.textContent : '';
+        }
+      }
+
+      function updateRecTimerDisplay() {
+        var sec = recTimerAccumSec;
+        if (recTimerRunning && recTimerStartMs) {
+          sec += Math.floor((Date.now() - recTimerStartMs) / 1000);
+        }
+        var el = document.getElementById('recStatusTimer');
+        if (!el) return;
+        var h = String(Math.floor(sec / 3600)).padStart(2, '0');
+        var m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+        var s = String(sec % 60).padStart(2, '0');
+        el.textContent = h + ':' + m + ':' + s;
+      }
+
+      function startRecTimer() {
+        recTimerAccumSec = 0;
+        recTimerStartMs = Date.now();
+        recTimerRunning = true;
+        if (recTimerInterval) clearInterval(recTimerInterval);
+        recTimerInterval = setInterval(updateRecTimerDisplay, 1000);
+        updateRecTimerDisplay();
+      }
+
+      function pauseRecTimer() {
+        if (recTimerRunning && recTimerStartMs) {
+          recTimerAccumSec += Math.floor((Date.now() - recTimerStartMs) / 1000);
+        }
+        recTimerStartMs = null;
+        recTimerRunning = false;
+        updateRecTimerDisplay();
+      }
+
+      function resumeRecTimer() {
+        if (recTimerRunning) return;
+        recTimerStartMs = Date.now();
+        recTimerRunning = true;
+        if (!recTimerInterval) {
+          recTimerInterval = setInterval(updateRecTimerDisplay, 1000);
+        }
+        updateRecTimerDisplay();
+      }
+
+      function stopRecTimer() {
+        if (recTimerInterval) {
+          clearInterval(recTimerInterval);
+          recTimerInterval = null;
+        }
+        recTimerStartMs = null;
+        recTimerAccumSec = 0;
+        recTimerRunning = false;
+        updateRecTimerDisplay();
+      }
+
+      function updateRecordingStatusUI(status) {
+        var dot = document.getElementById('recStatusDot');
+        var main = document.getElementById('recStatusMain');
+        if (!dot || !main) return;
+        var states = {
+          recording: { dotClass: 'recording', text: '正在录音' },
+          paused: { dotClass: 'paused', text: '录音已暂停' },
+          reconnecting: { dotClass: 'reconnecting', text: '重连中…' },
+          stopped: { dotClass: 'stopped', text: '未开始' },
+          idle: { dotClass: 'idle', text: '未开始' }
+        };
+        var s = states[status] || states.idle;
+        dot.className = 'rec-status-dot ' + s.dotClass;
+        main.textContent = s.text;
+      }
+
+      function handleRecorderWsMessage(msg) {
+        if (!msg || typeof msg !== 'object') return;
+        var t = msg.type;
+        if (t === 'asr_disabled') {
+          setRecordingUiMode('offline');
+          return;
+        }
+        if (t === 'asr_started') {
+          setRecordingUiMode('realtime');
+          return;
+        }
+        if (t === 'recording_started') {
+          updateRecordingStatusUI('recording');
+          return;
+        }
+        if (t === 'auto_paused') {
+          updateRecordingStatusUI('paused');
+          return;
+        }
+        if (recordingUiMode === 'realtime') {
+          addTranscriptLine(msg);
+        }
+      }
+
       function scrollTranscriptViewport() {
         var viewport = document.getElementById('transcriptViewport');
         if (viewport) viewport.scrollTop = viewport.scrollHeight;
@@ -2490,6 +2956,8 @@
           btnStartInit.textContent = '开始会议';
         });
       setMeetingPausedUI(false);
+      setRecordingUiMode('offline');
+      updateRecordingStatusUI('idle');
 
       if (detectIOS()) {
         document.getElementById('iosNoticeHost').style.display = 'block';
@@ -2553,7 +3021,22 @@
         const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
         const wsUrl = meetingWsUrl('/ws/audio/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token));
         recorder = new MeetingRecorder(meetingId, token, wsUrl);
-        recorder.onTranscript = function (r) { addTranscriptLine(r); };
+        recorder.onTranscript = handleRecorderWsMessage;
+        recorder.onStatusChange = function (status) {
+          updateRecordingStatusUI(status);
+          if (status === 'recording') {
+            if (!recTimerInterval && recTimerAccumSec === 0 && !recTimerStartMs) {
+              startRecTimer();
+            } else {
+              resumeRecTimer();
+            }
+          } else if (status === 'paused') {
+            pauseRecTimer();
+          } else if (status === 'stopped') {
+            stopRecTimer();
+            updateRecordingStatusUI('idle');
+          }
+        };
         recorder.onError = function (msg) { showErr(msg); };
         recorder.onWarning = function (m) { console.warn(m); };
         try {
@@ -2579,6 +3062,8 @@
             try { recorder.stop(); } catch (err) { console.warn(err); }
             recorder = null;
           }
+          stopRecTimer();
+          updateRecordingStatusUI('idle');
           meetingLive = false;
           stopHostStatePoll();
           btn.disabled = false;
@@ -2665,6 +3150,8 @@
             try { recorder.stop(); } catch (e) { console.warn(e); }
             recorder = null;
           }
+          stopRecTimer();
+          updateRecordingStatusUI('idle');
           try { hostTtsAvatar.dispose(); } catch (e2) { /* ignore */ }
           const res = await fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end'), {
             method: 'POST',

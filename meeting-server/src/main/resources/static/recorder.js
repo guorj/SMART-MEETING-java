@@ -3,7 +3,7 @@
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
 /** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */
-const SM_STATIC_ASSET_V = 'sm-20260524-1';
+const SM_STATIC_ASSET_V = 'sm-20260607-2';
 
 function smAssetUrl(path) {
     const resolved = (typeof meetingAsset === 'function') ? meetingAsset(path) : path;
@@ -203,6 +203,9 @@ class MeetingRecorder {
                             this.isPaused = true;
                             this.onStatusChange?.('paused');
                             this.onWarning?.(msg.message || '连续静音，已自动暂停推流');
+                        } else if (msg.type === 'asr_disabled' || msg.type === 'asr_started'
+                                || msg.type === 'recording_started') {
+                            this.onTranscript?.(msg);
                         } else if (msg.type === 'asr_warning') {
                             this.onWarning?.(msg.message || '实时转写异常');
                             this.onTranscript?.(msg);

@@ -20,14 +20,15 @@
 2. 选择模板创建会议。
 3. 建会时按模板最新 `host_agenda` 生成会议快照。
 4. 进入主持页后开启会话与录音。
-5. 结束会议后根据开关触发纪要与待办链路。
+5. 结束会议后按开关触发会后链路：离线转写（`meeting.asr.offline-enabled`）与纪要生成（`meeting.minute.generation-enabled`）**相互独立**；两者皆开时先离线转写入库，再生成纪要。
 
 ### 2.1 录音与转写（默认）
 
-- **默认**：`meeting.asr.realtime-enabled=false`，会中仅浏览器 WebSocket 写入单场 `{meetingId}.pcm`，无实时字幕。
-- **会后**：无会中定稿转写时，系统对 PCM 做离线转写（说话人分离）+ 声纹 1:N，结果写入 `int_transcript_segment` 并用于纪要。
+- **默认**：`meeting.asr.realtime-enabled=false`，会中仅浏览器 WebSocket 写入单场 `{meetingId}.pcm`，无实时字幕；会议主页底部显示**离线录音状态条**（红点 + 计时），而非实时字幕区。
+- **会后**：无会中定稿转写且 `offline-enabled=true` 时，系统对 PCM 做离线转写（说话人分离）+ 声纹 1:N，结果写入 `int_transcript_segment`；纪要生成（若开启）从 DB 读取该转写，不再内联触发离线 ASR。
 - **可选**：将 `realtime-enabled` 设为 `true` 可恢复会中实时转写与字幕；此时纪要以会中分段为准，不覆盖为离线结果。
 - 会前建议完成参会人声纹注册（见飞书「声纹注册」入口），详见 `开关手册.md` §6.2。
+- 纪要链路各步骤（离线 ASR、LLM 初稿、AI 增强、飞书文档、通知等）可独立开关，详见 `开关手册.md` §3.1、§6.6。
 
 ---
 
@@ -44,7 +45,13 @@
 - 会前回填提交时：按 meeting 维度更新 `host_agenda`。
 - 内部刷新接口：`/api/v1/internal/meetings/refresh-host-agenda` 可重建快照。
 
-### 3.3 常见误区
+### 3.3 本地上传资料（2026-06-07 起）
+
+- 管理后台「会序与资料」中，每条资料绑定支持 **飞书链接** 或 **本地上传**（doc/docx + 常见图片）。
+- 上传后管理端卡片内即时预览；建会后主持页切换议题时可查看图片或下载文档。
+- 文件存储于 `meeting.agenda-material.storage-dir`（默认 `./data/agenda-materials`），admin-server 与 meeting-server 须共用同一路径。
+
+### 3.4 常见误区
 
 - 修改模板后，已建会议不会自动跟随模板变化。
 - 新建会议若资料为空，优先检查新会议的 `int_meeting.host_agenda` 是否已带 `docs[]`。

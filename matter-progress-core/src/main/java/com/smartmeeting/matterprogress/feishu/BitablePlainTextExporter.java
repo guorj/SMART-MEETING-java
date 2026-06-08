@@ -21,6 +21,18 @@ public final class BitablePlainTextExporter {
     public static final String SECTION_STATUS_IN_PROGRESS = "=== §进行中 ===";
     public static final String EMPTY_STATUS_CATEGORY = "（本分类暂无记录）";
 
+    /** 近三个月内状态子段导出顺序：延期 → 已完成 → 进行中。 */
+    private static final int[] STATUS_SECTION_CATEGORIES = {
+            BitableRecordSorter.CATEGORY_DELAYED,
+            BitableRecordSorter.CATEGORY_COMPLETED,
+            BitableRecordSorter.CATEGORY_IN_PROGRESS
+    };
+    private static final String[] STATUS_SECTION_HEADERS = {
+            SECTION_STATUS_DELAYED,
+            SECTION_STATUS_COMPLETED,
+            SECTION_STATUS_IN_PROGRESS
+    };
+
     private BitablePlainTextExporter() {
     }
 
@@ -122,24 +134,16 @@ public final class BitablePlainTextExporter {
 
     private static int appendRecentWithStatusGroups(StringBuilder out, List<JsonNode> recent, int rowStart) {
         int row = rowStart;
-        int[] categories = {
-                BitableRecordSorter.CATEGORY_COMPLETED,
-                BitableRecordSorter.CATEGORY_DELAYED,
-                BitableRecordSorter.CATEGORY_IN_PROGRESS
-        };
-        String[] headers = {
-                SECTION_STATUS_COMPLETED,
-                SECTION_STATUS_DELAYED,
-                SECTION_STATUS_IN_PROGRESS
-        };
-        for (int i = 0; i < categories.length; i++) {
+        for (int i = 0; i < STATUS_SECTION_CATEGORIES.length; i++) {
+            int category = STATUS_SECTION_CATEGORIES[i];
+            String header = STATUS_SECTION_HEADERS[i];
             if (i > 0) {
                 out.append('\n');
             }
-            out.append(headers[i]).append("\n\n");
+            out.append(header).append("\n\n");
             List<JsonNode> inCategory = new ArrayList<>();
             for (JsonNode item : recent) {
-                if (BitableRecordSorter.displayCategory(item) == categories[i]) {
+                if (BitableRecordSorter.displayCategory(item) == category) {
                     inCategory.add(item);
                 }
             }

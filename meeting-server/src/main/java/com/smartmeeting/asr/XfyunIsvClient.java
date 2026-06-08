@@ -2,21 +2,17 @@ package com.smartmeeting.asr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.RequiredArgsConstructor;
+import com.smartmeeting.util.XfyunSignatureUtil;
+import com.smartmeeting.util.XfyunSignatureUtil.IsvAuthContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.DefaultUriBuilderFactory;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
 import java.net.URI;
-import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -34,8 +30,20 @@ import java.util.*;
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class XfyunIsvClient {
+
+    /**
+     * ISV URL 查询参数已手动百分号编码；须禁用 RestTemplate 二次编码（否则 date 中空格失效 → 403）。
+     */
+    private static final RestTemplate ISV_HTTP = createIsvRestTemplate();
+
+    private static RestTemplate createIsvRestTemplate() {
+        RestTemplate rt = new RestTemplate();
+        DefaultUriBuilderFactory factory = new DefaultUriBuilderFactory();
+        factory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.NONE);
+        rt.setUriTemplateHandler(factory);
+        return rt;
+    }
 
     @Value("${meeting.asr.xfyun.app-id:}")
     private String appId;
@@ -52,8 +60,11 @@ public class XfyunIsvClient {
     @Value("${meeting.asr.xfyun.isv-group-id:smart_meeting_vp}")
     private String groupId;
 
-    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+
+    public XfyunIsvClient(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
 
     // 声纹缓存（本地缓存 feature_id）
     private final Map<String, String> userIdToFeatureId = new HashMap<>();
@@ -343,7 +354,6 @@ public class XfyunIsvClient {
             }
 
             URI endpoint = URI.create(isvUrlVal);
-            String scheme = endpoint.getScheme() == null ? "https" : endpoint.getScheme();
             String host = endpoint.getHost();
             String requestPath = endpoint.getRawPath();
             if (host == null || host.isBlank()) {
@@ -360,21 +370,10 @@ public class XfyunIsvClient {
                     head(apiKeyVal, 6),
                     apiSecretVal.length(),
                     isvUrlVal);
-            String date = DateTimeFormatter.RFC_1123_DATE_TIME.format(Instant.now().atZone(ZoneOffset.UTC));
-            String requestLine = "POST " + requestPath + " HTTP/1.1";
-            String signatureOrigin = "host: " + host + "\n" + "date: " + date + "\n" + requestLine;
-
-            Mac mac = Mac.getInstance("HmacSHA256");
-            mac.init(new SecretKeySpec(apiSecretVal.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
-            String signature = Base64.getEncoder().encodeToString(mac.doFinal(signatureOrigin.getBytes(StandardCharsets.UTF_8)));
-            String authorizationOrigin = "api_key=\"" + apiKeyVal + "\", algorithm=\"hmac-sha256\", headers=\"host date request-line\", signature=\"" + signature + "\"";
-            String authorization = Base64.getEncoder().encodeToString(authorizationOrigin.getBytes(StandardCharsets.UTF_8));
-            String url = scheme + "://" + host + requestPath
-                    + "?host=" + URLEncoder.encode(host, StandardCharsets.UTF_8)
-                    + "&date=" + URLEncoder.encode(date, StandardCharsets.UTF_8)
-                    + "&authorization=" + URLEncoder.encode(authorization, StandardCharsets.UTF_8);
-            URI signedUri = URI.create(url);
-            log.info("ISV {} signed request target: {}{}, serviceId={}", func, host, requestPath, serviceId);
+            IsvAuthContext auth = XfyunSignatureUtil.buildIsvPostAuthUrl(isvUrlVal, apiKeyVal, apiSecretVal);
+            URI signedUri = auth.signedUri();
+            log.info("ISV {} signed request target: {}{}, serviceId={}, date={}",
+                    func, host, requestPath, serviceId, auth.date());
 
             Map<String, Object> header = new LinkedHashMap<>();
             header.put("app_id", appIdVal);
@@ -410,12 +409,10 @@ public class XfyunIsvClient {
 
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.set("Host", host);
-            headers.set("host", host);
+            headers.set("Date", auth.date());
             headers.set("appid", appIdVal);
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(body, headers);
-            // Use URI to avoid RestTemplate re-encoding signed query params.
-            ResponseEntity<String> response = restTemplate.postForEntity(signedUri, request, String.class);
+            ResponseEntity<String> response = ISV_HTTP.postForEntity(signedUri, request, String.class);
             if (!response.getStatusCode().is2xxSuccessful() || response.getBody() == null) {
                 log.warn("ISV {} http failed: status={}", func, response.getStatusCode());
                 return null;
@@ -437,6 +434,9 @@ public class XfyunIsvClient {
                 return objectMapper.readTree(decoded);
             }
             return objectMapper.readTree("{\"msg\":\"" + decoded.replace("\"", "\\\"") + "\"}");
+        } catch (org.springframework.web.client.HttpStatusCodeException e) {
+            log.warn("ISV {} invoke failed: status={}, body={}", func, e.getStatusCode(), e.getResponseBodyAsString());
+            return null;
         } catch (Exception e) {
             log.warn("ISV {} invoke failed: {}", func, e.getMessage());
             return null;

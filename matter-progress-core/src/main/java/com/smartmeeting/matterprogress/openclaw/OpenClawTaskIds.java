@@ -16,9 +16,17 @@ public final class OpenClawTaskIds {
         return "briefing:" + sanitize(meetingId) + ":" + agendaIndex + ":" + Math.max(0, generation);
     }
 
-    /** 定时事项对比通报：{@code weekly-comparison:{jobId}} */
+    /** 定时事项对比通报（逻辑任务名，写入 Skill prompt）：{@code weekly-comparison:{jobId}} */
     public static String weeklyComparison(long jobId) {
         return "weekly-comparison:" + Math.max(0L, jobId);
+    }
+
+    /**
+     * 单次执行幂等键：须每次手动/定时触发唯一，否则 Gateway {@code chat.send} 会 dedupe 复用旧 run，
+     * Agent 不再执行（见 OpenClaw gateway chat.ts {@code context.dedupe.get("chat:" + idempotencyKey)}）。
+     */
+    public static String weeklyComparisonRun(long jobId, long runNonceMs) {
+        return weeklyComparison(jobId) + ":" + Math.max(0L, runNonceMs);
     }
 
     /** 纪要增强：{@code minute_enhancement:{meetingId}:{nonce}} */

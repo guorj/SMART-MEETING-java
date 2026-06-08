@@ -18,7 +18,7 @@
 |---------------|------|
 | `lark-mcp__bitable_v1_appTableField_list` | 多维表字段列表 |
 | `lark-mcp__bitable_v1_appTableRecord_search` | 多维表记录检索 |
-| `meeting-mysql__query` | SQL 查询（会后/纪要 Skill） |
+| `meeting-mysql__mysql_query` | SQL 查询（`mcp-server-mysql`；会后/纪要 Skill） |
 
 ## 部署与验证
 

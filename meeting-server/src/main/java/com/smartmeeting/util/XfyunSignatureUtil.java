@@ -3,6 +3,7 @@ package com.smartmeeting.util;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import java.net.URI;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -257,8 +258,70 @@ public class XfyunSignatureUtil {
                 scheme,
                 host,
                 path,
-                URLEncoder.encode(authorization, StandardCharsets.UTF_8),
-                URLEncoder.encode(date, StandardCharsets.UTF_8),
-                URLEncoder.encode(host, StandardCharsets.UTF_8));
+                encodeQueryParam(authorization),
+                encodeQueryParam(date),
+                encodeQueryParam(host));
+    }
+
+    /**
+     * 讯飞 ISV / 私有化 api.xf-yun.com POST 鉴权 URL（HMAC-SHA256，date 为 GMT RFC1123）。
+     *
+     * @param requestUrl 如 {@code https://api.xf-yun.com/v1/private/s1aa729d0}
+     * @param apiKey     控制台 APIKey
+     * @param apiSecret  控制台 APISecret
+     * @return 含 authorization/date/host 查询参数的完整 URL 及签名用 date 字符串
+     */
+    public static IsvAuthContext buildIsvPostAuthUrl(String requestUrl, String apiKey, String apiSecret) throws Exception {
+        URI endpoint = URI.create(requestUrl.trim());
+        String scheme = endpoint.getScheme() == null ? "https" : endpoint.getScheme();
+        String host = endpoint.getHost();
+        String path = endpoint.getRawPath();
+        if (host == null || host.isBlank()) {
+            throw new IllegalArgumentException("invalid ISV request url: " + requestUrl);
+        }
+        if (path == null || path.isBlank()) {
+            path = "/";
+        }
+
+        String date = getRFC2616Date();
+        String requestLine = "POST " + path + " HTTP/1.1";
+        String signatureOrigin = "host: " + host + "\n" + "date: " + date + "\n" + requestLine;
+        String signature = hmacSHA256(signatureOrigin, apiSecret);
+        String authorizationOrigin = String.format(
+                "api_key=\"%s\", algorithm=\"hmac-sha256\", headers=\"host date request-line\", signature=\"%s\"",
+                apiKey, signature);
+        String authorization = Base64.getEncoder().encodeToString(authorizationOrigin.getBytes(StandardCharsets.UTF_8));
+
+        Map<String, String> query = new LinkedHashMap<>();
+        query.put("authorization", authorization);
+        query.put("host", host);
+        query.put("date", date);
+        String signedUrl = scheme + "://" + host + path + "?" + buildEncodedQueryString(query);
+        return new IsvAuthContext(date, URI.create(signedUrl));
+    }
+
+    /**
+     * 查询参数值编码：空格用 {@code %20}，避免 RestTemplate/网关将 {@code +} 解析为空格导致 date 失效。
+     */
+    public static String encodeQueryParam(String value) {
+        if (value == null) {
+            return "";
+        }
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    public static String buildEncodedQueryString(Map<String, String> params) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (sb.length() > 0) {
+                sb.append('&');
+            }
+            sb.append(entry.getKey()).append('=').append(encodeQueryParam(entry.getValue()));
+        }
+        return sb.toString();
+    }
+
+    /** ISV 鉴权上下文：HTTP Date 头与已签名的请求 URI。 */
+    public record IsvAuthContext(String date, URI signedUri) {
     }
 }

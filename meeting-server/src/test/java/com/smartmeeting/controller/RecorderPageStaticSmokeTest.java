@@ -25,6 +25,9 @@ class RecorderPageStaticSmokeTest extends BaseTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("会议主页")))
                 .andExpect(content().string(containsString("主持模块")))
+                .andExpect(content().string(containsString("recordingStatusPanel")))
+                .andExpect(content().string(containsString("离线录音")))
+                .andExpect(content().string(containsString("transcript-panel-hidden")))
                 .andExpect(header().string("Cache-Control", containsString("no-store")));
     }
 
@@ -34,6 +37,8 @@ class RecorderPageStaticSmokeTest extends BaseTest {
         mockMvc.perform(get("/host/1222b46e-7bcb-4b81-a543-cbd1000586c2"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("会议主页")))
+                .andExpect(content().string(containsString("recordingStatusPanel")))
+                .andExpect(content().string(containsString("正在录音")))
                 .andExpect(header().string("Cache-Control", containsString("no-store")));
     }
 

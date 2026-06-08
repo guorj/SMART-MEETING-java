@@ -173,6 +173,10 @@ public class WeeklyMatterComparisonService {
         }
         String title = formatTitle(job.outputDocTitleTpl());
         String docUrl = feishuDocClient.createAndWriteMarkdown(job.feishuFolderToken(), title, markdown);
+        if (docUrl == null || docUrl.isBlank()) {
+            throw new IllegalStateException(
+                    "飞书 Doc 创建成功但未返回 URL，请检查 feishu.weekly-comparison.app-id/secret 与 folder_token");
+        }
         configRepository.writeGeneratedReport(job.outputConfigName(), docUrl, Instant.now());
         jobRepository.updateRunResult(job.id(), "SUCCESS", null, started);
         log.info("Weekly comparison legacy success jobId={} docUrl={}", job.id(), docUrl);

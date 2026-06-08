@@ -1,19 +1,16 @@
 ---
-
 name: matter-progress
 description: "主持会序 OpenClaw 通报：对照上次会议纪要 + 飞书多维表，输出三部分 Markdown 进度通报"
-
 # MCP 工具全名见 mcp-servers/LARK-MCP-TOOLS.md
-
-## allowed-tools:
-  - lark-mcp__bitable_v1_appTableField_list      # bitable.v1.appTableField.list — 字段结构
-  - lark-mcp__bitable_v1_appTableRecord_search   # bitable.v1.appTableRecord.search — 读表记录
-  - meeting-mysql__query                         # 读上次会议纪要、previousMeetingId
-  # weekly-comparison-mcp 专用（mode=weekly-comparison-mcp 时用于读/写 Doc；主持通报勿调用）
-  - lark-mcp__docx_v1_document_create            # docx.v1.document.create — 创建通报 Doc
-  - lark-mcp__docx_v1_documentBlockChildren_create  # docx.v1.documentBlockChildren.create — 批量写 block
-  - lark-mcp__docx_v1_document_rawContent        # docx.v1.document.rawContent — 读 docx SOURCE
-  - lark-mcp__wiki_v2_space_getNode              # wiki.v2.space.getNode — 读 wiki SOURCE
+allowed-tools:
+  - lark-mcp__bitable_v1_appTableField_list
+  - lark-mcp__bitable_v1_appTableRecord_search
+  - meeting-mysql__mysql_query
+  - lark-mcp__docx_v1_document_create
+  - lark-mcp__docx_v1_documentBlockChildren_create
+  - lark-mcp__docx_v1_document_rawContent
+  - lark-mcp__wiki_v2_space_getNode
+---
 
 # 主持会序 OpenClaw 通报
 
@@ -31,7 +28,7 @@ groupName=综合管理会
 ```
 
 - 若存在 `feishuUrl`，**必须优先**从该 URL 解析 `app_token`/`table_id` 并读取资料，勿改用默认综合管理表。
-- 若未传 `previousMeetingId`，用 `meeting-mysql__query` 查当前会议的 `previous_meeting_id` 再读纪要。
+- 若未传 `previousMeetingId`，用 `meeting-mysql__mysql_query` 查当前会议的 `previous_meeting_id` 再读纪要。
 
 ## 执行步骤
 
@@ -145,8 +142,11 @@ LIMIT 1
 当 prompt 含 **`mode=weekly-comparison-mcp`** 时，**覆盖**上文「只输出 Markdown 三部分」规则，改按 Bot 下发的 **执行手册** 完成全链路：
 
 1. 读 SOURCE（bitable / docx / wiki MCP）
-2. 读纪要（`meeting-mysql__query` + `[minute_query_sql]`）
-3. 内存中交叉对比，生成**完整对比报告 Markdown**
+2. 读纪要（`meeting-mysql__mysql_query` + `[minute_query_sql]`）
+3. 内存中交叉对比，生成**完整对比报告 Markdown**（分组与排序以执行手册为准，摘要如下）：
+   - **分组顺序**：`## 延期事项` → `## 已完成事项` → `## 进行中事项`
+   - **互斥归类**：每条仅入一组；`状态=已完成` 不得入延期/进行中；未逾期不得入延期
+   - **组内排序**：已完成按完成时间（无则截止时间）**降序**；延期按逾期程度从重到轻
 4. **MCP 写飞书 Doc**（必须）：
    - `lark-mcp__docx_v1_document_create`（`title` = `outputDocTitle`，可选 `folder_token`）
    - `lark-mcp__docx_v1_documentBlockChildren_create`：根 **`block_id` = `document_id`**；Markdown 按行转 `block_type=2` 文本 block；**每批 ≤50 个 children**；禁止逐行单独 MCP

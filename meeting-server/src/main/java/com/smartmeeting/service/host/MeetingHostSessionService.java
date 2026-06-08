@@ -17,6 +17,7 @@ import com.smartmeeting.repository.ParticipantMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.agenda.AgendaStorageKind;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
@@ -1438,10 +1439,17 @@ public class MeetingHostSessionService {
         if (t == null) {
             return false;
         }
+        if (topicHasLocalMaterialBinding(t)) {
+            return true;
+        }
         if (t.feishuDocs != null && !t.feishuDocs.isEmpty()) {
             return true;
         }
         return FeishuResourceResolver.isRecognizedFeishuDocUrl(t.feishuDocUrl);
+    }
+
+    private static boolean topicHasLocalMaterialBinding(HostTopic t) {
+        return t != null && t.localMaterials != null && !t.localMaterials.isEmpty();
     }
 
     /** 将单条 feishuDocUrl 解析并追加到议题的资料列表。 */
@@ -1465,9 +1473,18 @@ public class MeetingHostSessionService {
         appendResourceRefToTopic(t, FeishuResourceResolver.resolve(doc.getUrl()));
     }
 
-    /** 从 host_agenda JSON 节点解析 URL（含 legacy token）并追加到议题。 */
+    /** 从 host_agenda JSON 节点解析 URL（含 legacy token）或本地上传资料并追加到议题。 */
     private static void appendDocNodeToTopic(HostTopic t, JsonNode d) {
         if (t == null || d == null || d.isNull()) {
+            return;
+        }
+        String storageKind = AgendaStorageKind.normalize(d.path("storageKind").asText("").trim());
+        String fileId = d.path("fileId").asText("").trim();
+        if (fileId.isEmpty()) {
+            fileId = d.path("file_id").asText("").trim();
+        }
+        if (AgendaStorageKind.LOCAL.equals(storageKind) && !fileId.isEmpty()) {
+            appendLocalMaterialToTopic(t, d, fileId);
             return;
         }
         String url = d.path("url").asText("").trim();
@@ -1485,6 +1502,24 @@ public class MeetingHostSessionService {
             }
         }
         appendResourceRefToTopic(t, FeishuResourceResolver.resolve(url));
+    }
+
+    private static void appendLocalMaterialToTopic(HostTopic t, JsonNode d, String fileId) {
+        if (t.localMaterials == null) {
+            t.localMaterials = new ArrayList<>();
+        }
+        for (LocalMaterialBinding existing : t.localMaterials) {
+            if (existing != null && fileId.equals(existing.fileId)) {
+                return;
+            }
+        }
+        LocalMaterialBinding b = new LocalMaterialBinding();
+        b.fileId = fileId;
+        b.originalFilename = d.path("originalFilename").asText(
+                d.path("original_filename").asText("").trim()).trim();
+        b.mimeType = d.path("mimeType").asText(d.path("mime_type").asText("").trim()).trim();
+        b.configName = d.path("configName").asText(d.path("config_name").asText("").trim()).trim();
+        t.localMaterials.add(b);
     }
 
     /**
@@ -1773,6 +1808,19 @@ public class MeetingHostSessionService {
                     doc.put("url", b.url == null ? "" : b.url);
                 }
             }
+            ArrayNode localArr = o.putArray("localMaterials");
+            if (t.localMaterials != null) {
+                for (LocalMaterialBinding lm : t.localMaterials) {
+                    if (lm == null || lm.fileId == null || lm.fileId.isBlank()) {
+                        continue;
+                    }
+                    ObjectNode lo = localArr.addObject();
+                    lo.put("fileId", lm.fileId);
+                    lo.put("originalFilename", lm.originalFilename == null ? "" : lm.originalFilename);
+                    lo.put("mimeType", lm.mimeType == null ? "" : lm.mimeType);
+                    lo.put("configName", lm.configName == null ? "" : lm.configName);
+                }
+            }
         }
         ObjectNode rollCall = root.putObject("rollCall");
         rollCall.put("agendaConfigured", agendaHasRollCallChapter(rt.topics));
@@ -1990,10 +2038,19 @@ public class MeetingHostSessionService {
         String feishuDocKind;
         /** 同一会序多条飞书资料 */
         List<FeishuDocBinding> feishuDocs;
+        /** 本地上传资料（host_agenda docs[] storageKind=LOCAL） */
+        List<LocalMaterialBinding> localMaterials;
     }
 
     private static final class FeishuDocBinding {
         String kind;
         String url;
+    }
+
+    private static final class LocalMaterialBinding {
+        String fileId;
+        String originalFilename;
+        String mimeType;
+        String configName;
     }
 }

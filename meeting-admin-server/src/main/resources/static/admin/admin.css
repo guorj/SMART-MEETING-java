@@ -805,6 +805,12 @@ button:disabled {
   flex-shrink: 0;
 }
 .doc-tile-actions button { margin: 0; font-size: 0.78rem; padding: 0.35rem 0.6rem; }
+.doc-source-toggle { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+.doc-source-toggle .inl-source-opt.active { background: var(--primary-soft); border-color: var(--primary); color: var(--primary); }
+.doc-local-preview { margin-top: 0.5rem; padding: 0.5rem; border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.doc-local-thumb { max-width: 100%; max-height: 160px; object-fit: contain; border-radius: var(--radius-sm); display: block; }
+.doc-local-file { margin: 0; font-size: 0.85rem; display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.meta-pill.meta-local { background: #e8f4fd; color: #1565c0; }
 .doc-tile-empty {
   padding: 0.85rem;
   text-align: center;

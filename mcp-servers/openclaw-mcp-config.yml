@@ -1,9 +1,17 @@
-# OpenClaw Gateway MCP 配置参考
+# =============================================================================
+# OpenClaw Gateway MCP 配置参考（非 Spring Boot 配置，勿放入 application.yml）
+# =============================================================================
+# 用途：纪要 AI 增强、会前对比 Skill 等通过 Gateway 调用飞书/ MySQL 工具
 #
-# 合并到 profile 配置：instances/<profile>/config/openclaw.json 或
-# ~/.openclaw-<profile>/openclaw.json 的 mcp.servers（勿用顶层 mcpServers）。
-# 工具全名表：mcp-servers/LARK-MCP-TOOLS.md
-# 会前对比部署检查：mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md
+# 合并方式：复制 mcp.servers 到
+#   instances/<profile>/config/openclaw.json 或 ~/.openclaw-<profile>/openclaw.json
+#   （字段名为 mcp.servers，勿用顶层 mcpServers）
+#
+# 相关文档：
+#   mcp-servers/LARK-MCP-TOOLS.md — 工具全名表
+#   mcp-servers/WEEKLY-COMPARISON-GATEWAY-CHECKLIST.md — 会前对比部署检查
+#   文档：https://documentation.openclaw.ai/gateway/configuration-reference#mcp
+# =============================================================================
 #
 # 【重要】会前对比（weekly-comparison）生产必须：
 #   - lark-mcp --token-mode tenant_access_token（下方已写死，勿改 user/oauth）
@@ -45,27 +53,23 @@ mcp:
         - snake                     # 注册名：bitable_v1_* → OpenClaw：lark-mcp__bitable_v1_*
 
     # -------------------------------------------------------------------------
-    # meeting-mysql — @modelcontextprotocol/server-mysql
-    # OpenClaw 工具（生产建议 DB 只读账号，Skill 仅放行 query）：
-    #   meeting-mysql__query           — 执行 SQL（progress-analysis / minute-enhancement）
-    #   meeting-mysql__list_tables     — 列库表（未写入 Skill allowed-tools）
-    #   meeting-mysql__describe_table  — 表结构（未写入 Skill allowed-tools）
-    #   meeting-mysql__insert          — 写（未放行）
-    #   meeting-mysql__update          — 写（未放行）
+    # meeting-mysql — mcp-server-mysql（npm 包名，无 @scope 前缀）
+    # 勿用 @modelcontextprotocol/server-mysql（npm 404）。
+    # 本包仅暴露 mysql_query（只读 SELECT）；OpenClaw 全名：meeting-mysql__mysql_query
     # -------------------------------------------------------------------------
     meeting-mysql:
       command: npx
       args:
         - -y
-        - "@modelcontextprotocol/server-mysql"
+        - "mcp-server-mysql"
       env:
         # 注意：仅改 feishu-scheduled-bot 的 application.yml 不会影响本 MCP！
-        # ${DB_HOST} 由 OpenClaw 在加载 openclaw.json 时替换；未设置则启动报错或子进程落到 localhost。
+        # 本包使用 MYSQL_PASS / MYSQL_DB（非 MYSQL_PASSWORD / MYSQL_DATABASE）
         # 生产建议直接写死 IP（与 Bot/meeting-server 共库 intelligence 一致）：
         MYSQL_HOST: "60.205.1.17"
         MYSQL_PORT: "3306"
         MYSQL_USER: "intelligence"
-        MYSQL_PASSWORD: "intelligence@2026"
-        MYSQL_DATABASE: "intelligence"
+        MYSQL_PASS: "intelligence@2026"
+        MYSQL_DB: "intelligence"
         # 若坚持用环境变量，须在 openclaw.json 顶层 env.vars 或 Gateway 进程环境中设 DB_HOST 等，且：
         # MYSQL_HOST: ${DB_HOST}

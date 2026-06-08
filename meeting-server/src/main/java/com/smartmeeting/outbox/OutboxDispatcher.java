@@ -3,6 +3,7 @@ package com.smartmeeting.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.entity.OutboxEvent;
 import com.smartmeeting.model.MinuteGenerateMessage;
+import com.smartmeeting.model.OfflineAsrMessage;
 import com.smartmeeting.model.TodoExtractMessage;
 import com.smartmeeting.mq.KafkaProducer;
 import com.smartmeeting.mq.LocalEventBus;
@@ -35,6 +36,24 @@ public class OutboxDispatcher {
                 log.warn("Kafka minute dispatch failed, fallback local bus: {}", ex.getMessage());
                 if (localEventBus != null) {
                     localEventBus.publishMeetingEvent(payload);
+                }
+            }
+            return;
+        }
+        if (OutboxEventTypes.OFFLINE_ASR.equals(event.getEventType())) {
+            OfflineAsrMessage payload = objectMapper.readValue(event.getPayloadJson(), OfflineAsrMessage.class);
+            KafkaProducer kafkaProducer = kafkaProducerProvider.getIfAvailable();
+            LocalEventBus localEventBus = localEventBusProvider.getIfAvailable();
+            try {
+                if (kafkaProducer != null) {
+                    kafkaProducer.sendOfflineAsr("meeting.offline.asr", payload);
+                } else if (localEventBus != null) {
+                    localEventBus.publishOfflineAsr(payload);
+                }
+            } catch (Exception ex) {
+                log.warn("Kafka offline ASR dispatch failed, fallback local bus: {}", ex.getMessage());
+                if (localEventBus != null) {
+                    localEventBus.publishOfflineAsr(payload);
                 }
             }
             return;

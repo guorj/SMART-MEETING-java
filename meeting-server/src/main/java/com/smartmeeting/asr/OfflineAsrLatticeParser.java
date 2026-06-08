@@ -12,14 +12,11 @@ import java.util.UUID;
 /**
  * 解析讯飞离线 IST {@code orderResult} 中的 lattice/json_1best，提取文本、时间戳与说话人角色。
  * <p>
- * {@code rt.bg}/{@code rt.ed} 按讯飞办公听写惯例为 <b>10ms 帧</b>，乘 {@link #RT_FRAME_MS} 得到毫秒。
+ * {@code st.bg}/{@code st.ed} 为句级起止时间，单位 <b>毫秒</b>（讯飞 IST 文档）。
  * 句级角色取自 {@code st.rl}（roleType=1 说话人分离）。
  */
 @Slf4j
 public final class OfflineAsrLatticeParser {
-
-    /** rt.bg / rt.ed 单帧时长（毫秒）。 */
-    public static final int RT_FRAME_MS = 10;
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -49,28 +46,22 @@ public final class OfflineAsrLatticeParser {
                 JsonNode st = best.path("st");
                 String roleLabel = resolveRoleLabel(st);
                 String speakerId = "speaker_" + roleLabel;
-                JsonNode rtList = st.path("rt");
-                if (!rtList.isArray()) {
+                String text = extractStText(st);
+                if (text.isEmpty()) {
                     continue;
                 }
-                for (JsonNode rt : rtList) {
-                    String text = extractRtText(rt);
-                    if (text.isEmpty()) {
-                        continue;
-                    }
-                    TranscriptSegment ts = new TranscriptSegment();
-                    ts.setId(UUID.randomUUID().toString());
-                    int bgFrame = rt.path("bg").asInt(0);
-                    int edFrame = rt.path("ed").asInt(bgFrame);
-                    ts.setStartTimeMs(bgFrame * RT_FRAME_MS);
-                    ts.setEndTimeMs(Math.max(ts.getStartTimeMs(), edFrame * RT_FRAME_MS));
-                    ts.setText(text);
-                    ts.setSpeakerId(speakerId);
-                    ts.setConfidence(1.0);
-                    ts.setIsFinal(true);
-                    ts.setCorrected(false);
-                    segments.add(ts);
-                }
+                int startMs = st.path("bg").asInt(0);
+                int endMs = st.path("ed").asInt(startMs);
+                TranscriptSegment ts = new TranscriptSegment();
+                ts.setId(UUID.randomUUID().toString());
+                ts.setStartTimeMs(startMs);
+                ts.setEndTimeMs(Math.max(startMs, endMs));
+                ts.setText(text);
+                ts.setSpeakerId(speakerId);
+                ts.setConfidence(1.0);
+                ts.setIsFinal(true);
+                ts.setCorrected(false);
+                segments.add(ts);
             }
             log.info("【离线ASR解析】segments={}, distinctSpeakers~={}",
                     segments.size(), segments.stream().map(TranscriptSegment::getSpeakerId).distinct().count());
@@ -96,19 +87,25 @@ public final class OfflineAsrLatticeParser {
         return spk.isEmpty() ? "0" : spk;
     }
 
-    private static String extractRtText(JsonNode rt) {
+    private static String extractStText(JsonNode st) {
         StringBuilder text = new StringBuilder();
-        JsonNode wsList = rt.path("ws");
-        if (!wsList.isArray()) {
+        JsonNode rtList = st.path("rt");
+        if (!rtList.isArray()) {
             return "";
         }
-        for (JsonNode ws : wsList) {
-            JsonNode cwList = ws.path("cw");
-            if (!cwList.isArray()) {
+        for (JsonNode rt : rtList) {
+            JsonNode wsList = rt.path("ws");
+            if (!wsList.isArray()) {
                 continue;
             }
-            for (JsonNode cw : cwList) {
-                text.append(cw.path("w").asText(""));
+            for (JsonNode ws : wsList) {
+                JsonNode cwList = ws.path("cw");
+                if (!cwList.isArray()) {
+                    continue;
+                }
+                for (JsonNode cw : cwList) {
+                    text.append(cw.path("w").asText(""));
+                }
             }
         }
         return text.toString().trim();

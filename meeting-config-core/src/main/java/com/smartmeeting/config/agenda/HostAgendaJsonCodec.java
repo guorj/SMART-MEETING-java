@@ -229,6 +229,10 @@ public final class HostAgendaJsonCodec {
                 .agendaIndex(agendaIndex)
                 .resourceSlot(doc.resolvedSlot())
                 .feishuDocUrl(doc.getUrl())
+                .storageKind(doc.isLocalStorage() ? AgendaStorageKind.LOCAL : AgendaStorageKind.FEISHU)
+                .fileId(doc.getFileId())
+                .originalFilename(doc.getOriginalFilename())
+                .mimeType(doc.getMimeType())
                 .enabled(doc.isEnabled() ? 1 : 0)
                 .configRole(doc.getRole() != null ? doc.getRole() : "SOURCE")
                 .bitableDisplayMode(doc.getBitableDisplayMode())
@@ -241,11 +245,25 @@ public final class HostAgendaJsonCodec {
         if (snap == null) {
             return null;
         }
+        String storageKind = AgendaStorageKind.normalize(snap.getStorageKind());
+        boolean local = AgendaStorageKind.LOCAL.equals(storageKind);
+        String fileId = snap.getFileId() != null ? snap.getFileId().trim() : "";
+        if (local && fileId.isEmpty()) {
+            return null;
+        }
+        if (!local && (snap.getConfigName() == null || snap.getConfigName().isBlank())
+                && (snap.getFeishuDocUrl() == null || snap.getFeishuDocUrl().isBlank())) {
+            return null;
+        }
         return HostAgendaDocBinding.builder()
                 .configName(snap.getConfigName())
                 .role(snap.getConfigRole())
                 .slot(snap.getResourceSlot())
+                .storageKind(local ? AgendaStorageKind.LOCAL : AgendaStorageKind.FEISHU)
                 .url(snap.getFeishuDocUrl())
+                .fileId(local ? fileId : null)
+                .originalFilename(snap.getOriginalFilename())
+                .mimeType(snap.getMimeType())
                 .bitableDisplayMode(snap.getBitableDisplayMode())
                 .enabled(snap.getEnabled() == null || snap.getEnabled() == 1)
                 .generatedReportUrl(snap.getGeneratedReportUrl())
@@ -306,6 +324,22 @@ public final class HostAgendaJsonCodec {
     }
 
     public record LocatedDoc(int agendaIndex, HostAgendaDocBinding doc) {
+    }
+
+    /** 从 host_agenda JSON 收集所有 LOCAL 资料的 fileId（用于下载鉴权）。 */
+    public static List<String> collectLocalFileIds(ObjectMapper mapper, String hostAgendaJson) {
+        List<String> ids = new ArrayList<>();
+        for (HostAgendaItem item : parseItems(mapper, hostAgendaJson)) {
+            if (item.getDocs() == null) {
+                continue;
+            }
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc != null && doc.isLocalStorage() && doc.getFileId() != null && !doc.getFileId().isBlank()) {
+                    ids.add(doc.getFileId().trim());
+                }
+            }
+        }
+        return ids;
     }
 
     private static HostAgendaItem parseItemNode(JsonNode n) {
@@ -396,7 +430,24 @@ public final class HostAgendaJsonCodec {
         if (role.isEmpty()) {
             role = d.path("config_role").asText("SOURCE").trim();
         }
-        if (configName.isEmpty() && url.isBlank()) {
+        String storageKind = AgendaStorageKind.normalize(d.path("storageKind").asText("").trim());
+        String fileId = d.path("fileId").asText("").trim();
+        if (fileId.isEmpty()) {
+            fileId = d.path("file_id").asText("").trim();
+        }
+        String originalFilename = d.path("originalFilename").asText("").trim();
+        if (originalFilename.isEmpty()) {
+            originalFilename = d.path("original_filename").asText("").trim();
+        }
+        String mimeType = d.path("mimeType").asText("").trim();
+        if (mimeType.isEmpty()) {
+            mimeType = d.path("mime_type").asText("").trim();
+        }
+        boolean local = AgendaStorageKind.LOCAL.equals(storageKind) && !fileId.isEmpty();
+        if (!local && configName.isEmpty() && url.isBlank()) {
+            return null;
+        }
+        if (local && configName.isEmpty() && originalFilename.isEmpty()) {
             return null;
         }
         String bdm = d.path("bitableDisplayMode").asText("").trim();
@@ -422,7 +473,11 @@ public final class HostAgendaJsonCodec {
                 .configName(configName.isEmpty() ? null : configName)
                 .role(role.isEmpty() ? "SOURCE" : role)
                 .slot(d.path("slot").asInt(d.path("resourceSlot").asInt(d.path("resource_slot").asInt(0))))
+                .storageKind(local ? AgendaStorageKind.LOCAL : AgendaStorageKind.FEISHU)
                 .url(url.isBlank() ? null : url)
+                .fileId(local ? fileId : null)
+                .originalFilename(originalFilename.isEmpty() ? null : originalFilename)
+                .mimeType(mimeType.isEmpty() ? null : mimeType)
                 .bitableDisplayMode(bdm.isEmpty() ? null : bdm)
                 .enabled(!d.has("enabled") || d.path("enabled").asInt(1) == 1)
                 .generatedReportUrl(genUrl.isEmpty() ? null : genUrl)
@@ -454,7 +509,18 @@ public final class HostAgendaJsonCodec {
         }
         n.put("role", doc.getRole() != null ? doc.getRole() : "SOURCE");
         n.put("slot", doc.resolvedSlot());
-        if (doc.getUrl() != null && !doc.getUrl().isBlank()) {
+        if (doc.isLocalStorage()) {
+            n.put("storageKind", AgendaStorageKind.LOCAL);
+            if (doc.getFileId() != null && !doc.getFileId().isBlank()) {
+                n.put("fileId", doc.getFileId().trim());
+            }
+            if (doc.getOriginalFilename() != null && !doc.getOriginalFilename().isBlank()) {
+                n.put("originalFilename", doc.getOriginalFilename().trim());
+            }
+            if (doc.getMimeType() != null && !doc.getMimeType().isBlank()) {
+                n.put("mimeType", doc.getMimeType().trim());
+            }
+        } else if (doc.getUrl() != null && !doc.getUrl().isBlank()) {
             n.put("url", doc.getUrl().trim());
         }
         if (doc.getBitableDisplayMode() != null && !doc.getBitableDisplayMode().isBlank()) {

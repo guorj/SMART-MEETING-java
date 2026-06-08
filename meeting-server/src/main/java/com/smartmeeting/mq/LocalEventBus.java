@@ -1,8 +1,10 @@
 package com.smartmeeting.mq;
 
 import com.smartmeeting.model.MinuteGenerateMessage;
+import com.smartmeeting.model.OfflineAsrMessage;
 import com.smartmeeting.model.TodoExtractMessage;
 import com.smartmeeting.service.MinuteGenerationService;
+import com.smartmeeting.service.OfflineAsrService;
 import com.smartmeeting.service.TodoExtractionService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ import java.util.function.Consumer;
 public class LocalEventBus {
 
     private final MinuteGenerationService minuteGenerationService;
+    private final OfflineAsrService offlineAsrService;
     private final TodoExtractionService todoExtractionService;
 
     /** 纪要生成事件的本地订阅者（线程安全列表） */
@@ -53,6 +56,18 @@ public class LocalEventBus {
      *
      * @param message 含 meetingId、audioPath 等字段的纪要生成请求
      */
+    @Async("meetingTaskExecutor")
+    public void publishOfflineAsr(OfflineAsrMessage message) {
+        log.info("[LocalEventBus] Publishing offline ASR event: meetingId={}", message.getMeetingId());
+        try {
+            offlineAsrService.process(message);
+            log.info("[LocalEventBus] Offline ASR completed: meetingId={}", message.getMeetingId());
+        } catch (Exception e) {
+            log.error("[LocalEventBus] Failed to process offline ASR: meetingId={}",
+                    message.getMeetingId(), e);
+        }
+    }
+
     @Async("meetingTaskExecutor")
     public void publishMeetingEvent(MinuteGenerateMessage message) {
         log.info("[LocalEventBus] Publishing meeting event: meetingId={}", message.getMeetingId());

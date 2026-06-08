@@ -2,11 +2,8 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
-import com.smartmeeting.event.DomainEventPublisher;
-import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
-import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.statemachine.MeetingEvent;
@@ -54,8 +51,7 @@ public class RecordingService {
     private String modelName;
 
     private final MeetingStateMachineService meetingStateMachineService;
-    private final DomainEventPublisher domainEventPublisher;
-    private final MeetingMinuteProperties minuteProperties;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
 
     // 会议ID → 录音状态追踪
     private final Map<String, RecordingState> recordingStates = new ConcurrentHashMap<>();
@@ -173,6 +169,20 @@ public class RecordingService {
         }
 
         RecordingState state = recordingStates.get(meetingId);
+        String currentStatus = meeting.getStatus();
+        if (MeetingStatus.PROCESSING.name().equals(currentStatus)
+                || MeetingStatus.COMPLETED.name().equals(currentStatus)
+                || MeetingStatus.TODO_TRACKING.name().equals(currentStatus)) {
+            recordingStates.remove(meetingId);
+            log.info("Recording stop skipped, meeting already ended: id={}, status={}", meetingId, currentStatus);
+            return Map.of(
+                    "meetingId", meetingId,
+                    "status", currentStatus,
+                    "audioPath", meeting.getAudioPath() != null ? meeting.getAudioPath() : "",
+                    "durationSeconds", meeting.getDurationSeconds() != null ? meeting.getDurationSeconds() : 0,
+                    "fileSize", 0L
+            );
+        }
         if (state == null) {
             throw new BusinessException(400, "会议未开始录音");
         }
@@ -213,23 +223,8 @@ public class RecordingService {
                 .filter(fid -> fid != null && !fid.isEmpty())
                 .toList();
 
-        String finalStatus = "PROCESSING";
-        if (minuteProperties.isGenerationEnabled()) {
-            // 发送纪要生成领域事件（由 Outbox 监听器转为可重试消息）
-            domainEventPublisher.publish(new MeetingEndedEvent(
-                    meetingId,
-                    audioPath,
-                    featureIds,
-                    modelName,
-                    System.currentTimeMillis()));
-        } else {
-            // 关闭纪要链路时，录音结束后直接完成会议状态。
-            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
-            meeting.setStatus(MeetingStatus.COMPLETED.name());
-            meetingMapper.updateById(meeting);
-            finalStatus = "COMPLETED";
-            log.info("Minute generation disabled, meeting completed directly after stopRecording: id={}", meetingId);
-        }
+        String finalStatus = postMeetingOrchestrator.dispatchAfterMeetingEnded(
+                meetingId, audioPath, featureIds, modelName);
 
         return Map.of(
                 "meetingId", meetingId,
@@ -257,6 +252,11 @@ public class RecordingService {
      */
     public RecordingState getRecordingState(String meetingId) {
         return recordingStates.get(meetingId);
+    }
+
+    /** 会议已通过其他入口结束时，清理进程内录音会话态。 */
+    public void clearRecordingState(String meetingId) {
+        recordingStates.remove(meetingId);
     }
 
     /** 按缓存根目录、当日日期与会议 ID 生成 PCM 文件路径。 */

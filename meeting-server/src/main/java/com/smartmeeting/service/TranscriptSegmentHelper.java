@@ -32,6 +32,27 @@ public class TranscriptSegmentHelper {
     }
 
     /**
+     * 是否存在任意转写分段（含离线写入、未标 isFinal 的分段）。
+     */
+    public boolean hasAnySegments(String meetingId) {
+        if (meetingId == null || meetingId.isBlank()) {
+            return false;
+        }
+        Long count = transcriptMapper.selectCount(new LambdaQueryWrapper<TranscriptSegment>()
+                .eq(TranscriptSegment::getMeetingId, meetingId));
+        return count != null && count > 0;
+    }
+
+    /**
+     * 按时间序读取全部转写分段。
+     */
+    public List<TranscriptSegment> listAllSegments(String meetingId) {
+        return transcriptMapper.selectList(new LambdaQueryWrapper<TranscriptSegment>()
+                .eq(TranscriptSegment::getMeetingId, meetingId)
+                .orderByAsc(TranscriptSegment::getStartTimeMs));
+    }
+
+    /**
      * 按时间序读取定稿分段。
      */
     public List<TranscriptSegment> listFinalSegments(String meetingId) {

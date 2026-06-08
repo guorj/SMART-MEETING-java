@@ -32,7 +32,7 @@ import java.util.Map;
 /**
  * 纪要生成服务：由 Kafka 消费者或 {@link LocalEventBus} 触发，完成 ASR 校正 → LLM 生成 → 飞书文档写入 → 通知推送。
  * <p>
- * 主要协作组件：{@link OfflineCorrectionService}、{@link VoiceprintService}、{@link TranscriptMapper}、
+ * 主要协作组件：{@link TranscriptSegmentHelper}、{@link VoiceprintService}、{@link TranscriptMapper}、
  * {@link FeishuService}、{@link MeetingFeishuNotifier}、{@link MinuteAIEnhancer}、{@link MeetingMinuteService}。
  */
 @Slf4j
@@ -40,7 +40,6 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class MinuteGenerationService {
 
-    private final OfflineCorrectionService correctionService;
     private final VoiceprintService voiceprintService;
     private final MeetingMapper meetingMapper;
 
@@ -56,7 +55,6 @@ public class MinuteGenerationService {
     private final MeetingTodoProperties todoProperties;
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
-    private final MeetingAudioMaterializerService meetingAudioMaterializerService;
     private final TranscriptSegmentHelper transcriptSegmentHelper;
 
     @Value("${meeting.llm.api-url:http://localhost}")
@@ -103,21 +101,20 @@ public class MinuteGenerationService {
             log.info("Found {} participants, {} with voiceprint features", 
                     participants.size(), featureIds.size());
 
-            // 2. 转写全文：有会中实时定稿分段则优先 DB；否则离线分离+声纹
-            log.info("Step 2: Resolving transcript for meeting {}", meetingId);
+            // 2. 转写全文：仅从 DB 读取（离线转写由独立会后链路预先写入）
+            log.info("Step 2: Resolving transcript from DB for meeting {}", meetingId);
             String correctedText;
             if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
                 correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
                         transcriptSegmentHelper.listFinalSegments(meetingId));
                 log.info("Step 2: Using realtime/final DB segments, length={}", correctedText.length());
+            } else if (transcriptSegmentHelper.hasAnySegments(meetingId)) {
+                correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
+                        transcriptSegmentHelper.listAllSegments(meetingId));
+                log.info("Step 2: Using offline/other DB segments, length={}", correctedText.length());
             } else {
-                String effectiveAudioPath = meetingAudioMaterializerService.materialize(
-                        meetingId,
-                        audioPath,
-                        meeting.getSourceAudioUrl());
-                log.info("Step 2: No final segments, offline path audio={}", effectiveAudioPath);
-                correctedText = correctionService.correct(meetingId, effectiveAudioPath);
-                log.info("Step 2: Offline transcript+voiceprint completed, length={}", correctedText.length());
+                correctedText = "";
+                log.info("Step 2: No transcript segments in DB for meeting {}", meetingId);
             }
 
             // 3. 实时路径下可对仅有 speaker_id 的分段做姓名回写（离线路径已在 correct 内完成）
@@ -130,10 +127,16 @@ public class MinuteGenerationService {
                 log.info("Step 3: Realtime speaker name refresh, updated={}", updated);
             }
 
-            // 4. 调用 LLM 生成纪要
-            log.info("Step 4: LLM minute generation...");
-            minuteText = generateMinuteByLLM(meeting, correctedText, participants);
-            log.info("Step 4: LLM generation completed, text length={}", minuteText.length());
+            // 4. 调用 LLM 生成纪要（可经 meeting.minute.llm-enabled 关闭）
+            if (minuteProperties.isLlmEnabled()) {
+                log.info("Step 4: LLM minute generation...");
+                minuteText = generateMinuteByLLM(meeting, correctedText, participants);
+                log.info("Step 4: LLM generation completed, text length={}", minuteText.length());
+            } else {
+                minuteText = generateSimpleMinute(meeting, correctedText);
+                log.info("Step 4: LLM skipped (meeting.minute.llm-enabled=false), simple minute length={}",
+                        minuteText.length());
+            }
 
             // 🤖 【环节2】AI 纪要增强（可经 meeting.minute.ai-enhancement-enabled 关闭）
             if (minuteProperties.isAiEnhancementEnabled()) {
@@ -163,28 +166,32 @@ public class MinuteGenerationService {
                 meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.READY);
             }
 
-            // 6. 创建飞书文档
-            log.info("Step 6: Creating Feishu document...");
+            // 6. 创建飞书文档（可经 meeting.minute.feishu-doc-enabled 关闭）
             boolean feishuWriteOk = false;
-            try {
-                Map<String, String> docInfo = feishuService.createDoc("", meeting.getTitle() + " 会议纪要");
-                docToken = docInfo.getOrDefault("docToken", "");
-                docUrl = docInfo.getOrDefault("docUrl", "");
+            if (minuteProperties.isFeishuDocEnabled()) {
+                log.info("Step 6: Creating Feishu document...");
+                try {
+                    Map<String, String> docInfo = feishuService.createDoc("", meeting.getTitle() + " 会议纪要");
+                    docToken = docInfo.getOrDefault("docToken", "");
+                    docUrl = docInfo.getOrDefault("docUrl", "");
 
-                if (!docToken.isEmpty() && !minuteText.isEmpty()) {
-                    log.info("Step 6.1: Writing minute content to Feishu doc...");
-                    feishuWriteOk = feishuService.updateDoc(docToken, minuteText);
-                    if (feishuWriteOk) {
-                        log.info("Step 6.1: Minute content written to Feishu doc successfully");
+                    if (!docToken.isEmpty() && !minuteText.isEmpty()) {
+                        log.info("Step 6.1: Writing minute content to Feishu doc...");
+                        feishuWriteOk = feishuService.updateDoc(docToken, minuteText);
+                        if (feishuWriteOk) {
+                            log.info("Step 6.1: Minute content written to Feishu doc successfully");
+                        } else {
+                            log.warn("Step 6.1: Failed to write content to Feishu doc (dev mode fallback)");
+                        }
                     } else {
-                        log.warn("Step 6.1: Failed to write content to Feishu doc (dev mode fallback)");
+                        feishuWriteOk = !docToken.isEmpty();
                     }
-                } else {
-                    feishuWriteOk = !docToken.isEmpty();
+                } catch (Exception e) {
+                    log.warn("Feishu doc creation failed (dev mode): {}", e.getMessage());
+                    docUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
                 }
-            } catch (Exception e) {
-                log.warn("Feishu doc creation failed (dev mode): {}", e.getMessage());
-                docUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
+            } else {
+                log.info("Step 6: Feishu doc skipped (meeting.minute.feishu-doc-enabled=false)");
             }
 
             if (!minuteText.isEmpty() && !feishuWriteOk) {
@@ -209,11 +216,15 @@ public class MinuteGenerationService {
             log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);
 
-            // 7. 推送飞书卡片通知
-            try {
-                pushFeishuCard(meeting, docUrl, minuteText);
-            } catch (Exception e) {
-                log.debug("Feishu notification skipped (dev mode): {}", e.getMessage());
+            // 推送飞书卡片通知（可经 meeting.minute.notify-enabled 关闭）
+            if (minuteProperties.isNotifyEnabled()) {
+                try {
+                    pushFeishuCard(meeting, docUrl, minuteText);
+                } catch (Exception e) {
+                    log.debug("Feishu notification skipped (dev mode): {}", e.getMessage());
+                }
+            } else {
+                log.info("Feishu notify skipped (meeting.minute.notify-enabled=false): meetingId={}", meetingId);
             }
 
         } catch (Exception e) {

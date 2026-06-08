@@ -1,5 +1,6 @@
 package com.smartmeeting.service;
 
+import com.smartmeeting.config.MeetingAsrProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -15,10 +16,11 @@ public class OfflineCorrectionService {
 
     private final OfflineTranscriptVoiceprintService offlineTranscriptVoiceprintService;
     private final TranscriptSegmentHelper transcriptSegmentHelper;
+    private final MeetingAsrProperties asrProperties;
 
     /**
      * 执行离线转写 + 可选声纹标注，返回带说话人标签的全文。
-     * 若已有会中实时定稿分段，则返回空串（由调用方使用 DB 分段）。
+     * 若已有会中实时定稿分段，则返回 DB 分段全文；若 {@code meeting.asr.offline-enabled=false} 则返回空串。
      *
      * @param meetingId 会议 ID
      * @param audioPath 音频文件本地路径
@@ -31,6 +33,10 @@ public class OfflineCorrectionService {
             log.info("Offline correction skipped (realtime segments exist): meetingId={}", meetingId);
             return transcriptSegmentHelper.buildLabeledTranscriptText(
                     transcriptSegmentHelper.listFinalSegments(meetingId));
+        }
+        if (!asrProperties.isOfflineEnabled()) {
+            log.info("Offline correction skipped (meeting.asr.offline-enabled=false): meetingId={}", meetingId);
+            return "";
         }
         return offlineTranscriptVoiceprintService.run(meetingId, audioPath);
     }

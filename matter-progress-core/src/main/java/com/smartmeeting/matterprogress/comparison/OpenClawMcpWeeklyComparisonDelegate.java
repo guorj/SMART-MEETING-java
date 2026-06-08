@@ -87,17 +87,19 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         }
 
         String taskId = OpenClawTaskIds.weeklyComparison(job.id());
-        String sessionKeyForTask = OpenClawSessionKeys.resolveForTask(taskId, sessionKey);
+        long runNonceMs = System.currentTimeMillis();
+        String runKey = OpenClawTaskIds.weeklyComparisonRun(job.id(), runNonceMs);
+        String sessionKeyForTask = OpenClawSessionKeys.resolveForTask(runKey, sessionKey);
         String prompt = buildMcpSkillPrompt(job, sourceRows, outputRow, readOutputFeishuDocUrl, taskId);
 
-        log.info("OpenClaw MCP weekly-comparison WS: jobId={} taskId={} sessionKey={} gatewayUrl={} sources={}",
-                job.id(), taskId, sessionKeyForTask, gatewayUrl, sourceRows.size());
+        log.info("OpenClaw MCP weekly-comparison WS: jobId={} taskId={} runKey={} sessionKey={} gatewayUrl={} sources={}",
+                job.id(), taskId, runKey, sessionKeyForTask, gatewayUrl, sourceRows.size());
         log.info("OpenClaw MCP weekly-comparison prompt (full):\n---\n{}\n---", prompt);
 
         try {
             String body = gatewayClient.sendChatMessage(
                     gatewayUrl, authToken, deviceToken, sessionKeyForTask,
-                    prompt, timeoutSeconds, taskId);
+                    prompt, timeoutSeconds, runKey, "generatedReportUrl=");
             if (body == null || body.isBlank()) {
                 return McpWeeklyComparisonResult.failed("OpenClaw empty reply");
             }
@@ -105,6 +107,13 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             String reportUrl = extractReportUrl(reply != null ? reply : body);
             log.info("OpenClaw MCP weekly-comparison done: jobId={} replyLength={} extractedUrl={}",
                     job.id(), reply != null ? reply.length() : 0, reportUrl);
+            if (reportUrl == null || reportUrl.isBlank()) {
+                String preview = reply != null && reply.length() > 200
+                        ? reply.substring(0, 200) + "…"
+                        : reply;
+                return McpWeeklyComparisonResult.failed(
+                        "OpenClaw 未产出 generatedReportUrl=（Agent 可能未执行 MCP 写 Doc）；replyPreview=" + preview);
+            }
             return McpWeeklyComparisonResult.ok(reply, reportUrl);
         } catch (Exception e) {
             log.warn("OpenClaw MCP weekly-comparison WS failed: jobId={} {}", job.id(), e.getMessage());
@@ -131,7 +140,7 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             map.put("readOutputFeishuDocUrl", String.valueOf(readOutputFeishuDocUrl));
             map.put("weeklyComparisonFeishuAppId", weeklyComparisonFeishuAppId);
             map.put("mcpLarkRead", "lark-mcp__bitable_v1_appTableField_list,lark-mcp__bitable_v1_appTableRecord_search");
-            map.put("mcpMysql", "meeting-mysql__query");
+            map.put("mcpMysql", "meeting-mysql__mysql_query");
             map.put("mcpDocxWrite", "lark-mcp__docx_v1_document_create,lark-mcp__docx_v1_documentBlockChildren_create,lark-mcp__docx_v1_document_rawContent,lark-mcp__wiki_v2_space_getNode");
             map.put("minuteTable", "int_meeting_minute");
             map.put("minuteBodyColumn", "content_markdown");

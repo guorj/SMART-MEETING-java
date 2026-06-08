@@ -77,6 +77,7 @@ window.AdminHints = {
       GROUPED: 'GROUPED — 按业务字段分组展示（适合周报类表格）。'
     },
     feishuUrl: '飞书文档或多维表完整 URL；保存后 meeting-server 可 enrich 快照。',
+    localUpload: '本地上传：支持 doc/docx 与 jpg/png/gif/webp，可多选；每个文件生成一条资料绑定，上传后在卡片内预览，主持页会中可查看图片或下载文档。',
     hostAgendaJson: 'host_agenda v2 原始 JSON；直接编辑不会自动维护 bindings 索引，仅适合高级运维。'
   },
   meetings: {

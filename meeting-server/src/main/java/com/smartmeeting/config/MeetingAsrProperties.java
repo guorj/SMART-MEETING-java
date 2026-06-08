@@ -19,4 +19,10 @@ public class MeetingAsrProperties {
      * 关闭后仍缓存录音文件，会后纪要可走离线 ASR。
      */
     private boolean realtimeEnabled = false;
+
+    /**
+     * 是否启用会后离线 ASR（讯飞 IST 上传 PCM → 转写分段入库）。
+     * 会议结束时独立触发，不依赖 meeting.minute.generation-enabled；有实时定稿分段时跳过。
+     */
+    private boolean offlineEnabled = true;
 }

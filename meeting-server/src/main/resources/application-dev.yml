@@ -1,16 +1,26 @@
-# ============================================================
-# Dev Profile — 开发环境完整配置（替代 .env）
-# ============================================================
-# 启动方式: mvn spring-boot:run -pl meeting-server
-# 无需 source .env，所有参数已在此文件中
-# ============================================================
+# =============================================================================
+# Dev Profile — meeting-server 开发环境
+# =============================================================================
+# 激活：spring.profiles.active=dev（默认）或 SPRING_PROFILES_ACTIVE=dev
+# 启动：mvn spring-boot:run -pl meeting-server
+# 覆盖关系：本文件覆盖 application.yml 同名键；环境变量仍可覆盖本文件
+#
+# 本环境典型会后组合（继承 application.yml 默认值，除非下方显式覆盖）：
+#   asr.offline-enabled=true（默认） + minute.generation-enabled=false（下方）
+#   → 会议结束后：PROCESSING → 离线转写入 int_transcript_segment → COMPLETED
+#   不自动跑纪要/待办；适合本地验证录音与离线 ASR
+#
+# 消息中间件：排除 Kafka 自动配置 + meeting.kafka.enabled=false → LocalEventBus
+# =============================================================================
 
 spring:
   autoconfigure:
     exclude:
+      # 开发机通常无 Kafka；会后异步走 LocalEventBus（offline-asr / minute-generate）
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
 
   datasource:
+    # 与 prod 共用远程 intelligence 库（开发联调）；生产部署请用独立库或只读账号
     url: jdbc:mysql://60.205.1.17:3306/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
     username: intelligence
     password: "intelligence@2026"
@@ -18,76 +28,74 @@ spring:
 
   sql:
     init:
-      # 禁止启动时执行 schema-data.sql，避免覆盖库内飞书 URL（校验见 DatabaseSeedStartupValidator）
+      # 禁止启动执行 schema-data.sql，防止覆盖库内飞书文档 URL
       mode: never
 
   data:
     redis:
+      # 预设缓存、主持会话；与 meeting-server 同机或远程 Redis
       host: 60.205.1.17
       port: 6379
       password: jq@2026
       database: 10
       timeout: 5000ms
-# ============================================================
-# 业务配置 — 所有参数从 .env 迁移至此
-# ============================================================
+
+# =============================================================================
+# 业务覆盖 meeting.*
+# =============================================================================
 meeting:
+  recording:
+    # dev 关闭录音超时自动结束，避免误杀短测会议（生产默认开启）
+    timeout-check-enabled: false
+
   kafka:
+    # false：单进程 LocalEventBus，无需创建 Kafka topic
     enabled: false
-  # ===== Pipeline 触发器（dev 推荐）=====
+
   pipeline:
-    # 本地测试可改为 false：建会后跳过 PRE 流水线（不发会前通知）
+    # dev 建会常关 PRE，避免每次建会触发会前飞书流水线
     pre-on-create-enabled: false
     post-auto-trigger:
-      # 会议结束后自动触发 POST Pipeline
+      # 会议结束后仍可走 POST 流水线（与纪要/离线独立）
       enabled: true
-      # 为空时按 stage=POST 默认启用模板执行；如需固定模板可填具体 templateCode
       template-code: ""
+
   scheduler:
-    # 会前自动触发 PRE
     pre-enabled: true
-    # 调度扫描周期（毫秒）
     scan-ms: 60000
-    # 触发窗口（分钟）
     pre-window-minutes: 5
-    # 推荐：PRE 分成两套模板，分别在会前 24h 与 10min 触发
-    # 未配置时会回退到旧逻辑：24h 单次触发默认 PRE 模板
     pre-24h-template-code: "pre_24h_default"
     pre-10m-template-code: "pre_10m_default"
 
   minute:
-    # 会后是否生成纪要（false 时结束会议不触发 minute-generate / todo-extract）
+    # dev 默认不自动纪要；要测完整链路可设 MEETING_MINUTE_GENERATION_ENABLED=true
+    # 或仅开离线：保持 false + offline-enabled=true（默认）
     generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:false}
 
   todo:
-    # 会后是否提取并同步待办（false 时跳过 TODO 提取、待办通知、待办状态推进）
     extraction-enabled: ${MEETING_TODO_EXTRACTION_ENABLED:false}
-    # 待办到期提醒定时任务总开关（false 时不注册 TodoReminderScheduler）
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
 
-  # 公网入口：WSL frpc (tcp) → Windows 本机 8765；需与飞书/浏览器实际访问一致（无 TLS 反代时用 http + 端口）
+  # 公网入口（frp/反代）；飞书回调、卡片链接、JWT 跳转须与此一致
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 
-  # ---- 飞书开放平台 ----
   feishu:
-  # 测试飞书
+    # 测试飞书（备用，当前注释）
 #    app-id: "cli_a955948fda78dbc2"
 #    app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
 #    verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
 #    encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"
 #    base-url: "https://open.feishu.cn"
 #    token-cache-seconds: 7200
-    #jq飞书
+    # jq 飞书应用（当前启用）
     app-id: "cli_a9742c7795795bc2"
     app-secret: "yNKh96SePvhk4h3b1Z1Rnjw3RZ6fivIj"
     verification-token: "8xLRCY78R4WF2LVOyjtXJfLXePgfSYOG"
     encrypt-key: "UUL5bdPrZN6mgNroM38RRbE6rVE1m35y"
     base-url: "https://open.feishu.cn"
     token-cache-seconds: 7200
-    # 欢迎语与菜单：开放平台 → 事件订阅 im.chat.member.bot.added_v1、application.bot.menu_v6、
-    #   im.chat.access_event.bot_p2p_chat_entered_v1（用户进入与机器人单聊，便于私聊内点菜单无 chat_id 时回退）
-    # 会议类型入口为 Web（meeting.base-url/start-meeting.html?token=…）；卡片回传仅兼容旧消息，可不订阅 card.action.trigger
-    # 快捷菜单建议选「向当前会话发送消息」填「开始会议」；若用「推送 event_key」须与 menu-event-key-start-meeting 一致
+    # 开放平台需订阅：im.chat.member.bot.added_v1、application.bot.menu_v6 等
+    # 会议类型入口为 Web（base-url/start-meeting.html?token=…）
     bot-ux:
       welcome-on-bot-join: true
       welcome-text: "大家好，我是「智能会议」助手。\n请用下方快捷菜单或发送「开始会议」使用本群会议功能。"
@@ -95,8 +103,9 @@ meeting:
       menu-event-key-start-meeting: "start_meeting"
       menu-v6-fallback-to-last-group-chat: true
 
-  # ---- 科大讯飞 ASR ----
   asr:
+    # realtime-enabled 继承 application.yml 默认 false
+    # offline-enabled 继承默认 true → dev 结束后自动离线转写
     primary: xfyun
     fallback: tencent
     lang: "autodialect"
@@ -120,8 +129,7 @@ meeting:
         backoff-ms: 1000
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
-        
-  # ---- 讯飞 ISV 声纹 ----
+
   isv:
     enabled: true
     group-id: "smart_meeting_vp"
@@ -132,7 +140,6 @@ meeting:
     debug-log: true
     ttl-years: 10
 
-  # ---- 大模型 ----
   llm:
     provider: "deepseek"
     api-key: "sk-bc91279066c0419f80df68b03e0d90d8"
@@ -141,7 +148,6 @@ meeting:
     timeout-seconds: 120
     max-retries: 2
 
-  # ---- 音频 ----
   audio:
     sample-rate: 16000
     bit-depth: 16
@@ -154,19 +160,17 @@ meeting:
     queue-maxsize: 100
     write-flush-interval: 25
 
-  # ---- JWT ----
   jwt:
     secret: "IQ7vgVe5uBy0XJ6q8mzrqHgRzl9md+1oO1qKLHnxchxdUyhN2qa3aRqiCK+99U5K"
     expire-hours: 4
 
-  # ---- 心跳/超时 ----
   heartbeat:
     interval: 30
     frontend-ws-close-timeout: 5
 
-# ============================================================
-# AI Agent 配置（策略模式：llm / mcp）
-# ============================================================
+# =============================================================================
+# OpenClaw（纪要 AI 增强等；provider=mcp 需本机 Gateway）
+# =============================================================================
 openclaw:
   enabled: ${OPENCLAW_ENABLED:true}
   agent:
@@ -178,7 +182,6 @@ openclaw:
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
   skill-mode: ${OPENCLAW_SKILL_MODE:true}
 
-# ---- 日志 ----
 logging:
   level:
     root: INFO
@@ -188,10 +191,9 @@ logging:
     max-size: 100MB
     max-history: 7
 
-# ---- MyBatis-Plus ----
 mybatis-plus:
   configuration:
-    # 勿用 StdOutImpl：会把每条 SQL 打到控制台（主持 tick 每秒 push 时刷屏）
+    # 使用 Slf4j 输出 SQL；勿用 StdOutImpl（主持 tick 会刷屏）
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:

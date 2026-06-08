@@ -21,4 +21,25 @@ class MeetingMinutePropertiesTest {
         props.setAiEnhancementEnabled(false);
         assertThat(props.isAiEnhancementEnabled()).isFalse();
     }
+
+    @Test
+    @DisplayName("未配置时 llm/feishu-doc/notify 默认 true")
+    void defaultStepFlagsEnabled() {
+        MeetingMinuteProperties props = new MeetingMinuteProperties();
+        assertThat(props.isLlmEnabled()).isTrue();
+        assertThat(props.isFeishuDocEnabled()).isTrue();
+        assertThat(props.isNotifyEnabled()).isTrue();
+    }
+
+    @Test
+    @DisplayName("可显式关闭 llm/feishu-doc/notify")
+    void disableStepFlags() {
+        MeetingMinuteProperties props = new MeetingMinuteProperties();
+        props.setLlmEnabled(false);
+        props.setFeishuDocEnabled(false);
+        props.setNotifyEnabled(false);
+        assertThat(props.isLlmEnabled()).isFalse();
+        assertThat(props.isFeishuDocEnabled()).isFalse();
+        assertThat(props.isNotifyEnabled()).isFalse();
+    }
 }

@@ -167,6 +167,21 @@ class BitableRecordSorterTest {
     }
 
     @Test
+    void export_recent_statusSections_order_delayedFirst() {
+        List<com.fasterxml.jackson.databind.JsonNode> items = List.of(
+                record("done", "已完成", "", daysAgo(5), daysAgo(2), null),
+                record("late", "未完成", "已延期", daysAgo(5), daysAgo(5), daysAgo(1)),
+                record("doing", "进行中", "还有10天到期", daysAgo(5), daysAgo(5), null));
+        String text = BitablePlainTextExporter.export(items, "【摘要】");
+        int delayed = text.indexOf(BitablePlainTextExporter.SECTION_STATUS_DELAYED);
+        int completed = text.indexOf(BitablePlainTextExporter.SECTION_STATUS_COMPLETED);
+        int inProgress = text.indexOf(BitablePlainTextExporter.SECTION_STATUS_IN_PROGRESS);
+        assertThat(delayed).isGreaterThanOrEqualTo(0);
+        assertThat(completed).isGreaterThan(delayed);
+        assertThat(inProgress).isGreaterThan(completed);
+    }
+
+    @Test
     void parseDaysFromText_overdue() {
         assertThat(BitableRecordSorter.parseDaysFromText("逾期 9 天")).isEqualTo(-9L);
         assertThat(BitableRecordSorter.parseDaysFromText("🕑还有221天到期")).isEqualTo(221L);

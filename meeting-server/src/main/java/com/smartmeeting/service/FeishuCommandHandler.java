@@ -63,7 +63,7 @@ public class FeishuCommandHandler {
     private final PipelineCallbackRouter pipelineCallbackRouter;
     private final AgendaFillCampaignService agendaFillCampaignService;
     private final TranscriptMapper transcriptMapper;
-    private final MinuteGenerationService minuteGenerationService;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
@@ -673,7 +673,7 @@ public class FeishuCommandHandler {
         }
         CompletableFuture.runAsync(() -> {
             try {
-                minuteGenerationService.generateMinute(meetingId, null);
+                postMeetingOrchestrator.triggerRegenerateMinutes(meetingId);
                 feishuService.sendMessage(chatId, "纪要重生成已完成，会议ID：" + meetingId);
             } catch (Exception e) {
                 feishuService.sendMessage(chatId, "纪要重生成失败：" + e.getMessage());

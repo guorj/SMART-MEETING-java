@@ -1,6 +1,7 @@
 package com.smartmeeting.mq;
 
 import com.smartmeeting.model.MinuteGenerateMessage;
+import com.smartmeeting.model.OfflineAsrMessage;
 import com.smartmeeting.model.TodoExtractMessage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,24 @@ public class KafkaProducer {
                                 message.getMeetingId(), ex);
                     } else {
                         log.info("Sent minute generate message: meetingId={}, partition={}, offset={}",
+                                message.getMeetingId(),
+                                result.getRecordMetadata().partition(),
+                                result.getRecordMetadata().offset());
+                    }
+                });
+    }
+
+    /**
+     * 发送离线 ASR 任务到指定主题（通常为 {@code meeting.offline.asr}）。
+     */
+    public void sendOfflineAsr(String topic, OfflineAsrMessage message) {
+        kafkaTemplate.send(topic, message.getMeetingId(), message)
+                .whenComplete((result, ex) -> {
+                    if (ex != null) {
+                        log.error("Failed to send offline ASR message: meetingId={}",
+                                message.getMeetingId(), ex);
+                    } else {
+                        log.info("Sent offline ASR message: meetingId={}, partition={}, offset={}",
                                 message.getMeetingId(),
                                 result.getRecordMetadata().partition(),
                                 result.getRecordMetadata().offset());

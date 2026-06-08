@@ -78,19 +78,19 @@ openclaw --profile clone-boss mcp show meeting-mysql
 
 ---
 
-## meeting-mysql（官方 @modelcontextprotocol/server-mysql）
+## meeting-mysql（`mcp-server-mysql`）
 
-配置见 `mcp.servers.meeting-mysql`；生产建议使用 **只读** MySQL 账号，并在 Skill 中禁止 `insert` / `update`。
+配置见 `mcp.servers.meeting-mysql`。npm 包名为 **`mcp-server-mysql`**（无 scope）；**勿用** `@modelcontextprotocol/server-mysql`（404）。
+
+环境变量：`MYSQL_HOST`、`MYSQL_PORT`、`MYSQL_USER`、`MYSQL_PASS`、`MYSQL_DB`（非 `MYSQL_PASSWORD` / `MYSQL_DATABASE`）。
+
+生产建议使用 **只读** MySQL 账号，Skill 仅放行 `meeting-mysql__mysql_query`（只读 SELECT）。
 
 | # | MCP 工具名 | OpenClaw 全名 | 用途 | 使用 Skill |
 |---|------------|---------------|------|------------|
-| 1 | `query` | `meeting-mysql__query` | 执行 SQL（会后分析常用） | `progress-analysis`、`minute-enhancement` |
-| 2 | `list_tables` | `meeting-mysql__list_tables` | 列出库表 | 一般不由 Skill 直接调用 |
-| 3 | `describe_table` | `meeting-mysql__describe_table` | 查看表结构 | 一般不由 Skill 直接调用 |
-| 4 | `insert` | `meeting-mysql__insert` | 插入行（写） | **未列入 allowed-tools** |
-| 5 | `update` | `meeting-mysql__update` | 更新行（写） | **未列入 allowed-tools** |
+| 1 | `mysql_query` | `meeting-mysql__mysql_query` | 执行 SELECT | `progress-analysis`、`matter-progress`、`minute-enhancement` |
 
-### `meeting-mysql__query` 示例（progress-analysis）
+### `meeting-mysql__mysql_query` 示例（progress-analysis）
 
 ```sql
 SELECT status, COUNT(*) as cnt
@@ -105,9 +105,9 @@ GROUP BY status
 
 | Skill | allowed-tools |
 |-------|----------------|
-| `progress-analysis` | `lark-mcp__bitable_v1_appTableField_list`、`lark-mcp__bitable_v1_appTableRecord_search`、`meeting-mysql__query` |
-| `matter-progress` | bitable 读 + mysql query；weekly-comparison-mcp 另需 `docx_v1_document_create`、`docx_v1_documentBlockChildren_create`、`docx_v1_document_rawContent`、`wiki_v2_space_getNode` |
-| `minute-enhancement` | `meeting-mysql__query` |
+| `progress-analysis` | `lark-mcp__bitable_v1_appTableField_list`、`lark-mcp__bitable_v1_appTableRecord_search`、`meeting-mysql__mysql_query` |
+| `matter-progress` | bitable 读 + `meeting-mysql__mysql_query`；weekly-comparison-mcp 另需 `docx_v1_document_create`、`docx_v1_documentBlockChildren_create`、`docx_v1_document_rawContent`、`wiki_v2_space_getNode` |
+| `minute-enhancement` | `meeting-mysql__mysql_query` |
 
 ---
 

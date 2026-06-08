@@ -9,9 +9,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.util.DefaultUriBuilderFactory;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -27,7 +31,8 @@ import java.util.concurrent.TimeUnit;
  * </p>
  * <p>
  * 文档参考：<a href="https://www.xfyun.cn/doc/spark/asr_llm/Ifasr_llm.html">Ifasr_llm</a>。
- * 注意查询参数中的 dateTime 在 URL 上不可整体 URL 编码；签名计算时对键值单独编码。
+ * 注意：查询参数值须按文档 URL 编码（如 dateTime 中 {@code +} → {@code %2B}），
+ * 否则 {@code +0800} 会被解析为空格导致 100003；签名计算时对键值同样单独 URLEncode。
  * </p>
  *
  * @see TranscriptSegment
@@ -50,11 +55,26 @@ public class XfyunOfflineClient {
     private boolean offlineRoleEnabled;
 
     private static final String BASE_URL = "https://office-api-ist-dx.iflyaisol.com";
+    private static final ZoneId XFYUN_ZONE = ZoneId.of("Asia/Shanghai");
+    private static final DateTimeFormatter XFYUN_DATE_TIME =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
     private static final int MAX_RETRIES = 60;
     private static final int POLL_INTERVAL_MS = 5000;
 
-    private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+
+    /**
+     * IST 请求 URL 已手动百分号编码；须禁用 RestTemplate 二次编码/解码（否则 {@code +} → 空格 → 100003）。
+     */
+    private static final RestTemplate IST_HTTP = createIstRestTemplate();
+
+    private static RestTemplate createIstRestTemplate() {
+        RestTemplate rt = new RestTemplate();
+        DefaultUriBuilderFactory factory = new DefaultUriBuilderFactory();
+        factory.setEncodingMode(DefaultUriBuilderFactory.EncodingMode.NONE);
+        rt.setUriTemplateHandler(factory);
+        return rt;
+    }
 
     /**
      * 上传音频并离线转写，返回带时间戳的分段列表。
@@ -138,11 +158,8 @@ public class XfyunOfflineClient {
      *
      * @return 形如 {@code 2025-09-08T22:58:29+0800}
      */
-    private String generateDateTime() {
-        java.text.SimpleDateFormat sdf = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss");
-        sdf.setTimeZone(java.util.TimeZone.getTimeZone("Asia/Shanghai"));
-        String base = sdf.format(new java.util.Date());
-        return base + "+0800";  // 手动添加时区（确保无冒号）
+    static String generateDateTime() {
+        return OffsetDateTime.now(XFYUN_ZONE).format(XFYUN_DATE_TIME);
     }
 
     /**
@@ -213,16 +230,8 @@ public class XfyunOfflineClient {
      * @throws Exception HTTP 或 JSON 解析异常
      */
     private String uploadAudio(byte[] audioData, Map<String, String> params, String signature) throws Exception {
-        // 构建URL查询参数（不编码）
-        StringBuilder urlBuilder = new StringBuilder(BASE_URL + "/v2/upload?");
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            // 不编码参数值（讯飞不接受编码后的dateTime）
-            urlBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
-        }
-        urlBuilder.deleteCharAt(urlBuilder.length() - 1);  // 删除最后的&
-        
-        String url = urlBuilder.toString();
-        log.info("【离线ASR】Upload URL: {}", url.substring(0, Math.min(150, url.length())));
+        String url = buildIstRequestUrl("/v2/upload", params);
+        log.info("【离线ASR】Upload URL: {}", url.substring(0, Math.min(200, url.length())));
 
         // 设置Headers
         HttpHeaders headers = new HttpHeaders();
@@ -231,7 +240,7 @@ public class XfyunOfflineClient {
 
         // 发送二进制音频数据
         HttpEntity<byte[]> request = new HttpEntity<>(audioData, headers);
-        ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+        ResponseEntity<String> response = IST_HTTP.postForEntity(url, request, String.class);
 
         log.info("【离线ASR】Upload response: code={}, body={}", response.getStatusCode(), 
             response.getBody().length() > 200 ? response.getBody().substring(0, 200) + "..." : response.getBody());
@@ -277,15 +286,7 @@ public class XfyunOfflineClient {
 
         String signature = generateSignature(params);
 
-        // 构建URL（不编码）
-        StringBuilder urlBuilder = new StringBuilder(BASE_URL + "/v2/getResult?");
-        for (Map.Entry<String, String> entry : params.entrySet()) {
-            // 不编码参数值（讯飞不接受编码后的dateTime）
-            urlBuilder.append(entry.getKey()).append("=").append(entry.getValue()).append("&");
-        }
-        urlBuilder.deleteCharAt(urlBuilder.length() - 1);
-        
-        String url = urlBuilder.toString();
+        String url = buildIstRequestUrl("/v2/getResult", params);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -294,7 +295,7 @@ public class XfyunOfflineClient {
         for (int i = 0; i < MAX_RETRIES; i++) {
             // 请求体为空JSON对象
             HttpEntity<String> request = new HttpEntity<>("{}", headers);
-            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+            ResponseEntity<String> response = IST_HTTP.postForEntity(url, request, String.class);
 
             if (!response.getStatusCode().is2xxSuccessful()) {
                 log.warn("【离线ASR】Get result failed: {}", response.getStatusCode());
@@ -339,6 +340,32 @@ public class XfyunOfflineClient {
 
         log.error("【离线ASR】Poll timeout for order {}", orderId);
         return null;
+    }
+
+    /**
+     * 讯飞 IST v2 查询参数值编码（与签名中的 URLEncoder 规则一致）。
+     * dateTime 含 {@code +0800} 时必须编码，否则 {@code +} 在 query 中会变成空格。
+     */
+    static String encodeQueryParam(String value) {
+        if (value == null) {
+            return "";
+        }
+        return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
+    static String buildEncodedQueryString(Map<String, String> params) {
+        StringBuilder sb = new StringBuilder();
+        for (Map.Entry<String, String> entry : params.entrySet()) {
+            if (sb.length() > 0) {
+                sb.append('&');
+            }
+            sb.append(entry.getKey()).append('=').append(encodeQueryParam(entry.getValue()));
+        }
+        return sb.toString();
+    }
+
+    private String buildIstRequestUrl(String path, Map<String, String> params) {
+        return BASE_URL + path + "?" + buildEncodedQueryString(params);
     }
 
     /**

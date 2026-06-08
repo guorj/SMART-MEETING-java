@@ -3,7 +3,7 @@ name: minute-enhancement
 description: "优化会议纪要：校验初版纪要质量，补全缺失信息，标注重点待办"
 # MCP 工具全名见 mcp-servers/LARK-MCP-TOOLS.md
 allowed-tools:
-  - meeting-mysql__query   # 仅读库；不写 meeting-mysql__insert / __update
+  - meeting-mysql__mysql_query   # 仅读库（mcp-server-mysql 只读）
 ---
 
 # 纪要优化
@@ -32,7 +32,7 @@ rawMinuteLength=3500
 ## 执行步骤
 
 1. **查询参会人信息**
-   - 调用 `meeting-mysql__query` 查询参会人信息辅助校验：
+   - 调用 `meeting-mysql__mysql_query` 查询参会人信息辅助校验：
      ```sql
      SELECT p.user_name, p.department, r.role
      FROM int_meeting_participant p

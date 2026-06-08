@@ -1,3 +1,13 @@
+# =============================================================================
+# Dev Profile — meeting-admin-server 开发环境覆盖
+# =============================================================================
+# 激活：SPRING_PROFILES_ACTIVE=dev（默认）
+# 仅覆盖 meeting.* 子树；数据源等继承 application.yml
+#
+# 本地开发时 bot-base-url 默认走 OA 反代；本机起 feishu-scheduled-bot 可改为
+#   MEETING_NOTIFY_BOT_URL=http://127.0.0.1:8764
+# =============================================================================
+
 meeting:
   admin:
     enabled: ${MEETING_ADMIN_ENABLED:true}
@@ -15,13 +25,15 @@ meeting:
     agenda-config:
       file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}
       file-path: ${MEETING_ADMIN_AGENDA_FILE_PATH:classpath:agenda-templates/example-presets.json}
+
   runtime:
     meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765/meeting-server}
-    # 本地 admin 连远程 bot：默认走 OA 反代（prod 已设 context-path=/scheduled-bot）
-    # 本机也跑 bot 时：MEETING_NOTIFY_BOT_URL=http://127.0.0.1:8764
+    # 推送/会前对比等调用 feishu-scheduled-bot 的基址
+    # 远程：OA 反代 /scheduled-bot；本地 bot：http://127.0.0.1:8764
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:https://oa.qdyhjz.cn/scheduled-bot}
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
     internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
+
   oauth:
     feishu:
       enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}

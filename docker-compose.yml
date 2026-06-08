@@ -1,6 +1,20 @@
+# =============================================================================
+# smart-meeting-java 本地/演示用 Docker Compose
+# =============================================================================
+# 启动：docker compose up -d（需在项目根准备 .env：DB_*、密钥等）
+#
+# 服务：meeting-server + MySQL + Redis + Kafka
+# 注意：
+#   - 默认 .env 若 KAFKA_ENABLED=true，须预创建 topic：
+#     meeting.events、meeting.offline.asr、todo.extract
+#   - 若 KAFKA_ENABLED=false（dev/prod profile 常见），Kafka 容器可不必启动
+#   - 健康检查路径须与 server.servlet.context-path 一致（默认 /meeting-server）
+# =============================================================================
+
 version: "3.8"
 
 services:
+  # ----- 主应用 meeting-server -----
   smart-meeting:
     build:
       context: ./meeting-server
@@ -12,10 +26,12 @@ services:
     env_file:
       - .env
     environment:
+      # 容器内服务发现主机名（覆盖 application.yml 中的 localhost 默认值）
       - KAFKA_SERVERS=kafka:9092
       - REDIS_HOST=redis
       - DB_HOST=mysql
     volumes:
+      # 持久化 PCM、会序资料、日志等（须在应用内配置指向 /data 子路径）
       - meeting-data:/data
     depends_on:
       mysql:
@@ -25,6 +41,7 @@ services:
       kafka:
         condition: service_healthy
     healthcheck:
+      # 若 context-path=/meeting-server，健康检查 URL 需带前缀
       test: ["CMD", "curl", "-f", "http://localhost:8765/api/v1/health"]
       interval: 30s
       timeout: 5s
@@ -38,6 +55,7 @@ services:
           cpus: "1.0"
           memory: 1G
 
+  # ----- MySQL 8 -----
   mysql:
     image: mysql:8.0
     container_name: smart-meeting-mysql
@@ -59,6 +77,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # ----- Redis 7（预设缓存、主持会话）-----
   redis:
     image: redis:7-alpine
     container_name: smart-meeting-redis
@@ -73,6 +92,7 @@ services:
       timeout: 5s
       retries: 5
 
+  # ----- Kafka 3.7（可选；meeting.kafka.enabled=true 时使用）-----
   kafka:
     image: apache/kafka:3.7.0
     container_name: smart-meeting-kafka

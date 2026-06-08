@@ -16,9 +16,33 @@ AdminModules.register({
     let saving = false;
     let metaSaving = false;
     let skipInlineCommit = false;
+    const materialBlobCache = {};
 
     const esc = s => (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const docKey = (i, bi) => i + '-' + bi;
+    const isLocalBinding = b => !!(b && String(b.storageKind || '').toUpperCase() === 'LOCAL' && (b.fileId || '').trim());
+    const bindingHasContent = b => isLocalBinding(b) || !!((b && b.feishuDocUrl) || '').trim();
+    const isImageMime = m => String(m || '').toLowerCase().startsWith('image/');
+    const materialAdminUrl = fileId => '/api/v1/admin/agenda-config/materials/' + encodeURIComponent(fileId);
+    const fetchMaterialBlobUrl = async fileId => {
+      if (!fileId) return '';
+      if (materialBlobCache[fileId]) return materialBlobCache[fileId];
+      const res = await fetch(materialAdminUrl(fileId), { headers: { 'X-Admin-Token': AdminApi.token() } });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      materialBlobCache[fileId] = url;
+      return url;
+    };
+    const renderLocalPreviewHtml = (b, asyncThumb) => {
+      if (!isLocalBinding(b)) return '';
+      const name = esc(b.originalFilename || b.fileId || '本地文件');
+      if (isImageMime(b.mimeType)) {
+        return `<div class="doc-local-preview"><img class="doc-local-thumb" data-file-id="${esc(b.fileId)}" alt="${name}"${asyncThumb ? '' : ' src=""'}/></div>`;
+      }
+      return `<div class="doc-local-preview"><p class="doc-local-file"><span class="doc-local-name">📄 ${name}</span>`
+        + ` <button type="button" class="secondary doc-local-dl" data-file-id="${esc(b.fileId)}">下载</button></p></div>`;
+    };
     const roleLabel = r => ({ SOURCE: '源资料', OUTPUT: '产出', BOTH: '双向' }[r] || r || '—');
     const text = v => (v == null ? '' : String(v));
     const agendaOrderTitlePattern = /^会序\s*\d+\s*([:：\-—]\s*)?(.*)$/;
@@ -120,7 +144,11 @@ AdminModules.register({
             id: b.id || null,
             configName: b.configName,
             resourceSlot: b.resourceSlot,
-            feishuDocUrl: b.feishuDocUrl || '',
+            feishuDocUrl: isLocalBinding(b) ? '' : (b.feishuDocUrl || ''),
+            storageKind: isLocalBinding(b) ? 'LOCAL' : 'FEISHU',
+            fileId: isLocalBinding(b) ? b.fileId : null,
+            originalFilename: isLocalBinding(b) ? b.originalFilename : null,
+            mimeType: isLocalBinding(b) ? b.mimeType : null,
             enabled: b.enabled ?? 1,
             configRole: b.configRole || 'SOURCE',
             bitableDisplayMode: b.bitableDisplayMode || null
@@ -203,6 +231,10 @@ AdminModules.register({
         configName: '',
         resourceSlot: slot,
         feishuDocUrl: '',
+        storageKind: 'FEISHU',
+        fileId: null,
+        originalFilename: null,
+        mimeType: null,
         enabled: 1,
         configRole: 'SOURCE',
         bitableDisplayMode: null
@@ -210,15 +242,95 @@ AdminModules.register({
       return row.bindings.length - 1;
     };
 
-    const readInlineForm = tile => ({
-      id: tile.dataset.id ? parseInt(tile.dataset.id, 10) : null,
-      configName: tile.querySelector('.inl-name').value.trim(),
-      resourceSlot: parseInt(tile.querySelector('.inl-slot').value, 10) || 0,
-      feishuDocUrl: tile.querySelector('.inl-url').value.trim(),
-      enabled: 1,
-      configRole: tile.querySelector('.inl-role').value,
-      bitableDisplayMode: tile.querySelector('.inl-bdm').value || null
-    });
+    const ensureBinding = (agendaIndex, bindingIndex) => {
+      const row = bundleItems[agendaIndex];
+      if (!row) return null;
+      if (!row.bindings) row.bindings = [];
+      while (row.bindings.length <= bindingIndex) {
+        const slot = nextResourceSlot(row.bindings);
+        row.bindings.push({
+          configName: '',
+          resourceSlot: slot,
+          feishuDocUrl: '',
+          storageKind: 'LOCAL',
+          fileId: null,
+          originalFilename: null,
+          mimeType: null,
+          enabled: 1,
+          configRole: 'SOURCE',
+          bitableDisplayMode: null
+        });
+      }
+      return row.bindings[bindingIndex];
+    };
+
+    const unwrapUploadPayload = payload => {
+      if (!payload || typeof payload !== 'object') return null;
+      if (payload.fileId) return payload;
+      if (payload.data && typeof payload.data === 'object' && payload.data.fileId) return payload.data;
+      return null;
+    };
+
+    const assignLocalUploadToBinding = (binding, data) => {
+      if (!binding || !data) return;
+      Object.assign(binding, {
+        storageKind: 'LOCAL',
+        fileId: data.fileId,
+        originalFilename: data.originalFilename,
+        mimeType: data.mimeType,
+        feishuDocUrl: ''
+      });
+      if (!binding.configName) {
+        binding.configName = (data.originalFilename || data.fileId || 'local').replace(/\.[^.]+$/, '');
+      }
+    };
+
+    const uploadLocalMaterial = async file => {
+      const fd = new FormData();
+      fd.append('file', file);
+      const raw = await AdminApi.fetch('/api/v1/admin/agenda-config/materials/upload', { method: 'POST', body: fd });
+      const data = unwrapUploadPayload(raw);
+      if (!data || !data.fileId) {
+        throw new Error('上传响应无效');
+      }
+      return data;
+    };
+
+    const saveBundleImmediate = async () => {
+      saving = true;
+      setAutosaveStatus('saving', '保存中…');
+      try {
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle', {
+          method: 'PUT', body: JSON.stringify(buildPayload())
+        });
+        bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
+        setAutosaveStatus('saved', '已自动保存');
+      } catch (e) {
+        setAutosaveStatus('error', '保存失败: ' + (e.message || ''));
+        throw e;
+      } finally {
+        saving = false;
+      }
+    };
+
+    const readInlineForm = tile => {
+      const source = (tile.querySelector('.inl-source-opt.active') || {}).dataset?.source || 'FEISHU';
+      const local = source === 'LOCAL';
+      const prev = bundleItems[+tile.dataset.i]?.bindings?.[+tile.dataset.bi] || {};
+      return {
+        id: tile.dataset.id ? parseInt(tile.dataset.id, 10) : null,
+        configName: tile.querySelector('.inl-name').value.trim(),
+        resourceSlot: parseInt(tile.querySelector('.inl-slot').value, 10) || 0,
+        storageKind: local ? 'LOCAL' : 'FEISHU',
+        feishuDocUrl: local ? '' : tile.querySelector('.inl-url').value.trim(),
+        fileId: local ? (prev.fileId || null) : null,
+        originalFilename: local ? (prev.originalFilename || null) : null,
+        mimeType: local ? (prev.mimeType || null) : null,
+        enabled: 1,
+        configRole: tile.querySelector('.inl-role').value,
+        bitableDisplayMode: tile.querySelector('.inl-bdm').value || null
+      };
+    };
 
     const commitInlineEdit = async (agendaIndex, bindingIndex, cancel) => {
       const tile = document.querySelector(`.doc-tile-editing[data-i="${agendaIndex}"][data-bi="${bindingIndex}"]`);
@@ -229,14 +341,14 @@ AdminModules.register({
       }
       if (cancel) {
         const b = bundleItems[agendaIndex].bindings[bindingIndex];
-        if (!b.id && !b.configName && !b.feishuDocUrl) {
+        if (!b.id && !b.configName && !bindingHasContent(b)) {
           bundleItems[agendaIndex].bindings.splice(bindingIndex, 1);
         }
         renderAgendaTable();
         return;
       }
       const binding = readInlineForm(tile);
-      if (!binding.configName && !binding.feishuDocUrl) {
+      if (!binding.configName && !bindingHasContent(binding)) {
         bundleItems[agendaIndex].bindings.splice(bindingIndex, 1);
         renderAgendaTable();
         return;
@@ -267,6 +379,12 @@ AdminModules.register({
       const role = d.configRole || 'SOURCE';
       const bdm = d.bitableDisplayMode || '';
       const idAttr = d.id ? ` data-id="${d.id}"` : '';
+      const local = isLocalBinding(d);
+      const sourceFeishuCls = local ? '' : ' active';
+      const sourceLocalCls = local ? ' active' : '';
+      const feishuHidden = local ? ' hidden' : '';
+      const localHidden = local ? '' : ' hidden';
+      const localPreview = renderLocalPreviewHtml(d, true);
       return `<div class="doc-tile doc-tile-editing" data-i="${agendaIndex}" data-bi="${bindingIndex}"${idAttr}>
         <div class="doc-inline-form">
           <div class="doc-inline-row">
@@ -292,9 +410,26 @@ AdminModules.register({
           </div>
           <p class="doc-inline-hint-block">角色：${AdminHints.presets.configRole.SOURCE} ${AdminHints.presets.configRole.OUTPUT} ${AdminHints.presets.configRole.BOTH} · 槽位：${AdminHints.presets.resourceSlot} · 展示：${AdminHints.presets.bitableDisplayMode['']} / ${AdminHints.presets.bitableDisplayMode.RAW} / ${AdminHints.presets.bitableDisplayMode.GROUPED}</p>
           <div class="doc-inline-row">
-            <label>飞书链接</label>
-            <textarea class="inl-url code-area" rows="3" placeholder="粘贴飞书文档 / 多维表链接">${esc(d.feishuDocUrl)}</textarea>
-            <p class="doc-inline-hint-block">${AdminHints.presets.feishuUrl}</p>
+            <label>资料来源</label>
+            <div class="doc-source-toggle">
+              <button type="button" class="secondary inl-source-opt${sourceFeishuCls}" data-source="FEISHU">飞书链接</button>
+              <button type="button" class="secondary inl-source-opt${sourceLocalCls}" data-source="LOCAL">本地上传</button>
+            </div>
+          </div>
+          <div class="doc-source-feishu${feishuHidden}">
+            <div class="doc-inline-row">
+              <label>飞书链接</label>
+              <textarea class="inl-url code-area" rows="3" placeholder="粘贴飞书文档 / 多维表链接">${esc(d.feishuDocUrl)}</textarea>
+              <p class="doc-inline-hint-block">${AdminHints.presets.feishuUrl}</p>
+            </div>
+          </div>
+          <div class="doc-source-local${localHidden}">
+            <div class="doc-inline-row">
+              <label>本地文件</label>
+              <input class="inl-file" type="file" accept=".doc,.docx,image/*" multiple/>
+              <p class="doc-inline-hint-block">${AdminHints.presets.localUpload || '支持 doc/docx 与常见图片，可多选；上传后立即预览'}</p>
+            </div>
+            ${localPreview}
           </div>
           <p class="doc-inline-hint muted">点击外侧或按 Tab 离开即自动保存 · Esc 取消</p>
         </div>
@@ -310,22 +445,33 @@ AdminModules.register({
         ? `<span class="meta-pill meta-bdm">${esc(d.bitableDisplayMode)}</span>` : '';
       const role = (d.configRole || 'SOURCE').toLowerCase();
       const name = d.configName ? esc(d.configName) : '<em class="muted">未命名配置</em>';
-      const urlInner = url
-        ? `<a class="doc-url-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(url)}</a>`
-        : '<span class="doc-url-placeholder">点击配置飞书链接</span>';
-      const linkBtns = url
-        ? `<button type="button" class="secondary btn-link-open" data-url="${esc(url)}">打开</button>
-           <button type="button" class="secondary btn-link-copy" data-url="${esc(url)}">复制</button>`
-        : '';
+      const local = isLocalBinding(d);
+      let contentInner;
+      let linkBtns = '';
+      if (local) {
+        contentInner = `<div class="doc-tile-local doc-editable">${renderLocalPreviewHtml(d, true)}</div>`;
+        linkBtns = `<button type="button" class="secondary doc-local-dl" data-file-id="${esc(d.fileId)}">下载</button>`;
+      } else {
+        contentInner = url
+          ? `<a class="doc-url-link" href="${esc(url)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">${esc(url)}</a>`
+          : '<span class="doc-url-placeholder">点击配置资料（飞书链接或本地上传）</span>';
+        contentInner = `<div class="doc-tile-url doc-editable">${contentInner}</div>`;
+        if (url) {
+          linkBtns = `<button type="button" class="secondary btn-link-open" data-url="${esc(url)}">打开</button>
+             <button type="button" class="secondary btn-link-copy" data-url="${esc(url)}">复制</button>`;
+        }
+      }
+      const kindPill = local ? '<span class="meta-pill meta-local">本地</span>' : '';
       return `<div class="doc-tile doc-tile-view doc-tile-clickable" data-i="${agendaIndex}" data-bi="${bindingIndex}" tabindex="0" title="点击编辑">
         <div class="doc-tile-main">
           <div class="doc-tile-head">
             <span class="doc-tile-name">${name}</span>
             <span class="meta-pill meta-role meta-role-${role}">${esc(roleLabel(d.configRole))}</span>
             <span class="meta-pill">槽位 ${d.resourceSlot ?? 0}</span>
+            ${kindPill}
             ${bdm}
           </div>
-          <div class="doc-tile-url doc-editable">${urlInner}</div>
+          ${contentInner}
         </div>
         <div class="doc-tile-actions" onclick="event.stopPropagation()">
           ${linkBtns}
@@ -475,6 +621,7 @@ AdminModules.register({
         const bi = +tile.dataset.bi;
         tile.addEventListener('focusout', e => {
           if (tile.contains(e.relatedTarget)) return;
+          if (e.relatedTarget && e.relatedTarget.classList && e.relatedTarget.classList.contains('inl-file')) return;
           setTimeout(() => {
             if (skipInlineCommit) {
               skipInlineCommit = false;
@@ -533,6 +680,87 @@ AdminModules.register({
         } catch {
           alert('复制失败');
         }
+      });
+      el.querySelectorAll('.inl-source-opt').forEach(btn => {
+        btn.onclick = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const tile = btn.closest('.doc-tile-editing');
+          if (!tile) return;
+          const mode = btn.dataset.source;
+          tile.querySelectorAll('.inl-source-opt').forEach(b => b.classList.toggle('active', b.dataset.source === mode));
+          tile.querySelector('.doc-source-feishu').classList.toggle('hidden', mode !== 'FEISHU');
+          tile.querySelector('.doc-source-local').classList.toggle('hidden', mode !== 'LOCAL');
+        };
+      });
+      el.querySelectorAll('.inl-file').forEach(input => {
+        input.onmousedown = e => {
+          e.stopPropagation();
+          skipInlineCommit = true;
+          const onWindowFocus = () => {
+            setTimeout(() => {
+              if (!input.files || !input.files.length) skipInlineCommit = false;
+            }, 0);
+            window.removeEventListener('focus', onWindowFocus);
+          };
+          window.addEventListener('focus', onWindowFocus);
+        };
+        input.onchange = async () => {
+          const files = input.files ? Array.from(input.files) : [];
+          if (!files.length) {
+            skipInlineCommit = false;
+            return;
+          }
+          const tile = input.closest('.doc-tile-editing');
+          if (!tile) {
+            skipInlineCommit = false;
+            return;
+          }
+          const i = +tile.dataset.i;
+          let bi = +tile.dataset.bi;
+          const hadEditKey = editingDocKey;
+          input.disabled = true;
+          try {
+            for (let fi = 0; fi < files.length; fi++) {
+              if (fi > 0) bi = addEmptyBinding(i);
+              const b = ensureBinding(i, bi);
+              if (!b) throw new Error('资料绑定不存在');
+              const data = await uploadLocalMaterial(files[fi]);
+              assignLocalUploadToBinding(b, data);
+            }
+            await saveBundleImmediate();
+            editingDocKey = files.length > 1 ? null : hadEditKey;
+            renderAgendaTable();
+            if (files.length === 1 && hadEditKey) startDocEdit(i, bi);
+          } catch (err) {
+            alert('上传失败: ' + (err.message || ''));
+            renderAgendaTable();
+            if (hadEditKey) startDocEdit(i, bi);
+          } finally {
+            input.disabled = false;
+            input.value = '';
+            skipInlineCommit = false;
+          }
+        };
+      });
+      el.querySelectorAll('.doc-local-dl').forEach(btn => {
+        btn.onclick = async e => {
+          e.stopPropagation();
+          e.preventDefault();
+          try {
+            const blobUrl = await fetchMaterialBlobUrl(btn.dataset.fileId);
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = btn.closest('.doc-local-file')?.querySelector('.doc-local-name')?.textContent?.replace(/^📄\s*/, '') || 'file';
+            a.click();
+          } catch (err) {
+            alert('下载失败: ' + (err.message || ''));
+          }
+        };
+      });
+      el.querySelectorAll('.doc-local-thumb[data-file-id]').forEach(img => {
+        if (img.src) return;
+        fetchMaterialBlobUrl(img.dataset.fileId).then(url => { img.src = url; }).catch(() => { img.alt = '预览加载失败'; });
       });
     };
 
@@ -740,7 +968,7 @@ AdminModules.register({
                 <button type="button" class="ghost ag-doc-add" data-i="${i}">+ 添加资料</button>
               </div>`;
         if (bindings.length === 0) {
-          html += `<div class="doc-tile-empty doc-editable" data-i="${i}" tabindex="0">点击配置飞书资料</div>`;
+          html += `<div class="doc-tile-empty doc-editable" data-i="${i}" tabindex="0">点击配置资料（飞书链接或本地上传）</div>`;
         } else {
           html += '<div class="doc-tile-list">';
           bindings.forEach((d, bi) => { html += renderDocTile(d, i, bi); });

@@ -2,7 +2,9 @@ package com.smartmeeting.outbox;
 
 import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.event.MinuteGeneratedEvent;
+import com.smartmeeting.event.OfflineAsrRequestedEvent;
 import com.smartmeeting.model.MinuteGenerateMessage;
+import com.smartmeeting.model.OfflineAsrMessage;
 import com.smartmeeting.model.TodoExtractMessage;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -14,6 +16,23 @@ import org.springframework.transaction.event.TransactionalEventListener;
 public class MeetingDomainEventOutboxListener {
 
     private final OutboxWriter outboxWriter;
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onOfflineAsrRequested(OfflineAsrRequestedEvent event) {
+        OfflineAsrMessage payload = OfflineAsrMessage.builder()
+                .meetingId(event.meetingId())
+                .audioPath(event.audioPath())
+                .featureIds(event.featureIds())
+                .modelName(event.modelName())
+                .sentAt(event.sentAt())
+                .build();
+        outboxWriter.write(
+                "MEETING",
+                event.meetingId(),
+                OutboxEventTypes.OFFLINE_ASR,
+                "offline-asr:" + event.meetingId() + ":" + event.sentAt(),
+                payload);
+    }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onMeetingEnded(MeetingEndedEvent event) {

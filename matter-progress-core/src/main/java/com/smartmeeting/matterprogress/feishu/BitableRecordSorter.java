@@ -15,7 +15,8 @@ import java.util.regex.Pattern;
 
 /**
  * 会中多维表格展示排序：
- * 近三个月在前（按创建日期）→ 近 7 日已完成（按创建日期/截止日期）→ 未完成 → 进行中 → 更早已完成。
+ * 近三个月在前（按创建日期）；近三月内状态子段展示序：延期 → 已完成 → 进行中；
+ * 同段内：近 7 日已完成 → 未完成 → 进行中 → 更早已完成。
  */
 public final class BitableRecordSorter {
 
@@ -59,7 +60,7 @@ public final class BitableRecordSorter {
             return c;
         }
         if (recentBucket(a) == 0 && recentBucket(b) == 0) {
-            c = Integer.compare(displayCategory(a), displayCategory(b));
+            c = Integer.compare(displaySectionOrder(displayCategory(a)), displaySectionOrder(displayCategory(b)));
             if (c != 0) {
                 return c;
             }
@@ -136,7 +137,21 @@ public final class BitableRecordSorter {
     }
 
     /**
-     * 近三个月区块内的展示分类：已完成 → 延期 → 进行中。
+     * 近三个月状态子段在 plainText / 主持页中的展示顺序（与 {@code CATEGORY_*} 语义 ID 独立）。
+     *
+     * @return 0=延期, 1=已完成, 2=进行中
+     */
+    static int displaySectionOrder(int category) {
+        return switch (category) {
+            case CATEGORY_DELAYED -> 0;
+            case CATEGORY_COMPLETED -> 1;
+            case CATEGORY_IN_PROGRESS -> 2;
+            default -> 2;
+        };
+    }
+
+    /**
+     * 近三个月区块内的展示分类（语义 ID，非展示顺序）。
      */
     static int displayCategory(JsonNode record) {
         if (isCompleted(record)) {

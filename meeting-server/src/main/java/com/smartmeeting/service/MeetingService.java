@@ -6,12 +6,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
-import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.api.dto.host.HostAgendaItemDto;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.Participant;
-import com.smartmeeting.event.DomainEventPublisher;
-import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.enums.MeetingScenario;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.exception.BusinessException;
@@ -58,9 +55,9 @@ public class MeetingService {
     private final MeetingPresetTypeResolver presetTypeResolver;
     private final MeetingFeishuNotifier meetingFeishuNotifier;
     private final MeetingStateMachineService meetingStateMachineService;
-    private final DomainEventPublisher domainEventPublisher;
     private final MeetingScenarioResolver meetingScenarioResolver;
-    private final MeetingMinuteProperties minuteProperties;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
+    private final RecordingService recordingService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -85,9 +82,9 @@ public class MeetingService {
                           MeetingPresetTypeResolver presetTypeResolver,
                           MeetingFeishuNotifier meetingFeishuNotifier,
                           MeetingStateMachineService meetingStateMachineService,
-                          DomainEventPublisher domainEventPublisher,
                           MeetingScenarioResolver meetingScenarioResolver,
-                          MeetingMinuteProperties minuteProperties) {
+                          PostMeetingOrchestrator postMeetingOrchestrator,
+                          RecordingService recordingService) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.feishuService = feishuService;
@@ -98,9 +95,9 @@ public class MeetingService {
         this.presetTypeResolver = presetTypeResolver;
         this.meetingFeishuNotifier = meetingFeishuNotifier;
         this.meetingStateMachineService = meetingStateMachineService;
-        this.domainEventPublisher = domainEventPublisher;
         this.meetingScenarioResolver = meetingScenarioResolver;
-        this.minuteProperties = minuteProperties;
+        this.postMeetingOrchestrator = postMeetingOrchestrator;
+        this.recordingService = recordingService;
     }
 
     /**
@@ -230,24 +227,13 @@ public class MeetingService {
             meeting.setDurationSeconds(0);
         }
         meetingMapper.updateById(meeting);
+        recordingService.clearRecordingState(meetingId);
 
-        if (minuteProperties.isGenerationEnabled()) {
-            String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
-                    ? meeting.getAudioPath()
-                    : meeting.getSourceAudioUrl();
-            domainEventPublisher.publish(new MeetingEndedEvent(
-                    meetingId,
-                    eventAudioSource,
-                    List.of(),
-                    null,
-                    System.currentTimeMillis()));
-        } else {
-            // 关闭纪要链路时，结束会议后直接收敛为 COMPLETED，避免长驻 PROCESSING。
-            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
-            meeting.setStatus(MeetingStatus.COMPLETED.name());
-            meetingMapper.updateById(meeting);
-            log.info("Minute generation disabled, meeting completed directly: id={}", meetingId);
-        }
+        String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
+                ? meeting.getAudioPath()
+                : meeting.getSourceAudioUrl();
+        postMeetingOrchestrator.dispatchAfterMeetingEnded(
+                meetingId, eventAudioSource, List.of(), null);
 
         log.info("Meeting ended: id={}, duration={}s", meetingId, meeting.getDurationSeconds());
         return toResponse(meeting);

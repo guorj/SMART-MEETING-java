@@ -1,6 +1,7 @@
 package com.smartmeeting.api.controller;
 
 import com.smartmeeting.api.dto.AgendaDocContentResponse;
+import com.smartmeeting.api.dto.AgendaMaterialPreviewDto;
 import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MinuteResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
@@ -14,15 +15,26 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.MeetingMinuteQueryService;
 import com.smartmeeting.service.MeetingRecordingSessionEndService;
 import com.smartmeeting.service.MeetingService;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.agenda.AgendaMaterialDiskStorage;
+import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
+import com.smartmeeting.service.AgendaMaterialStorageService;
 import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.service.host.MeetingHostSessionService;
 import com.smartmeeting.service.TodoService;
 import com.smartmeeting.util.JwtUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 会议 REST 控制器。
@@ -47,6 +59,8 @@ public class MeetingController {
     private final MeetingMapper meetingMapper;
     private final MeetingHostSessionService meetingHostSessionService;
     private final MeetingMinuteQueryService meetingMinuteQueryService;
+    private final AgendaMaterialStorageService agendaMaterialStorageService;
+    private final ObjectMapper objectMapper;
 
     /**
      * 创建会议（未启动）。
@@ -151,6 +165,83 @@ public class MeetingController {
     }
 
     /**
+     * 下载会序本地上传资料（主持/录音页 JWT；fileId 须绑定本场会议 host_agenda）。
+     */
+    @GetMapping("/{id}/agenda-materials/{fileId}")
+    public ResponseEntity<Resource> downloadAgendaMaterial(
+            @PathVariable String id,
+            @PathVariable String fileId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "token", required = false) String queryToken) {
+        String token = resolveMeetingPageToken(authorization, queryToken);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        Meeting meeting = meetingMapper.selectById(id);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + id);
+        }
+        assertMeetingHasLocalFile(meeting, fileId);
+        try {
+            Optional<AgendaMaterialDiskStorage.StoredMaterial> meta = agendaMaterialStorageService.loadMeta(fileId);
+            Optional<Path> path = agendaMaterialStorageService.resolvePath(fileId);
+            if (meta.isEmpty() || path.isEmpty()) {
+                return ResponseEntity.notFound().build();
+            }
+            AgendaMaterialDiskStorage.StoredMaterial m = meta.get();
+            String disposition = agendaMaterialStorageService.isInlineDisposition(m.mimeType()) ? "inline" : "attachment";
+            String filename = m.originalFilename() != null ? m.originalFilename() : "file";
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(m.mimeType()))
+                    .header(HttpHeaders.CONTENT_DISPOSITION,
+                            disposition + "; filename=\"" + filename.replace("\"", "") + "\"")
+                    .body(new FileSystemResource(path.get()));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    /**
+     * 会序本地上传 doc/docx 纯文本预览（主持页 JWT）。
+     */
+    @GetMapping("/{id}/agenda-materials/{fileId}/preview")
+    public ApiResponse<AgendaMaterialPreviewDto> previewAgendaMaterial(
+            @PathVariable String id,
+            @PathVariable String fileId,
+            @RequestHeader(value = "Authorization", required = false) String authorization,
+            @RequestParam(value = "token", required = false) String queryToken) {
+        String token = resolveMeetingPageToken(authorization, queryToken);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        Meeting meeting = meetingMapper.selectById(id);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + id);
+        }
+        assertMeetingHasLocalFile(meeting, fileId);
+        try {
+            Optional<AgendaMaterialPreviewDto> preview = agendaMaterialStorageService.previewMaterial(fileId);
+            if (preview.isEmpty()) {
+                throw new BusinessException(404, "无法预览该资料");
+            }
+            return ApiResponse.ok(preview.get());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new BusinessException(500, "预览失败: " + e.getMessage());
+        }
+    }
+
+    private void assertMeetingHasLocalFile(Meeting meeting, String fileId) {
+        String fid = fileId != null ? fileId.trim() : "";
+        if (fid.isEmpty()) {
+            throw new BusinessException(400, "fileId 无效");
+        }
+        List<String> ids = HostAgendaJsonCodec.collectLocalFileIds(objectMapper, meeting.getHostAgenda());
+        if (!ids.contains(fid)) {
+            throw new BusinessException(404, "资料不存在或未绑定本场会议");
+        }
+    }
+
+    /**
      * 从会议主持议程中解析指定会序的标题，用于文档拉取展示。
      *
      * @param meeting     会议实体
@@ -175,10 +266,17 @@ public class MeetingController {
      * @throws com.smartmeeting.exception.BusinessException 缺少或格式不正确时
      */
     private static String bearerToken(String authorization) {
-        if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            throw new BusinessException(401, "缺少 Authorization: Bearer 录音凭证");
+        return resolveMeetingPageToken(authorization, null);
+    }
+
+    private static String resolveMeetingPageToken(String authorization, String queryToken) {
+        if (authorization != null && authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return authorization.substring(7).trim();
         }
-        return authorization.substring(7).trim();
+        if (queryToken != null && !queryToken.isBlank()) {
+            return queryToken.trim();
+        }
+        throw new BusinessException(401, "缺少 Authorization: Bearer 或 token 查询参数");
     }
 
     /**

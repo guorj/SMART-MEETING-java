@@ -7,6 +7,7 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.MeetingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -29,6 +30,7 @@ import java.util.List;
 @Slf4j
 @Component
 @RequiredArgsConstructor
+@ConditionalOnProperty(name = "meeting.recording.timeout-check-enabled", havingValue = "true", matchIfMissing = true)
 public class RecordingTimeoutChecker {
 
     private final MeetingMapper meetingMapper;
@@ -46,11 +48,11 @@ public class RecordingTimeoutChecker {
 
         LocalDateTime timeoutThreshold = LocalDateTime.now().minusHours(MAX_DURATION_HOURS);
 
-        // 查询超时会议
+        // 查询超时会议（须括号：(RECORDING OR PAUSED) AND startTime < threshold）
         LambdaQueryWrapper<Meeting> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(Meeting::getStatus, MeetingStatus.RECORDING.name())
-                .or()
-                .eq(Meeting::getStatus, MeetingStatus.PAUSED.name())
+        wrapper.and(w -> w.eq(Meeting::getStatus, MeetingStatus.RECORDING.name())
+                        .or()
+                        .eq(Meeting::getStatus, MeetingStatus.PAUSED.name()))
                 .lt(Meeting::getActualStartTime, timeoutThreshold);
 
         List<Meeting> timeoutMeetings = meetingMapper.selectList(wrapper);

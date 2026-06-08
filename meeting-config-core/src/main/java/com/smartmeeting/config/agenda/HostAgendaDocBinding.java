@@ -18,7 +18,13 @@ public class HostAgendaDocBinding {
     private String configName;
     private String role;
     private Integer slot;
+    /** FEISHU（默认）或 LOCAL */
+    private String storageKind;
     private String url;
+    /** 本地上传资料 UUID，storageKind=LOCAL 时必填 */
+    private String fileId;
+    private String originalFilename;
+    private String mimeType;
     private String bitableDisplayMode;
     private Boolean enabled;
     private String generatedReportUrl;
@@ -30,5 +36,10 @@ public class HostAgendaDocBinding {
 
     public boolean isEnabled() {
         return enabled == null || enabled;
+    }
+
+    /** 是否为本地上传资料（非飞书 URL）。 */
+    public boolean isLocalStorage() {
+        return AgendaStorageKind.LOCAL.equalsIgnoreCase(storageKind);
     }
 }
