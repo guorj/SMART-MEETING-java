@@ -4,6 +4,7 @@ import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.api.dto.MeetingResponse;
+import com.smartmeeting.service.DashboardGrantService;
 import com.smartmeeting.service.DashboardService;
 import com.smartmeeting.util.JwtUtil;
 import jakarta.validation.Valid;
@@ -34,16 +35,23 @@ public class DashboardController {
 
     private final DashboardService dashboardService;
     private final JwtUtil jwtUtil;
+    private final DashboardGrantService dashboardGrantService;
 
     @GetMapping("/me")
-    public ApiResponse<DashboardService.UserInfo> me(@RequestParam("token") String token) {
+    public ApiResponse<MeResponse> me(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
-        return ApiResponse.ok(dashboardService.getUserInfo(entry.feishuUserId(), entry.userName()));
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
+        DashboardService.UserInfo userInfo = dashboardService.getUserInfo(entry.feishuUserId(), entry.userName());
+        DashboardGrantService.UserPermissions perms =
+                dashboardGrantService.buildUserPermissions(entry.feishuUserId(), entry.userName());
+        MeResponse me = new MeResponse(userInfo, perms);
+        return ApiResponse.ok(me);
     }
 
     @GetMapping("/voiceprint-status")
     public ApiResponse<DashboardService.VoiceprintStatusResult> voiceprintStatus(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.getVoiceprintStatus(entry.feishuUserId()));
     }
 
@@ -52,6 +60,7 @@ public class DashboardController {
             @RequestParam("token") String token,
             @RequestParam(defaultValue = "10") int limit) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
         int safeLimit = Math.max(1, Math.min(limit, 30));
         return ApiResponse.ok(dashboardService.getRecentMeetings(entry.feishuUserId(), safeLimit));
     }
@@ -59,24 +68,28 @@ public class DashboardController {
     @GetMapping("/active-meeting")
     public ApiResponse<DashboardService.ActiveMeetingResult> activeMeeting(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.getActiveMeeting(entry.feishuUserId()));
     }
 
     @PostMapping("/active-meeting/end")
     public ApiResponse<MeetingResponse> endActiveMeeting(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireEndMeeting(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.endActiveMeeting(entry.feishuUserId()));
     }
 
     @PostMapping("/active-meeting/recover")
     public ApiResponse<DashboardService.ActiveMeetingResult> recoverActiveMeeting(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.recoverActiveMeeting(entry.feishuUserId()));
     }
 
     @GetMapping("/meeting-presets")
     public ApiResponse<List<MeetingPresetResponse>> meetingPresets(@RequestParam("token") String token) {
-        jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.getMeetingPresets());
     }
 
@@ -85,14 +98,28 @@ public class DashboardController {
             @RequestParam("token") String token,
             @Valid @RequestBody MeetingCreateRequest request) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.createMeeting(entry.feishuUserId(), entry.chatId(), request));
     }
 
     @GetMapping("/voiceprint-register-url")
     public ApiResponse<Map<String, String>> voiceprintRegisterUrl(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireVoiceprintRegistration(entry.feishuUserId());
         String regToken = dashboardService.createVoiceprintSession(entry.feishuUserId(), entry.userName());
         String encoded = URLEncoder.encode(regToken, StandardCharsets.UTF_8);
         return ApiResponse.ok(Map.of("registerUrl", baseUrl + "/voiceprint?token=" + encoded));
+    }
+
+    /**
+     * {@code /me} 响应体：用户信息 + 权限摘要。
+     *
+     * @param userInfo    用户基本信息（含 OA 映射、声纹状态等）
+     * @param permissions 白名单权限摘要
+     */
+    public record MeResponse(
+            DashboardService.UserInfo userInfo,
+            DashboardGrantService.UserPermissions permissions
+    ) {
     }
 }

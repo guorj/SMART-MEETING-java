@@ -4,6 +4,8 @@ import com.smartmeeting.config.system.ConfigValueType;
 import com.smartmeeting.config.system.SystemConfigDescriptor;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 @Component
 public class HostRollCallEnabledDescriptor implements SystemConfigDescriptor {
 
@@ -35,5 +37,10 @@ public class HostRollCallEnabledDescriptor implements SystemConfigDescriptor {
     @Override
     public String description() {
         return "是否启用混合检点";
+    }
+
+    @Override
+    public Optional<String> parentKey() {
+        return Optional.of("meeting.host.enabled");
     }
 }

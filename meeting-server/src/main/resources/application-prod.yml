@@ -3,8 +3,8 @@
 # =============================================================================
 # 激活：SPRING_PROFILES_ACTIVE=prod
 # 与 dev 对齐：同库、同三方密钥、同 base-url；差异主要在会后开关默认值
-#
-# 本环境典型会后组合：
+# 业务开关 → [Admin热更] schema-seed/meeting-runtime-defaults-prod.sql + Admin
+# 配置层级标签见 application.yml 文件头
 #   asr.offline-enabled=true + minute.generation-enabled=true（下方）
 #   → 先离线转写，再纪要生成 → COMPLETED
 #
@@ -12,7 +12,6 @@
 #       若上 Kafka：设 KAFKA_ENABLED=true、取消 exclude，并创建 topic
 #       meeting.offline.asr / meeting.events / todo.extract
 # =============================================================================
-
 spring:
   autoconfigure:
     exclude:
@@ -34,20 +33,10 @@ meeting:
   kafka:
     enabled: false
 
-  minute:
-    # prod 默认开启完整纪要链路（LLM + 飞书文档 + 通知）
-    generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:true}
-    persist-enabled: ${MEETING_MINUTE_PERSIST:true}
-    llm-enabled: ${MEETING_MINUTE_LLM_ENABLED:true}
-    ai-enhancement-enabled: ${MEETING_MINUTE_AI_ENHANCEMENT:true}
-    feishu-doc-enabled: ${MEETING_MINUTE_FEISHU_DOC_ENABLED:true}
-    notify-enabled: ${MEETING_MINUTE_NOTIFY_ENABLED:true}
-
-  todo:
-    reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
-
+  # 业务开关 → Admin + schema-seed/meeting-runtime-defaults-prod.sql
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 
+  # ----- 飞书 -----
   feishu:
     app-id: "cli_a955948fda78dbc2"
     app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
@@ -56,9 +45,8 @@ meeting:
     base-url: "https://open.feishu.cn"
     token-cache-seconds: 7200
 
+  # ----- ASR / 离线说话人（开关 → Admin；此处仅连接参数）-----
   asr:
-    # 会后独立离线转写；与 generation-enabled 配合时顺序：离线 → 纪要
-    offline-enabled: ${MEETING_ASR_OFFLINE_ENABLED:true}
     primary: xfyun
     fallback: tencent
     lang: "autodialect"
@@ -83,16 +71,16 @@ meeting:
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
 
+  # ----- ISV 声纹（enabled/threshold → Admin）-----
   isv:
-    enabled: true
     group-id: "smart_meeting_vp"
-    match-score-threshold: 0.2
     search-min-audio-sec: 3.0
     api-timeout: 8
     register-timeout: 5.0
     debug-log: true
     ttl-years: 10
 
+  # ----- LLM -----
   llm:
     provider: "deepseek"
     api-key: "sk-bc91279066c0419f80df68b03e0d90d8"
@@ -101,6 +89,7 @@ meeting:
     timeout-seconds: 120
     max-retries: 2
 
+  # ----- 录音 PCM -----
   audio:
     sample-rate: 16000
     bit-depth: 16
@@ -113,25 +102,24 @@ meeting:
     queue-maxsize: 100
     write-flush-interval: 25
 
+  # ----- JWT -----
   jwt:
     secret: "IQ7vgVe5uBy0XJ6q8mzrqHgRzl9md+1oO1qKLHnxchxdUyhN2qa3aRqiCK+99U5K"
     expire-hours: 4
 
+  # ----- 心跳 -----
   heartbeat:
     interval: 30
     frontend-ws-close-timeout: 5
 
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:true}
   agent:
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
   # Gateway 同机用 127.0.0.1；跨机须配 device-token 获 operator.write
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  timeout-seconds: ${OPENCLAW_TIMEOUT:120}
   auth-token: ${OPENCLAW_AUTH_TOKEN:49a4395d662298ec7c4efa2d038411ae3aceb41bd4912271}
-  skill-mode: ${OPENCLAW_SKILL_MODE:true}
 
 logging:
   level:
@@ -141,7 +129,6 @@ logging:
     path: "./logs/smart-meeting"
     max-size: 100MB
     max-history: 7
-
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl

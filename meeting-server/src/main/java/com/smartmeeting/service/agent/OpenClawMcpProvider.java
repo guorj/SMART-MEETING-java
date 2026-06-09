@@ -2,8 +2,10 @@ package com.smartmeeting.service.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.OpenClawProperties;
 import com.smartmeeting.entity.Meeting;
 import lombok.extern.slf4j.Slf4j;
+import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -37,15 +39,13 @@ import java.util.concurrent.Semaphore;
 public class OpenClawMcpProvider implements AgentProvider {
 
     /**
-     * 全局串行：避免会序通报与纪要增强并发占用同一 Gateway 会话导致返回串台。
+     * 全局并发上限：允许多路 OpenClaw 并行，仍通过 sessionKey/taskId 隔离防串台。
      */
-    private static final Semaphore GATEWAY_INVOKE_SEMAPHORE = new Semaphore(1, true);
+    private Semaphore gatewayInvokeSemaphore;
 
     private final OpenClawGatewayWsClient gatewayWsClient;
+    private final OpenClawProperties openClawProperties;
     private final ObjectMapper objectMapper = new ObjectMapper();
-
-    @Value("${openclaw.enabled:false}")
-    private boolean enabled;
 
     @Value("${openclaw.gateway-url:}")
     private String gatewayUrl;
@@ -60,14 +60,16 @@ public class OpenClawMcpProvider implements AgentProvider {
     @Value("${openclaw.device-token:}")
     private String deviceToken;
 
-    @Value("${openclaw.timeout-seconds:60}")
-    private int timeoutSeconds;
-
-    @Value("${openclaw.skill-mode:true}")
-    private boolean skillMode;
-
-    public OpenClawMcpProvider(OpenClawGatewayWsClient gatewayWsClient) {
+    public OpenClawMcpProvider(OpenClawGatewayWsClient gatewayWsClient, OpenClawProperties openClawProperties) {
         this.gatewayWsClient = gatewayWsClient;
+        this.openClawProperties = openClawProperties;
+    }
+
+    @PostConstruct
+    void initInvokeSemaphore() {
+        int permits = Math.max(1, openClawProperties.getMaxConcurrentInvokes());
+        gatewayInvokeSemaphore = new Semaphore(permits, true);
+        log.info("OpenClaw gateway invoke semaphore: permits={}", permits);
     }
 
     // ========== runMatterProgressReport ==========
@@ -117,7 +119,7 @@ public class OpenClawMcpProvider implements AgentProvider {
                 : OpenClawTaskIds.briefing(meeting.getId(), Math.max(0, agendaIndex), 0);
         String briefingSessionKey = resolveSessionKeyForTask(effectiveTaskId, sessionKey);
         String prompt;
-        if (skillMode) {
+        if (openClawProperties.isSkillMode()) {
             prompt = buildSkillPrompt("matter-progress", map -> {
                 map.put("taskId", effectiveTaskId);
                 map.put("meetingId", meeting.getId());
@@ -194,7 +196,7 @@ public class OpenClawMcpProvider implements AgentProvider {
         }
 
         String prompt;
-        if (skillMode) {
+        if (openClawProperties.isSkillMode()) {
             prompt = buildSkillPrompt("minute-enhancement", map -> {
                 map.put("meetingId", meetingId);
                 map.put("meetingTitle", meetingTitle);
@@ -206,7 +208,7 @@ public class OpenClawMcpProvider implements AgentProvider {
             prompt += "\n\n---\n初版纪要：\n" + rawMinute;
             if (transcriptText != null && transcriptText.length() > 100) {
                 prompt += "\n\n转写原文片段：\n"
-                        + transcriptText.substring(0, Math.min(2000, transcriptText.length()));
+                        + transcriptText.substring(0, Math.min(openClawProperties.getPromptMaxChars(), transcriptText.length()));
             }
         } else {
             prompt = buildFullMinutePrompt(meetingTitle, meetingType, participants,
@@ -225,7 +227,7 @@ public class OpenClawMcpProvider implements AgentProvider {
     public boolean isAvailable() {
         boolean hasAuth = (authToken != null && !authToken.isBlank())
                 || (deviceToken != null && !deviceToken.isBlank());
-        return enabled && gatewayUrl != null && !gatewayUrl.isBlank() && hasAuth;
+        return openClawProperties.isEnabled() && gatewayUrl != null && !gatewayUrl.isBlank() && hasAuth;
     }
 
     // ========== Gateway HTTP 调用 ==========
@@ -247,19 +249,19 @@ public class OpenClawMcpProvider implements AgentProvider {
                 ? effectiveSessionKey.substring(0, 48) + "…"
                 : effectiveSessionKey;
         log.info("OpenClaw MCP call: taskType={}, taskId={}, skillMode={}, gateway={}, sessionKey={}, promptLength={}, timeoutSec={}",
-                taskType, taskId, skillMode, gatewayUrl, keyForLog, prompt.length(), effectiveTimeout);
+                taskType, taskId, openClawProperties.isSkillMode(), gatewayUrl, keyForLog, prompt.length(), effectiveTimeout);
 
         String body;
         long gatewayMs;
         try {
-            GATEWAY_INVOKE_SEMAPHORE.acquire();
+            gatewayInvokeSemaphore.acquire();
             try {
                 long t0 = System.currentTimeMillis();
                 body = gatewayWsClient.sendChatMessage(
                         gatewayUrl, authToken, deviceToken, effectiveSessionKey, prompt, effectiveTimeout, taskId);
                 gatewayMs = System.currentTimeMillis() - t0;
             } finally {
-                GATEWAY_INVOKE_SEMAPHORE.release();
+                gatewayInvokeSemaphore.release();
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -301,7 +303,8 @@ public class OpenClawMcpProvider implements AgentProvider {
 
     /** matter_progress 使用全局 OpenClaw 超时。 */
     private int effectiveTimeoutSeconds(String taskType) {
-        return timeoutSeconds > 0 ? timeoutSeconds : 60;
+        int t = openClawProperties.getTimeoutSeconds();
+        return t > 0 ? t : 60;
     }
 
     // ========== Skill prompt 构建 ==========
@@ -354,7 +357,7 @@ public class OpenClawMcpProvider implements AgentProvider {
 
         if (transcriptText != null && transcriptText.length() > 100) {
             task.append("转写原文片段（用于校验）：\n");
-            task.append(transcriptText.substring(0, Math.min(2000, transcriptText.length())));
+            task.append(transcriptText.substring(0, Math.min(openClawProperties.getPromptMaxChars(), transcriptText.length())));
             task.append("\n\n");
         }
 

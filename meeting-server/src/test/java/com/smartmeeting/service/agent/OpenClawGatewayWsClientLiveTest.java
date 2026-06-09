@@ -1,5 +1,6 @@
 package com.smartmeeting.service.agent;
 
+import com.smartmeeting.config.OpenClawProperties;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.Test;
 
@@ -21,7 +22,7 @@ class OpenClawGatewayWsClientLiveTest {
 
     @Test
     void healthPing() {
-        OpenClawGatewayWsClient client = new OpenClawGatewayWsClient();
+        OpenClawGatewayWsClient client = new OpenClawGatewayWsClient(new OpenClawProperties());
         assertTrue(client.pingHttp(GATEWAY), "Gateway /health should return ok");
     }
 
@@ -35,7 +36,7 @@ class OpenClawGatewayWsClientLiveTest {
                         || (DEVICE_TOKEN != null && !DEVICE_TOKEN.isBlank()),
                 "Remote shared-token WS has no operator.write; use OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789 on Gateway host, or OPENCLAW_DEVICE_TOKEN");
 
-        OpenClawGatewayWsClient client = new OpenClawGatewayWsClient();
+        OpenClawGatewayWsClient client = new OpenClawGatewayWsClient(new OpenClawProperties());
         String prompt = """
                 /skill:matter-progress
                 meetingId=test-meeting-001

@@ -87,14 +87,20 @@ window.AdminHints = {
     forceEnd: '强制结束会议并清理进行中状态；操作不可撤销，请确认后再点。'
   },
   settings: {
-    moduleIntro: '覆盖 meeting-server 运行时开关（写入 DB 后可热加载）。「恢复默认」删除 DB 覆盖并回退 YAML 默认值。',
+    moduleIntro: '三层配置：① 可热加载（绿标）— 写入 int_meeting_system_config，保存后点「热加载」；② 冷启动（灰标）— 仅 mirror YAML 当前值，改 application.yml / env 后须重启；③ 部署/密钥 — 不在本页（见 meeting-server application.yml）。全页为一棵配置树，子项按 parentKey 级联。「恢复默认」删除 DB 覆盖并回退 Java 出厂默认。',
     reloadRuntime: '通知 meeting-server 重新加载 int_meeting_system_config，无需重启进程。',
     audit: '查看最近配置变更记录（谁改了什么、旧值/新值）。',
-    'meeting.host.enabled': '总开关：关闭后主持 Agent 不参与会议流程（与 YAML meeting.host.enabled 可被 DB 覆盖）。',
+    'meeting.host.enabled': '总开关：关闭后主持 Agent 不参与会议流程。',
     'meeting.host.agenda-enabled': '是否允许 AI 推进会序（下一议题、跳过等）；关闭后会序仍展示但不自动推进。',
     'meeting.host.roll-call-enabled': '是否启用混合检点流程（点名确认参会）。',
     'meeting.host.auto-roll-call-after-opening': '开场白结束后自动进入检点；需会序含检点关键词且 roll-call-enabled=true。',
-    'meeting.host.tts-enabled': '主持语音 TTS 播报；关闭后仅文字提示。'
+    'meeting.host.tts-enabled': '主持语音 TTS 播报；关闭后仅文字提示。',
+    'meeting.voiceprint.offline-min-slice-ms': 'ISV 代表切片最小时长（毫秒）；范围见系统参数 min/max。',
+    'meeting.voiceprint.offline-max-speakers': '单场 IST 簇数上限；默认 8，与 prod seed 一致。',
+    'meeting.isv.search-top-k-max': 'ISV 1:N topK 硬顶（讯飞上限 10）；运行时 clamp。',
+    'meeting.isv.search-top-k-min': '离线标注每簇 ISV 投票 topK 下限（默认 3）。',
+    'meeting.asr.offline-ist-max-role-num': '离线 IST roleNum 上限（0–10，讯飞文档）。',
+    'meeting.asr.offline-poll-interval-ms': '离线转写轮询间隔（毫秒）。'
   },
   integrations: {
     moduleIntro: '三进程部署入口与健康探测；推送/对比任务请在对应模块配置。',
@@ -105,15 +111,30 @@ window.AdminHints = {
     moduleIntro: '按会议 ID 只读查看已生成纪要与 ASR 转写片段，用于排障与内容抽检。',
     meetingId: '会议 UUID，可从「会议列表」详情 JSON 中复制 id 字段。'
   },
+  dashboardGrants: {
+    moduleIntro: '管理会议前台（Dashboard）用户授权白名单。配置存储在 int_meeting_system_config 表 config_key=dashboard.user_grants，保存后自动通知 meeting-server 热刷新。',
+    defaultDeny: '开启后，未在白名单中的飞书用户将被拒绝访问会议管理前台。建议保持开启。',
+    feishuUserId: '飞书企业内 user_id（open_id 体系），从飞书管理后台或用户表获取；必填，不可重复。',
+    userName: '用户姓名，仅用于管理后台展示与辨识；不影响权限判断。',
+    enabled: '启用授权：关闭后该用户等同于不在白名单中，无法访问会议前台。',
+    canCreateMeeting: '允许该用户从 Dashboard 创建新会议、恢复会议。',
+    canEndMeeting: '允许该用户从 Dashboard 结束正在进行的会议。',
+    canRegisterVoiceprint: '允许该用户注册声纹；白名单内用户默认开启。',
+    remark: '备注信息，仅管理员可见，不影响功能。'
+  },
   apiReference: {
     moduleIntro: '数据更新与运维 API 目录（Admin Token 鉴权）；可筛选分类、搜索路径，复制 cURL 做联调。'
   },
   users: {
-    moduleIntro: '按 OA userId 统一管理用户档案：一行聚合 int_user_mapping_feishu（飞书映射）与 int_voiceprint（声纹）。后续新增用户相关表可在此模块扩展。',
-    editorIntro: '保存时同时写入映射表与声纹表；列表一行即该用户的完整运维视图。',
+    moduleIntro: '按 OA userId 统一管理用户档案：一行聚合 int_user_mapping_feishu（飞书映射）、int_voiceprint（声纹）与 dashboard.user_grants（前台授权）。',
+    editorIntro: '保存时同时写入映射表、声纹表与前台白名单；列表一行即该用户的完整运维视图。',
     userId: 'OA 系统用户 ID（主键）；与参会人、待办责任人等业务侧 user_id 一致。新建后不可修改。',
     userName: '用户姓名，列表展示与纪要人名匹配用；必填。',
-    feishuUserId: '飞书企业内 user_id（唯一身份）；推送个人消息、待办 @、声纹注册均使用此字段。',
+    feishuUserId: '飞书企业内 user_id（唯一身份）；推送个人消息、待办 @、声纹注册、前台授权均使用此字段。',
+    dashboardGrantHint: '勾选「启用前台授权」默认同时开启建会/结束/声纹；也可点「一键：前台+声纹」或「一键：含建会」。',
+    dashboardGrantNeedFeishu: '请先填写 feishu_user_id，再配置前台授权。',
+    quickGrantBasic: '列表「一键授权」：仅开放工作台访问与声纹注册，不含建会。',
+    quickGrantFull: '「含建会」/「补建会权」：在授权基础上开放建会与结束会。',
     featureIdOptional: '讯飞声纹 featureId；留空则只维护映射、不创建/更新声纹。',
     groupId: '讯飞声纹组 ID；可留空。',
     registeredAt: '声纹注册时间；留空则默认当前时间。',

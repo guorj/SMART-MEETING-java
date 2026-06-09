@@ -26,10 +26,11 @@ import com.smartmeeting.config.agenda.AgendaBindingConverter;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
 import com.smartmeeting.service.feishu.FeishuDocRefs;
+import com.smartmeeting.config.MeetingHostRuntimeProperties;
+import com.smartmeeting.config.MeetingAudioProperties;
 import com.smartmeeting.config.MeetingRuntimeConfig;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
@@ -57,18 +58,7 @@ import java.util.concurrent.TimeUnit;
 @Slf4j
 @Service
 public class MeetingHostSessionService {
-    /** 主持 TTS 下发与口型分析约定的采样率（Hz），须与 {@link XfyunOnlineTtsSynthesizeService} 及前端解码一致 */
-    private static final int PCM_SAMPLE_RATE = 16000;
     private static final int PCM_BYTES_PER_SAMPLE = 2;
-    /** 答到 deadline 起算时，在 PCM 估算时长之外再垫的毫秒，吸收网络/调度抖动 */
-    private static final long ROLL_CALL_ARM_EXTRA_MS = 300L;
-    /**
-     * 多段 TTS 串联时，在「服务端估算的播放时长」之外再留的尾量（毫秒），避免 deadline 早于真实听完时间。
-     * 主持页已对 PCM 排队播放；本值仍用于开场后自动检点、检点收尾后自动下一议题等调度延迟。
-     */
-    private static final long HOST_TTS_CLIENT_PLAYBACK_TAIL_MS = 600L;
-    /** 时间类提醒 toast 展示时长（毫秒），与主持页 {@code host-meeting.html} 一致 */
-    private static final int HOST_REMINDER_TOAST_MS = 3000;
 
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
@@ -79,12 +69,8 @@ public class MeetingHostSessionService {
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
     private final ObjectMapper objectMapper;
     private final MeetingRuntimeConfig runtimeConfig;
-
-    @Value("${meeting.host.reminder.topic-minutes-left:3}")
-    private int topicWarnMinutes;
-
-    @Value("${meeting.host.reminder.meeting-minutes-left:10,5}")
-    private String meetingWarnMinutesCsv;
+    private final MeetingHostRuntimeProperties hostRuntime;
+    private final MeetingAudioProperties audioProperties;
 
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
@@ -122,7 +108,9 @@ public class MeetingHostSessionService {
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
                                      ObjectMapper objectMapper,
-                                     MeetingRuntimeConfig runtimeConfig) {
+                                     MeetingRuntimeConfig runtimeConfig,
+                                     MeetingHostRuntimeProperties hostRuntime,
+                                     MeetingAudioProperties audioProperties) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
@@ -132,6 +120,8 @@ public class MeetingHostSessionService {
         this.ttsSynthesizeService = ttsSynthesizeService;
         this.objectMapper = objectMapper;
         this.runtimeConfig = runtimeConfig;
+        this.hostRuntime = hostRuntime;
+        this.audioProperties = audioProperties;
     }
 
     /**
@@ -239,6 +229,19 @@ public class MeetingHostSessionService {
      * @throws BusinessException 主持未启用、会话已存在、会议不存在、议程为空等
      */
     public void start(String meetingId, HostStartRequest body) {
+        start(meetingId, body, null, null);
+    }
+
+    /**
+     * 开启主持会话（含主控占用：先 start 者记录 operatorFeishuUserId）。
+     *
+     * @param meetingId         会议主键
+     * @param body              可选启动参数
+     * @param operatorFeishuUserId 操作员飞书 user_id（可为 null）
+     * @param operatorUserName     操作员姓名（可为 null）
+     */
+    public void start(String meetingId, HostStartRequest body,
+                      String operatorFeishuUserId, String operatorUserName) {
         if (!runtimeConfig.isEnabled()) {
             throw new BusinessException(400, "AI 会议主持人功能未启用");
         }
@@ -277,18 +280,23 @@ public class MeetingHostSessionService {
         rt.lastTopicLeftSec = Integer.MAX_VALUE;
         rt.lastMeetingLeftSec = Integer.MAX_VALUE;
         rt.topicTimeUpAnnounced = false;
+        if (operatorFeishuUserId != null && !operatorFeishuUserId.isBlank()) {
+            rt.operatorFeishuUserId = operatorFeishuUserId;
+            rt.operatorUserName = operatorUserName != null ? operatorUserName : "";
+        }
 
         rt.tick = scheduler.scheduleAtFixedRate(() -> safeTick(meetingId), 1, 1, TimeUnit.SECONDS);
         runtimes.put(meetingId, rt);
 
         pushHostState(meetingId);
         String openingLine = "会议开始。当前进行：" + rt.topics.get(0).title + "，预计 " + firstMin + " 分钟。";
-        boolean autoRollCall = runtimeConfig.isAutoRollCallAfterOpening() && runtimeConfig.isRollCallEnabled()
+        boolean autoRollCall = isEffectiveRollCallEnabled()
+                && runtimeConfig.isAutoRollCallAfterOpening()
                 && canAutoStartRollCall(meeting, topics);
-        if (autoRollCall && runtimeConfig.isTtsEnabled()) {
+        if (autoRollCall && isEffectiveTtsEnabled()) {
             final String mid = meetingId;
             speakAsyncFutureWithDurationMs(meetingId, openingLine).thenAccept(openingDurationMs -> {
-                long waitMs = Math.max(0L, openingDurationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
+                long waitMs = Math.max(0L, openingDurationMs) + hostRuntime.getTtsClientPlaybackTailMs();
                 scheduler.schedule(() -> {
                     try {
                         startRollCall(mid);
@@ -297,7 +305,7 @@ public class MeetingHostSessionService {
                     }
                 }, waitMs, TimeUnit.MILLISECONDS);
             });
-        } else if (runtimeConfig.isTtsEnabled()) {
+        } else if (isEffectiveTtsEnabled()) {
             speakAsync(meetingId, openingLine);
         } else if (autoRollCall) {
             final String mid = meetingId;
@@ -373,9 +381,9 @@ public class MeetingHostSessionService {
         int topicLeftSec = (int) (topicLeftMs / 1000);
         int meetingLeftSec = (int) (meetingLeftMs / 1000);
 
-        int tw = Math.max(1, topicWarnMinutes) * 60;
+        int tw = Math.max(1, runtimeConfig.getReminder().getTopicMinutesLeft()) * 60;
         if (rt.lastTopicLeftSec > tw && topicLeftSec <= tw) {
-            pushHostToast(meetingId, "当前议题还剩 " + topicWarnMinutes + " 分钟。");
+            pushHostToast(meetingId, "当前议题还剩 " + runtimeConfig.getReminder().getTopicMinutesLeft() + " 分钟。");
         }
         rt.lastTopicLeftSec = topicLeftSec;
 
@@ -407,7 +415,7 @@ public class MeetingHostSessionService {
             }
         }
 
-        if (runtimeConfig.isRollCallEnabled()) {
+        if (isEffectiveRollCallEnabled()) {
             rollCallOnlineInventoryMaybeTimeout(meetingId, rt, now);
             rollCallMaybeTimeout(meetingId, rt, now);
         }
@@ -422,8 +430,8 @@ public class MeetingHostSessionService {
      */
     private List<Integer> defaultMeetingWarns() {
         List<Integer> out = new ArrayList<>();
-        if (meetingWarnMinutesCsv != null) {
-            for (String p : meetingWarnMinutesCsv.split(",")) {
+        if (runtimeConfig.getReminder().getMeetingMinutesLeft() != null) {
+            for (String p : runtimeConfig.getReminder().getMeetingMinutesLeft().split(",")) {
                 try {
                     int v = Integer.parseInt(p.trim());
                     if (v > 0) {
@@ -627,7 +635,8 @@ public class MeetingHostSessionService {
             if (hasOnlinePending) {
                 rt.rollCallPhase = "ONLINE_INVENTORY";
                 rt.rollCallOnlineInventoryDeadlineMs =
-                        System.currentTimeMillis() + Math.max(15, runtimeConfig.getRollCall().getOnlineInventorySeconds()) * 1000L;
+                        System.currentTimeMillis() + Math.max(hostRuntime.getRollCallOnlineInventoryFloorSec(),
+                                runtimeConfig.getRollCall().getOnlineInventorySeconds()) * 1000L;
                 pushHostState(meetingId);
                 final String mid = meetingId;
                 final long gen = rt.rollCallGeneration;
@@ -641,7 +650,7 @@ public class MeetingHostSessionService {
                                 }
                                 beginOfflineRollCallIfStillInventory(mid);
                             }
-                        }, Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS,
+                        }, Math.max(0L, durationMs) + hostRuntime.getTtsClientPlaybackTailMs(),
                                 TimeUnit.MILLISECONDS));
             } else {
                 beginOfflineRollCall(meetingId, rt, null);
@@ -930,7 +939,7 @@ public class MeetingHostSessionService {
             if (!autoNextTopic) {
                 return;
             }
-            long waitMs = Math.max(0L, durationMs) + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
+            long waitMs = Math.max(0L, durationMs) + hostRuntime.getTtsClientPlaybackTailMs();
             scheduler.schedule(() -> {
                 try {
                     nextTopic(finalMeetingId);
@@ -1101,7 +1110,8 @@ public class MeetingHostSessionService {
      */
     private void armRollCallDeadlineAfterCuePlayback(String meetingId, long rollCallGen,
             long priorPlaybackPadMs, long cueDurationMs) {
-        long delayMs = Math.max(0L, priorPlaybackPadMs) + Math.max(0L, cueDurationMs) + ROLL_CALL_ARM_EXTRA_MS + HOST_TTS_CLIENT_PLAYBACK_TAIL_MS;
+        long delayMs = Math.max(0L, priorPlaybackPadMs) + Math.max(0L, cueDurationMs)
+                + hostRuntime.getRollCallArmExtraMs() + hostRuntime.getTtsClientPlaybackTailMs();
         scheduler.schedule(() -> {
             synchronized (lockFor(meetingId)) {
                 HostRuntime r = runtimes.get(meetingId);
@@ -1133,7 +1143,7 @@ public class MeetingHostSessionService {
      * @return 每人基础作答秒数，至少为 5，取自配置 {@code meeting.host.roll-call.window-seconds}
      */
     private int rollCallBaseWindowSec() {
-        return Math.max(5, runtimeConfig.getRollCall().getWindowSeconds());
+        return Math.max(hostRuntime.getRollCallWindowFloorSec(), runtimeConfig.getRollCall().getWindowSeconds());
     }
 
     /**
@@ -1241,6 +1251,26 @@ public class MeetingHostSessionService {
             sb.append("全部到齐。");
         }
         return sb.toString();
+    }
+
+    /**
+     * 校验当前请求者是否为已登记的主控（写操作前调用）。
+     *
+     * @param meetingId      会议 ID
+     * @param feishuUserId   请求 token 中的飞书 user_id（可为 null）
+     * @throws BusinessException 已有主控且非本人时 403
+     */
+    public void requireOperator(String meetingId, String feishuUserId) {
+        HostRuntime rt = runtimes.get(meetingId);
+        if (rt == null || rt.operatorFeishuUserId == null || rt.operatorFeishuUserId.isBlank()) {
+            return;
+        }
+        if (feishuUserId == null || feishuUserId.isBlank()) {
+            throw new BusinessException(403, "当前会议已有主控，您处于旁观模式");
+        }
+        if (!rt.operatorFeishuUserId.equals(feishuUserId)) {
+            throw new BusinessException(403, "当前会议已有主控（" + rt.operatorUserName + "），您处于旁观模式");
+        }
     }
 
     /**
@@ -1751,7 +1781,7 @@ public class MeetingHostSessionService {
             ObjectNode root = objectMapper.createObjectNode();
             root.put("type", "host_toast");
             root.put("text", text);
-            root.put("durationMs", HOST_REMINDER_TOAST_MS);
+            root.put("durationMs", hostRuntime.getHostReminderToastMs());
             hostWebSocketHandler.broadcastText(meetingId, objectMapper.writeValueAsString(root));
         } catch (Exception e) {
             log.warn("pushHostToast meetingId={}: {}", meetingId, e.getMessage());
@@ -1777,6 +1807,10 @@ public class MeetingHostSessionService {
         root.put("currentTopicIndex", rt.currentIndex);
         root.put("topicLeftMs", topicLeftMs);
         root.put("meetingLeftMs", meetingLeftMs);
+        if (rt.operatorFeishuUserId != null && !rt.operatorFeishuUserId.isBlank()) {
+            root.put("operatorFeishuUserId", rt.operatorFeishuUserId);
+            root.put("operatorUserName", rt.operatorUserName != null ? rt.operatorUserName : "");
+        }
         ArrayNode arr = root.putArray("topics");
         for (int i = 0; i < rt.topics.size(); i++) {
             HostTopic t = rt.topics.get(i);
@@ -1872,7 +1906,7 @@ public class MeetingHostSessionService {
      * @return PCM 按 16k s16le 估算的播放时长（毫秒），供检点 deadline 与自动下一议题等链式调度使用；失败为 0
      */
     private CompletableFuture<Long> speakAsyncFutureWithDurationMs(String meetingId, String text) {
-        if (!runtimeConfig.isTtsEnabled()) {
+        if (!isEffectiveTtsEnabled()) {
             return CompletableFuture.completedFuture(0L);
         }
         return CompletableFuture.supplyAsync(() -> {
@@ -1895,7 +1929,7 @@ public class MeetingHostSessionService {
                 int seq = 0;
                 int offset = 0;
                 // 单条 WS 文本不宜过大；6000 字节级切片与前端组帧约定
-                int chunk = 6000;
+                int chunk = hostRuntime.getTtsChunkBytes();
                 while (offset < pcm.length) {
                     int len = Math.min(chunk, pcm.length - offset);
                     byte[] slice = new byte[len];
@@ -1918,16 +1952,16 @@ public class MeetingHostSessionService {
     }
 
     /**
-     * 由 PCM 字节数按 16kHz 单声道 s16le 推算播放时长，与 {@link #PCM_SAMPLE_RATE} 一致。
+     * 由 PCM 字节数按配置采样率单声道 s16le 推算播放时长。
      *
      * @param pcmBytes 裸 PCM 长度（字节）
      * @return 估算播放时长（毫秒），pcmBytes≤0 时为 0
      */
-    private static long estimatePcmDurationMs(int pcmBytes) {
+    private long estimatePcmDurationMs(int pcmBytes) {
         if (pcmBytes <= 0) {
             return 0L;
         }
-        long bytesPerSecond = (long) PCM_SAMPLE_RATE * PCM_BYTES_PER_SAMPLE;
+        long bytesPerSecond = (long) audioProperties.getSampleRate() * PCM_BYTES_PER_SAMPLE;
         return (pcmBytes * 1000L) / bytesPerSecond;
     }
 
@@ -1937,14 +1971,26 @@ public class MeetingHostSessionService {
      * @param meetingId   会议主键
      * @param utteranceId 与 tts_meta / chunk 相同的 UUID
      */
+    private boolean isEffectiveTtsEnabled() {
+        return runtimeConfig.isEnabled() && runtimeConfig.isTtsEnabled();
+    }
+
+    private boolean isEffectiveAgendaEnabled() {
+        return runtimeConfig.isEnabled() && runtimeConfig.isAgendaEnabled();
+    }
+
+    private boolean isEffectiveRollCallEnabled() {
+        return runtimeConfig.isEnabled() && runtimeConfig.isRollCallEnabled();
+    }
+
     private void requireHostAgendaEnabled() {
-        if (!runtimeConfig.isAgendaEnabled()) {
+        if (!isEffectiveAgendaEnabled()) {
             throw new BusinessException(400, "会序推进功能未启用");
         }
     }
 
     private void requireHostRollCallEnabled() {
-        if (!runtimeConfig.isRollCallEnabled()) {
+        if (!isEffectiveRollCallEnabled()) {
             throw new BusinessException(400, "检点功能未启用");
         }
     }
@@ -1998,6 +2044,10 @@ public class MeetingHostSessionService {
         long rollCallOnlineInventoryDeadlineMs;
         /** 检点世代：会序切换/跳过检点/新一轮检点时递增，作废已排队的 TTS 与答到窗口调度 */
         long rollCallGeneration;
+        /** 先 start 得主控：飞书 user_id */
+        String operatorFeishuUserId;
+        /** 主控姓名（展示用） */
+        String operatorUserName;
     }
 
     /** 检点名单中的一人 */

@@ -4,6 +4,8 @@ import com.smartmeeting.config.system.ConfigValueType;
 import com.smartmeeting.config.system.SystemConfigDescriptor;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 @Component
 public class HostAgendaEnabledDescriptor implements SystemConfigDescriptor {
 
@@ -35,5 +37,10 @@ public class HostAgendaEnabledDescriptor implements SystemConfigDescriptor {
     @Override
     public String description() {
         return "会序推进（下一议题/跳过）";
+    }
+
+    @Override
+    public Optional<String> parentKey() {
+        return Optional.of("meeting.host.enabled");
     }
 }

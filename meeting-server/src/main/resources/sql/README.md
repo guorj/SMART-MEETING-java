@@ -7,7 +7,7 @@
 | **新环境建表（meeting 11 表）** | [`../schema.sql`](../schema.sql) | 表结构变更时同步改实体 + 本文件 |
 | **开发/测试种子 DML** | [`../schema-data.sql`](../schema-data.sql) | 预设、默认 config 行等 |
 | **已有生产库增量 DDL** | [`../schema-upgrade/`](../schema-upgrade/) | **只新增** `vX.Y-*.sql`，禁止改已发布脚本 |
-| **运维种子（幂等 ON DUPLICATE）** | [`../schema-seed/`](../schema-seed/) | 功能上线配套 INSERT/UPDATE |
+| **运维种子（幂等 ON DUPLICATE）** | [`../schema-seed/`](../schema-seed/) | 功能上线配套 INSERT/UPDATE；[`meeting-runtime-defaults-prod.sql`](../schema-seed/meeting-runtime-defaults-prod.sql) 覆盖全部热更键（新库必跑；不覆盖已有 value_json） |
 | **参考示例（不自动执行）** | [`../schema-examples/`](../schema-examples/) | 文档对照、手工改 URL 后执行 |
 | **一次性运维/修复** | [`../sql-optional/`](../sql-optional/) | 环境相关 hotfix |
 

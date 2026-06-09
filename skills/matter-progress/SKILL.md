@@ -157,6 +157,3 @@ LIMIT 1
 ## Tool 名称核对
 
 完整对照表：[mcp-servers/LARK-MCP-TOOLS.md](../mcp-servers/LARK-MCP-TOOLS.md)。若 tool 不存在，执行 `openclaw --profile clone-boss mcp list` 后更新 `allowed-tools`。
-
-
-

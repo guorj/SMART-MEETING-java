@@ -2,6 +2,8 @@ package com.smartmeeting.asr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.MeetingIsvProperties;
+import com.smartmeeting.config.system.ConfigValueClamp;
 import com.smartmeeting.util.XfyunSignatureUtil;
 import com.smartmeeting.util.XfyunSignatureUtil.IsvAuthContext;
 import lombok.extern.slf4j.Slf4j;
@@ -62,9 +64,12 @@ public class XfyunIsvClient {
 
     private final ObjectMapper objectMapper;
 
-    public XfyunIsvClient(ObjectMapper objectMapper) {
+    public XfyunIsvClient(ObjectMapper objectMapper, MeetingIsvProperties isvProperties) {
         this.objectMapper = objectMapper;
+        this.isvProperties = isvProperties;
     }
+
+    private final MeetingIsvProperties isvProperties;
 
     // 声纹缓存（本地缓存 feature_id）
     private final Map<String, String> userIdToFeatureId = new HashMap<>();
@@ -110,31 +115,68 @@ public class XfyunIsvClient {
     }
 
     /**
+     * ISV 1:N 识别结果。
+     */
+    public record IdentifyResult(String featureId, double score) {
+    }
+
+    private double matchScoreThreshold() {
+        return isvProperties != null ? isvProperties.getMatchScoreThreshold() : 0.6;
+    }
+
+    /**
      * 从短音频片段识别声纹（data.status=3），返回最匹配 featureId 或降级标识。
-     *
-     * @param audioData 音频字节（按官方示例为 16k/16bit/mono 的 MP3），建议 3～5 秒
-     * @return 置信度 &gt; 0.6 时返回 featureId；否则或失败时返回 {@code speaker_unknown}
      */
     public String identifyVoiceprint(byte[] audioData) {
         log.debug("Identifying voiceprint from audio: {} bytes", audioData.length);
+        Optional<IdentifyResult> result = identifyAmongCandidates(audioData, null, 1);
+        return result.map(IdentifyResult::featureId).orElse("speaker_unknown");
+    }
 
+    /**
+     * 全库 1:N 识别，返回最高分且超过阈值的 feature。
+     *
+     * @param candidateFeatureIds 已废弃，保留参数仅为兼容；不再作参会人白名单过滤
+     */
+    public Optional<IdentifyResult> identifyAmongCandidates(byte[] audioData,
+                                                            Collection<String> candidateFeatureIds,
+                                                            int topK) {
+        if (audioData == null || audioData.length == 0) {
+            return Optional.empty();
+        }
         try {
-            List<SearchScoreItem> scores = search1N(groupId, audioData, 1);
-            if (!scores.isEmpty()) {
-                SearchScoreItem top = scores.get(0);
-                log.debug("Identified: featureId={}, confidence={}", top.featureId, top.score);
-                if (top.score > 0.6 && top.featureId != null && !top.featureId.isBlank()) {
-                    return top.featureId;
-                }
+            int effectiveTopK = ConfigValueClamp.effectiveTopK(
+                    topK, isvProperties.getSearchTopKMin(), isvProperties.getSearchTopKMax());
+            List<SearchScoreItem> scores = search1N(groupId, audioData, effectiveTopK);
+            if (scores.isEmpty()) {
+                log.debug("ISV 1:N empty scoreList, topK={}", effectiveTopK);
+                return Optional.empty();
             }
 
-            return "speaker_unknown";
-
+            double threshold = matchScoreThreshold();
+            IdentifyResult best = null;
+            for (SearchScoreItem item : scores) {
+                if (item.featureId == null || item.featureId.isBlank()) {
+                    continue;
+                }
+                if (item.score > threshold && (best == null || item.score > best.score())) {
+                    best = new IdentifyResult(item.featureId, item.score);
+                }
+            }
+            if (best != null) {
+                log.debug("ISV 1:N match: featureId={}, score={}, threshold={}, topK={}",
+                        best.featureId(), best.score(), threshold, effectiveTopK);
+            } else {
+                log.debug("ISV 1:N no score above threshold={}, topK={}, resultCount={}",
+                        threshold, effectiveTopK, scores.size());
+            }
+            return Optional.ofNullable(best);
         } catch (Exception e) {
             log.error("Identify voiceprint failed: {}", e.getMessage());
-            return "speaker_unknown";
+            return Optional.empty();
         }
     }
+
 
     /**
      * 按 featureId 删除声纹特征（data.status=4），并同步清理本地缓存。
@@ -303,7 +345,8 @@ public class XfyunIsvClient {
         String gid = (targetGroupId == null || targetGroupId.isBlank()) ? groupId : targetGroupId.trim();
         Map<String, Object> param = new LinkedHashMap<>();
         param.put("groupId", gid);
-        param.put("topK", Math.max(1, Math.min(topK, 10)));
+        int topKCap = isvProperties != null ? isvProperties.getSearchTopKMax() : 10;
+        param.put("topK", ConfigValueClamp.effectiveTopK(topK, 1, topKCap));
         JsonNode textJson = invokeFuncApi("searchFea", "searchFeaRes", param, audioData);
         if (textJson == null || !textJson.has("scoreList")) {
             return List.of();

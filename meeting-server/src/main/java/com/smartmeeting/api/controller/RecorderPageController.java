@@ -57,6 +57,17 @@ public class RecorderPageController {
     }
 
     /**
+     * 会议主页 · 旁观入口（{@code /view}，JWT type=viewer；只读同步，不推流）。
+     *
+     * @param meetingId 会议 ID（路径占位，前端从 URL 解析）
+     * @return classpath 下 {@code static/host-meeting.html}，不存在则 404
+     */
+    @GetMapping("/view/{meetingId}")
+    public ResponseEntity<Resource> viewerMeetingPage(@PathVariable @SuppressWarnings("unused") String meetingId) {
+        return serveClasspathHtml("static/host-meeting.html");
+    }
+
+    /**
      * 从 classpath 读取 HTML 并以 no-store 缓存策略返回。
      *
      * @param classpathPath 类路径资源路径，如 {@code static/host-meeting.html}

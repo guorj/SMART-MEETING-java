@@ -33,12 +33,16 @@ public class OpenClawGatewayWsClient {
 
     private static final Logger log = LoggerFactory.getLogger(OpenClawGatewayWsClient.class);
 
-    private static final int HISTORY_FETCH_ATTEMPTS = 24;
-    private static final int HISTORY_FETCH_DELAY_MS = 250;
-    private static final int HISTORY_FETCH_EXTENDED_ATTEMPTS = 16;
-    private static final int HISTORY_FETCH_EXTENDED_DELAY_MS = 500;
-
+    private final OpenClawGatewayHistoryFetchSettings historyFetch;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public OpenClawGatewayWsClient() {
+        this(OpenClawGatewayHistoryFetchSettings.DEFAULT);
+    }
+
+    public OpenClawGatewayWsClient(OpenClawGatewayHistoryFetchSettings historyFetch) {
+        this.historyFetch = historyFetch != null ? historyFetch : OpenClawGatewayHistoryFetchSettings.DEFAULT;
+    }
 
     public String sendChatMessage(String gatewayHttpUrl,
                                   String authToken,
@@ -320,7 +324,7 @@ public class OpenClawGatewayWsClient {
                 if (remainMs <= 0) {
                     break;
                 }
-                long sliceMs = Math.min(HISTORY_FETCH_DELAY_MS, remainMs);
+                long sliceMs = Math.min(historyFetch.delayMs(), remainMs);
                 if (done.await(sliceMs, TimeUnit.MILLISECONDS)) {
                     break;
                 }
@@ -423,8 +427,8 @@ public class OpenClawGatewayWsClient {
                                          AtomicReference<String> historyText,
                                          boolean loopback,
                                          boolean extended) {
-        int attempts = extended ? HISTORY_FETCH_EXTENDED_ATTEMPTS : HISTORY_FETCH_ATTEMPTS;
-        int delayMs = extended ? HISTORY_FETCH_EXTENDED_DELAY_MS : HISTORY_FETCH_DELAY_MS;
+        int attempts = extended ? historyFetch.extendedAttempts() : historyFetch.attempts();
+        int delayMs = extended ? historyFetch.extendedDelayMs() : historyFetch.delayMs();
         for (int i = 0; i < attempts; i++) {
             if (i > 0) {
                 try {

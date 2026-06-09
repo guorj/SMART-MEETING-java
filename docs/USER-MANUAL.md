@@ -1,6 +1,6 @@
 # 智能会议系统 - 用户手册（精简版）
 
-文档版本：2026-06-04（与当前代码实现对齐）
+文档版本：2026-06-08（与当前代码实现对齐）
 
 ---
 
@@ -16,16 +16,34 @@
 
 ## 2. 关键业务流程
 
-1. 飞书发送“会议管理”进入工作台。
-2. 选择模板创建会议。
+1. 飞书发送「会议管理」进入工作台（**须在工作台白名单** `dashboard.user_grants` 内；未授权时单聊提示联系管理员）。
+2. 选择模板创建会议（需 `canCreateMeeting=true`）。
 3. 建会时按模板最新 `host_agenda` 生成会议快照。
-4. 进入主持页后开启会话与录音。
-5. 结束会议后按开关触发会后链路：离线转写（`meeting.asr.offline-enabled`）与纪要生成（`meeting.minute.generation-enabled`）**相互独立**；两者皆开时先离线转写入库，再生成纪要。
+4. 进入**会议主页**（`/rec` / `/host`）后，在 **会议控制** 区点击「开始会议」开启会话与录音（**主控**：先 `start` 者得写权限；**旁观**：使用「复制旁观链接」或 `/view/{meetingId}`，只读会序/资料/倒计时）。
+5. 结束会议请使用 **会议控制** 底部独立的「结束会议」按钮（与「下一议题」等操作分离），避免误触。
+6. 结束会议后按开关触发会后链路：离线转写（`meeting.asr.offline-enabled`）与纪要生成（`meeting.minute.generation-enabled`）**相互独立**；两者皆开时先离线转写入库，再生成纪要。**开关维护**：Admin → **系统参数**（热加载）。生效顺序：**DB > Java 出厂默认 > infra YAML/env**；新装/空库须执行 `schema-seed/meeting-runtime-defaults-prod.sql`（生产策略）；Admin「恢复默认」回 Java 出厂值，非 seed 值。
+
+### 2.0.1 前台页面结构（2026-06-08 UI 优化）
+
+| 区域 | 说明 |
+|------|------|
+| **工作台**（`/dashboard`） | 创建会议、恢复/结束进行中会议、声纹注册、近期会议列表；状态以中文 Badge 展示（录音中/进行中/纪要生成中等） |
+| **会议控制** | 开始/暂停/继续、全宽**离线录音状态条**（红点 + 计时）、下一议题/跳过/加时、议题与会议倒计时 |
+| **当前议题资料** | 当前会序绑定的飞书文档/本地上传资料 |
+| **AI 主持** | 虚拟主持形象与 TTS 播报状态 |
+| **议程列表** | 全部会序项及进度 |
+
+### 2.0 工作台权限与多人前台（2026-06-08）
+
+- **白名单**：存储于 `int_meeting_system_config.config_key=dashboard.user_grants`；Admin **用户管理 → 编辑用户 → 前台授权** 维护；页头可配置「默认拒绝未授权用户」。
+- **权限项**：`canCreateMeeting`（建会/恢复）、`canEndMeeting`（结束会）、`canRegisterVoiceprint`（声纹注册）；白名单内默认人人可注册声纹。
+- **会中入口**：群聊已静音时，飞书「会议管理」改 **单聊** 发卡或拒绝提示，避免群内需 @ 机器人却无卡片。
+- **主控 + 旁观**：每场会议 1 路录音推流；主持写 API 仅主控 token；旁观 token（`type=viewer`）可读 state/agenda，不可操作下一议题或结束会。
 
 ### 2.1 录音与转写（默认）
 
-- **默认**：`meeting.asr.realtime-enabled=false`，会中仅浏览器 WebSocket 写入单场 `{meetingId}.pcm`，无实时字幕；会议主页底部显示**离线录音状态条**（红点 + 计时），而非实时字幕区。
-- **会后**：无会中定稿转写且 `offline-enabled=true` 时，系统对 PCM 做离线转写（说话人分离）+ 声纹 1:N，结果写入 `int_transcript_segment`；纪要生成（若开启）从 DB 读取该转写，不再内联触发离线 ASR。
+- **默认**：`meeting.asr.realtime-enabled=false`，会中仅浏览器 WebSocket 写入单场 `{meetingId}.pcm`，无实时字幕；**会议控制**区内显示全宽**离线录音状态条**（红点 + 计时 + 说明文案），而非独立字幕区。
+- **会后**：无会中定稿转写且 `offline-enabled=true` 时，系统对 PCM 做离线转写（IST 说话人分离，参会人 ≥2 声纹时优先 roleType=3）+ balanced ISV 标注（簇级投票 → 未命名簇按段补标 → 簇内分裂），结果写入 `int_transcript_segment`；纪要生成（若开启）从 DB 读取该转写，不再内联触发离线 ASR。
 - **可选**：将 `realtime-enabled` 设为 `true` 可恢复会中实时转写与字幕；此时纪要以会中分段为准，不覆盖为离线结果。
 - 会前建议完成参会人声纹注册（见飞书「声纹注册」入口），详见 `开关手册.md` §6.2。
 - 纪要链路各步骤（离线 ASR、LLM 初稿、AI 增强、飞书文档、通知等）可独立开关，详见 `开关手册.md` §3.1、§6.6。
@@ -90,7 +108,8 @@
 
 ## 6. 运维最小建议
 
-- 发布前确认当前 profile 的 `application-*.yml` 覆盖值。
+- 发布前确认当前 profile 的 `application-*.yml` 覆盖值；**业务开关**（pipeline、会前调度、ISV 阈值等）以 **Admin 系统参数 + DB** 为准，勿在 `application-dev.yml` 改 `meeting.pipeline.*` / `scheduler.pre-*` / `isv.enabled`（dev 中此类块经 `MeetingRuntimeConfigLoader` 后不持久生效，见 [config-ranges.md §YAML 必要性审计](./config-ranges.md#yaml-必要性审计meeting-server)）。
+- 配置优先级：**DB（Admin 热更）> Java 出厂默认 > profile YAML > `application.yml` 基线**；冷启动 16 项改 yml/env 后须重启。
 - 涉及调度器开关变更后必须重启服务。
 - 生产环境建议显式配置所有关键开关，避免依赖默认值。
 
@@ -100,3 +119,4 @@
 
 - `README.md`：文档总入口。
 - `开关手册.md`：开关全量说明与运维组合。
+- `config-ranges.md`：取值范围与 [YAML 必要性审计（meeting-server）](./config-ranges.md#yaml-必要性审计meeting-server)。

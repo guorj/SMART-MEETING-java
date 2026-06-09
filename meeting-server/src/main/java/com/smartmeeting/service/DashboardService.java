@@ -1,6 +1,7 @@
 package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.api.dto.MeetingResponse;
@@ -13,6 +14,7 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.UserMappingMapper;
+import com.smartmeeting.config.MeetingVoiceprintLifecycleProperties;
 import com.smartmeeting.repository.VoiceprintMapper;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
 import com.smartmeeting.util.JwtUtil;
@@ -34,8 +36,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class DashboardService {
 
-    private static final int EXPIRING_HOURS = 48;
-
     private final UserMappingMapper userMappingMapper;
     private final VoiceprintMapper voiceprintMapper;
     private final MeetingMapper meetingMapper;
@@ -47,6 +47,7 @@ public class DashboardService {
     private final VoiceprintRegisterService voiceprintRegisterService;
     private final MeetingService meetingService;
     private final JwtUtil jwtUtil;
+    private final MeetingVoiceprintLifecycleProperties lifecycleProperties;
     private final MeetingWebPageUrls meetingWebPageUrls;
 
     public UserInfo getUserInfo(String feishuUserId, String tokenUserName) {
@@ -141,14 +142,17 @@ public class DashboardService {
         if (active == null) {
             return null;
         }
-        String recordingUrl = active.getRecordingUrl();
-        if (recordingUrl == null || recordingUrl.isBlank()) {
-            String recordingToken = jwtUtil.generateOperatorMeetingToken(active.getId(), JwtUtil.TYPE_RECORDING);
-            recordingUrl = meetingWebPageUrls.recordingPageUrl(active.getId(), recordingToken);
-            active.setRecordingToken(recordingToken);
-            active.setRecordingUrl(recordingUrl);
-            meetingMapper.updateById(active);
+        String recordingToken = active.getRecordingToken();
+        if (recordingToken == null || recordingToken.isBlank()) {
+            String userName = feishuService.getUserNameByUserId(feishuUserId);
+            recordingToken = jwtUtil.generateOperatorMeetingToken(
+                    active.getId(), JwtUtil.TYPE_RECORDING, feishuUserId, userName);
+            meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
+                    .eq(Meeting::getId, active.getId())
+                    .set(Meeting::getRecordingToken, recordingToken));
         }
+        String recordingUrl = meetingWebPageUrls.resolveRecordingPageUrl(
+                active.getId(), recordingToken, active.getRecordingUrl());
         ActiveMeetingResult out = new ActiveMeetingResult();
         out.setId(active.getId());
         out.setTitle(active.getTitle());
@@ -258,7 +262,7 @@ public class DashboardService {
         if (expiresAt == null) return "UNKNOWN";
         LocalDateTime now = LocalDateTime.now();
         if (!expiresAt.isAfter(now)) return "EXPIRED";
-        if (!expiresAt.isAfter(now.plusHours(EXPIRING_HOURS))) return "EXPIRING";
+        if (!expiresAt.isAfter(now.plusHours(lifecycleProperties.getExpiringWarningHours()))) return "EXPIRING";
         return "VALID";
     }
 

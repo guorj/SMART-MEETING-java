@@ -3,29 +3,24 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    (function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
+  </script>
   <title>线上到会确认</title>
+  <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
+  <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 48px auto; padding: 0 16px; color: #1a1a1a; }
-    h1 { font-size: 1.25rem; }
-    .muted { color: #666; font-size: 0.9rem; }
-    .ok { color: #0a7; font-weight: 600; }
-    .err { color: #c00; }
-    #status { margin-top: 24px; padding: 16px; border-radius: 8px; background: #f5f7fa; }
+    body { max-width: 480px; margin: 48px auto; padding: 0 16px; }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    #status { margin-top: 24px; }
+    .ok { color: var(--color-success); font-weight: 600; }
+    .err { color: var(--color-danger); font-weight: 600; }
   </style>
 </head>
 <body>
   <h1>线上到会确认</h1>
   <p class="muted">打开本页即向会议系统登记到场，无需麦克风、不采集音频。</p>
-  <div id="status">正在登记…</div>
-  <script>
-    (function () {
-      var p = location.pathname || '';
-      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
-      var base = document.createElement('base');
-      base.href = ctx ? ctx + '/' : '/';
-      document.head.appendChild(base);
-    })();
-  </script>
+  <div id="status" class="ui-card">正在登记…</div>
   <script src="static/meeting-context.js?v=sm-20260525-1"></script>
   <script>
     (function () {
@@ -44,7 +39,7 @@
         .then(function (x) {
           if (!x.res.ok || x.j.code !== 0) throw new Error(x.j.message || x.res.statusText);
           var d = x.j.data || {};
-          statusEl.innerHTML = '<span class="ok">已到会</span><br/>' +
+          statusEl.innerHTML = '<span class="ui-badge badge-valid">已到会</span><br/><br/>' +
             (d.name ? '姓名：' + d.name + '<br/>' : '') +
             '登记时间：' + (d.checkedInAt || '') +
             '<p class="muted" style="margin-top:12px">您可以关闭本页；会议录音由现场设备负责。</p>';

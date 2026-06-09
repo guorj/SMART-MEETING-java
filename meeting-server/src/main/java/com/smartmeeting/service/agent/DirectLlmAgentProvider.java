@@ -2,6 +2,7 @@ package com.smartmeeting.service.agent;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.OpenClawProperties;
 import com.smartmeeting.entity.Meeting;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,6 +33,7 @@ public class DirectLlmAgentProvider implements AgentProvider {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final OpenClawProperties openClawProperties;
 
     @Value("${meeting.llm.api-url:https://api.deepseek.com/v1/chat/completions}")
     private String llmApiUrl;
@@ -42,8 +44,9 @@ public class DirectLlmAgentProvider implements AgentProvider {
     @Value("${meeting.llm.model:deepseek-chat}")
     private String llmModel;
 
-    public DirectLlmAgentProvider(RestTemplate restTemplate) {
+    public DirectLlmAgentProvider(RestTemplate restTemplate, OpenClawProperties openClawProperties) {
         this.restTemplate = restTemplate;
+        this.openClawProperties = openClawProperties;
     }
 
     @Override
@@ -84,7 +87,8 @@ public class DirectLlmAgentProvider implements AgentProvider {
         userPrompt.append("初版纪要：\n---\n").append(rawMinute).append("\n---\n\n");
         if (transcriptText != null && transcriptText.length() > 100) {
             userPrompt.append("转写原文片段（校验用）：\n");
-            userPrompt.append(transcriptText.substring(0, Math.min(2000, transcriptText.length())));
+            userPrompt.append(transcriptText.substring(0,
+                    Math.min(openClawProperties.getPromptMaxChars(), transcriptText.length())));
             userPrompt.append("\n\n");
         }
         userPrompt.append("请输出以下 JSON（不要代码块包裹）：\n");

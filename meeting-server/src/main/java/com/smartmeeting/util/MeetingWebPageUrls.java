@@ -1,6 +1,6 @@
 package com.smartmeeting.util;
 
-import org.springframework.beans.factory.annotation.Value;
+import com.smartmeeting.config.MeetingWebProperties;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
@@ -15,12 +15,15 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class MeetingWebPageUrls {
 
-    @Value("${meeting.base-url:http://localhost:8765}")
-    private String meetingBaseUrl;
+    private final String meetingBaseUrl;
+    private final MeetingWebProperties webProperties;
 
-    /** 非空时拼在查询串末尾 {@code &v=}，改值后需重新取录音链接或走飞书重新开会以写库 */
-    @Value("${meeting.web.page-cache-buster:}")
-    private String pageCacheBuster;
+    public MeetingWebPageUrls(
+            @org.springframework.beans.factory.annotation.Value("${meeting.base-url:http://localhost:8765}") String meetingBaseUrl,
+            MeetingWebProperties webProperties) {
+        this.meetingBaseUrl = meetingBaseUrl;
+        this.webProperties = webProperties;
+    }
 
     /**
      * 获取规范化后的会议服务基地址（去除末尾斜杠，空值回退 localhost:8765）。
@@ -47,6 +50,17 @@ public class MeetingWebPageUrls {
     }
 
     /**
+     * 解析录音页 URL：优先用 {@code recording_token} 与当前 {@code meeting.base-url} 动态拼接；
+     * 无 token 时回退库内 {@code recording_url}（历史数据兼容）。
+     */
+    public String resolveRecordingPageUrl(String meetingId, String recordingToken, String legacyRecordingUrl) {
+        if (StringUtils.hasText(recordingToken)) {
+            return recordingPageUrl(meetingId, recordingToken);
+        }
+        return legacyRecordingUrl;
+    }
+
+    /**
      * 构建 AI 主持页完整 URL。
      *
      * @param meetingId 会议 ID
@@ -55,6 +69,17 @@ public class MeetingWebPageUrls {
      */
     public String hostPageUrl(String meetingId, String token) {
         return appendBuster(normalizedBase() + "/host/" + meetingId + "?token=" + token);
+    }
+
+    /**
+     * 构建旁观页完整 URL（只读同步，不推流）。
+     *
+     * @param meetingId 会议 ID
+     * @param token     旁观 JWT token
+     * @return 含 token 及可选缓存破除参数的旁观页 URL
+     */
+    public String viewerPageUrl(String meetingId, String token) {
+        return appendBuster(normalizedBase() + "/view/" + meetingId + "?token=" + token);
     }
 
     /**
@@ -69,6 +94,7 @@ public class MeetingWebPageUrls {
     }
 
     private String appendBuster(String url) {
+        String pageCacheBuster = webProperties.getPageCacheBuster();
         if (!StringUtils.hasText(pageCacheBuster)) {
             return url;
         }

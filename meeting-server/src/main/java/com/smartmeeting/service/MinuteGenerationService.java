@@ -23,7 +23,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.List;
@@ -56,6 +56,7 @@ public class MinuteGenerationService {
     private final MeetingStateMachineService meetingStateMachineService;
     private final DomainEventPublisher domainEventPublisher;
     private final TranscriptSegmentHelper transcriptSegmentHelper;
+    private final TransactionTemplate transactionTemplate;
 
     @Value("${meeting.llm.api-url:http://localhost}")
     private String llmApiUrl;
@@ -69,55 +70,33 @@ public class MinuteGenerationService {
     /**
      * 执行完整纪要生成链路：转写校正、LLM 生成、库内持久化、飞书文档创建与通知推送。
      * <p>
-     * 会议不存在时静默返回；部分步骤失败时仍尝试标记 COMPLETED 并保存降级内容。
+     * 读库与写库分别在短事务内完成；LLM / OpenClaw / 飞书 HTTP 调用在事务外执行，避免长事务占连接。
      *
      * @param meetingId 会议 ID
      * @param audioPath 音频文件路径（离线 ASR 降级时使用，可为 null）
      */
-    @Transactional
     public void generateMinute(String meetingId, String audioPath) {
         log.info("=== Starting minute generation for meeting: {} ===", meetingId);
 
-        Meeting meeting = meetingMapper.selectById(meetingId);
-        if (meeting == null) {
-            log.error("Meeting not found: {}", meetingId);
+        MinuteInput input = transactionTemplate.execute(status -> loadMinuteInput(meetingId));
+        if (input == null) {
             return;
         }
+        Meeting meeting = input.meeting();
+        List<Participant> participants = input.participants();
 
         String minuteText = "";
         String docToken = "";
         String docUrl = "";
 
         try {
-            // 1. 获取参会人声纹特征ID列表
-            LambdaQueryWrapper<Participant> wrapper = new LambdaQueryWrapper<>();
-            wrapper.eq(Participant::getMeetingId, meetingId);
-            List<Participant> participants = participantMapper.selectList(wrapper);
-            List<String> featureIds = participants.stream()
-                    .map(Participant::getFeatureId)
-                    .filter(fid -> fid != null && !fid.isEmpty())
-                    .toList();
+            log.info("Found {} participants, {} with voiceprint features",
+                    participants.size(),
+                    participants.stream().filter(p -> p.getFeatureId() != null && !p.getFeatureId().isEmpty()).count());
 
-            log.info("Found {} participants, {} with voiceprint features", 
-                    participants.size(), featureIds.size());
-
-            // 2. 转写全文：仅从 DB 读取（离线转写由独立会后链路预先写入）
             log.info("Step 2: Resolving transcript from DB for meeting {}", meetingId);
-            String correctedText;
-            if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
-                correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
-                        transcriptSegmentHelper.listFinalSegments(meetingId));
-                log.info("Step 2: Using realtime/final DB segments, length={}", correctedText.length());
-            } else if (transcriptSegmentHelper.hasAnySegments(meetingId)) {
-                correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
-                        transcriptSegmentHelper.listAllSegments(meetingId));
-                log.info("Step 2: Using offline/other DB segments, length={}", correctedText.length());
-            } else {
-                correctedText = "";
-                log.info("Step 2: No transcript segments in DB for meeting {}", meetingId);
-            }
+            String correctedText = resolveTranscriptText(meetingId);
 
-            // 3. 实时路径下可对仅有 speaker_id 的分段做姓名回写（离线路径已在 correct 内完成）
             if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
                 int updated = voiceprintService.updateTranscriptSpeakers(meetingId);
                 if (updated > 0) {
@@ -127,7 +106,6 @@ public class MinuteGenerationService {
                 log.info("Step 3: Realtime speaker name refresh, updated={}", updated);
             }
 
-            // 4. 调用 LLM 生成纪要（可经 meeting.minute.llm-enabled 关闭）
             if (minuteProperties.isLlmEnabled()) {
                 log.info("Step 4: LLM minute generation...");
                 minuteText = generateMinuteByLLM(meeting, correctedText, participants);
@@ -138,7 +116,6 @@ public class MinuteGenerationService {
                         minuteText.length());
             }
 
-            // 🤖 【环节2】AI 纪要增强（可经 meeting.minute.ai-enhancement-enabled 关闭）
             if (minuteProperties.isAiEnhancementEnabled()) {
                 try {
                     String participantsNames = participants.stream()
@@ -161,12 +138,6 @@ public class MinuteGenerationService {
                 log.info("Step 4.1: AI minute enhancement skipped (meeting.minute.ai-enhancement-enabled=false)");
             }
 
-            // 5. 库内持久化（与飞书双写；飞书失败时库内仍可查）
-            if (!minuteText.isEmpty()) {
-                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.READY);
-            }
-
-            // 6. 创建飞书文档（可经 meeting.minute.feishu-doc-enabled 关闭）
             boolean feishuWriteOk = false;
             if (minuteProperties.isFeishuDocEnabled()) {
                 log.info("Step 6: Creating Feishu document...");
@@ -194,32 +165,25 @@ public class MinuteGenerationService {
                 log.info("Step 6: Feishu doc skipped (meeting.minute.feishu-doc-enabled=false)");
             }
 
-            if (!minuteText.isEmpty() && !feishuWriteOk) {
-                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.PARTIAL);
+            MinuteGenerationStatus persistStatus = MinuteGenerationStatus.READY;
+            if (!minuteText.isEmpty() && !feishuWriteOk && minuteProperties.isFeishuDocEnabled()) {
+                persistStatus = MinuteGenerationStatus.PARTIAL;
             }
 
-            // 7. 更新会议记录 → COMPLETED
-            meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
-            meeting.setDocToken(docToken);
-            meeting.setDocUrl(docUrl);
-            meeting.setStatus(MeetingStatus.COMPLETED.name());
-            meetingMapper.updateById(meeting);
-            if (!minuteText.isEmpty()) {
-                meetingMinuteService.updateContentUrl(meetingId, docUrl);
-            }
-            if (todoProperties.isExtractionEnabled()) {
-                domainEventPublisher.publish(new MinuteGeneratedEvent(meetingId, System.currentTimeMillis()));
-            } else {
-                log.info("Todo extraction skipped by config (meeting.todo.extraction-enabled=false): meetingId={}", meetingId);
-            }
+            final String finalMinuteText = minuteText;
+            final String finalDocToken = docToken;
+            final String finalDocUrl = docUrl;
+            final MinuteGenerationStatus finalPersistStatus = persistStatus;
 
-            log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
+            transactionTemplate.executeWithoutResult(status ->
+                    persistMinuteAndComplete(meetingId, finalMinuteText, finalDocToken, finalDocUrl, finalPersistStatus));
+
             log.info("=== Minute generation completed for meeting: {} ===", meetingId);
 
-            // 推送飞书卡片通知（可经 meeting.minute.notify-enabled 关闭）
             if (minuteProperties.isNotifyEnabled()) {
                 try {
-                    pushFeishuCard(meeting, docUrl, minuteText);
+                    Meeting fresh = meetingMapper.selectById(meetingId);
+                    pushFeishuCard(fresh != null ? fresh : meeting, docUrl, minuteText);
                 } catch (Exception e) {
                     log.debug("Feishu notification skipped (dev mode): {}", e.getMessage());
                 }
@@ -229,19 +193,83 @@ public class MinuteGenerationService {
 
         } catch (Exception e) {
             log.error("Minute generation failed for meeting: {}", meetingId, e);
-            if (minuteText != null && !minuteText.isEmpty()) {
-                meetingMinuteService.saveLatest(meetingId, minuteText, MinuteGenerationStatus.FAILED);
-            }
-            if (meeting.getStatus() == null || !meeting.getStatus().equals(MeetingStatus.COMPLETED.name())) {
-                String fallbackUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
-                meeting.setDocUrl(fallbackUrl);
-                meetingStateMachineService.forceStatus(meetingId, MeetingStatus.COMPLETED);
-                meeting.setStatus(MeetingStatus.COMPLETED.name());
-                meetingMapper.updateById(meeting);
-                meetingMinuteService.updateContentUrl(meetingId, fallbackUrl);
-                log.info("Meeting marked as COMPLETED with fallback content");
-            }
+            final String fallbackText = minuteText;
+            transactionTemplate.executeWithoutResult(status -> {
+                if (fallbackText != null && !fallbackText.isEmpty()) {
+                    meetingMinuteService.saveLatest(meetingId, fallbackText, MinuteGenerationStatus.FAILED);
+                }
+                Meeting m = meetingMapper.selectById(meetingId);
+                if (m != null && (m.getStatus() == null || !MeetingStatus.COMPLETED.name().equals(m.getStatus()))) {
+                    String fallbackUrl = String.format("http://localhost:8765/meetings/%s/minute", meetingId);
+                    m.setDocUrl(fallbackUrl);
+                    meetingStateMachineService.forceStatus(meetingId, MeetingStatus.COMPLETED);
+                    m.setStatus(MeetingStatus.COMPLETED.name());
+                    meetingMapper.updateById(m);
+                    meetingMinuteService.updateContentUrl(meetingId, fallbackUrl);
+                    log.info("Meeting marked as COMPLETED with fallback content");
+                }
+            });
         }
+    }
+
+    private record MinuteInput(Meeting meeting, List<Participant> participants) {
+    }
+
+    private MinuteInput loadMinuteInput(String meetingId) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            log.error("Meeting not found: {}", meetingId);
+            return null;
+        }
+        LambdaQueryWrapper<Participant> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(Participant::getMeetingId, meetingId);
+        List<Participant> participants = participantMapper.selectList(wrapper);
+        return new MinuteInput(meeting, participants);
+    }
+
+    private String resolveTranscriptText(String meetingId) {
+        String correctedText;
+        if (transcriptSegmentHelper.hasFinalRealtimeSegments(meetingId)) {
+            correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
+                    transcriptSegmentHelper.listFinalSegments(meetingId));
+            log.info("Step 2: Using realtime/final DB segments, length={}", correctedText.length());
+        } else if (transcriptSegmentHelper.hasAnySegments(meetingId)) {
+            correctedText = transcriptSegmentHelper.buildLabeledTranscriptText(
+                    transcriptSegmentHelper.listAllSegments(meetingId));
+            log.info("Step 2: Using offline/other DB segments, length={}", correctedText.length());
+        } else {
+            correctedText = "";
+            log.info("Step 2: No transcript segments in DB for meeting {}", meetingId);
+        }
+        return correctedText;
+    }
+
+    private void persistMinuteAndComplete(String meetingId,
+                                          String minuteText,
+                                          String docToken,
+                                          String docUrl,
+                                          MinuteGenerationStatus persistStatus) {
+        if (!minuteText.isEmpty()) {
+            meetingMinuteService.saveLatest(meetingId, minuteText, persistStatus);
+        }
+        meetingStateMachineService.apply(meetingId, MeetingEvent.MINUTE_READY);
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return;
+        }
+        meeting.setDocToken(docToken);
+        meeting.setDocUrl(docUrl);
+        meeting.setStatus(MeetingStatus.COMPLETED.name());
+        meetingMapper.updateById(meeting);
+        if (!minuteText.isEmpty()) {
+            meetingMinuteService.updateContentUrl(meetingId, docUrl);
+        }
+        if (todoProperties.isExtractionEnabled()) {
+            domainEventPublisher.publish(new MinuteGeneratedEvent(meetingId, System.currentTimeMillis()));
+        } else {
+            log.info("Todo extraction skipped by config (meeting.todo.extraction-enabled=false): meetingId={}", meetingId);
+        }
+        log.info("Step 7: Meeting status updated to COMPLETED, docUrl={}", docUrl);
     }
 
     /**

@@ -1,5 +1,6 @@
 package com.smartmeeting.service.agent;
 
+import com.smartmeeting.config.OpenClawProperties;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.FeishuService;
@@ -65,16 +66,24 @@ class OpenClawMcpProviderTest {
         if (devConfig == null) {
             devConfig = OpenClawDevConfigLoader.load();
         }
-        provider = new OpenClawMcpProvider(gatewayWsClient);
+        provider = new OpenClawMcpProvider(gatewayWsClient, devOpenClawProperties());
+        provider.initInvokeSemaphore();
         applyDevDefaults(provider);
     }
 
+    private static OpenClawProperties devOpenClawProperties() {
+        OpenClawProperties props = new OpenClawProperties();
+        props.setEnabled(devConfig.enabled());
+        props.setSkillMode(devConfig.skillMode());
+        props.setTimeoutSeconds(devConfig.timeoutSeconds());
+        props.setMaxConcurrentInvokes(5);
+        props.getAgent().setProvider(devConfig.provider());
+        return props;
+    }
+
     private static void applyDevDefaults(OpenClawMcpProvider target) {
-        ReflectionTestUtils.setField(target, "enabled", devConfig.enabled());
         ReflectionTestUtils.setField(target, "gatewayUrl", devConfig.gatewayUrl());
         ReflectionTestUtils.setField(target, "sessionKey", devConfig.sessionKey());
-        ReflectionTestUtils.setField(target, "timeoutSeconds", devConfig.timeoutSeconds());
-        ReflectionTestUtils.setField(target, "skillMode", devConfig.skillMode());
         ReflectionTestUtils.setField(target, "authToken", "");
         ReflectionTestUtils.setField(target, "deviceToken", "");
     }
@@ -170,12 +179,18 @@ class OpenClawMcpProviderTest {
     @DisplayName("dev OPENCLAW_ENABLED=false 时不调 Gateway")
     void devOpenclawDisabled_skipsGateway() {
         applyDevWithAuthToken(provider);
-        ReflectionTestUtils.setField(provider, "enabled", false);
+        ReflectionTestUtils.setField(provider, "openClawProperties", disabledProps());
         Meeting meeting = meeting("m-dev-4", "会", "C", "G");
 
         assertThat(provider.isAvailable()).isFalse();
         assertThat(provider.runMatterProgressReport(meeting, "d", FEISHU_URL, "会序1")).isNull();
         verify(gatewayWsClient, never()).sendChatMessage(any(), any(), any(), any(), any(), anyInt());
+    }
+
+    private static OpenClawProperties disabledProps() {
+        OpenClawProperties props = devOpenClawProperties();
+        props.setEnabled(false);
+        return props;
     }
 
     private static Meeting meeting(String id, String title, String company, String groupName) {

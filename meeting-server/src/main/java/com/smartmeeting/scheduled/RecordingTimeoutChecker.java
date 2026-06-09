@@ -3,6 +3,7 @@ package com.smartmeeting.scheduled;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.config.MeetingAudioProperties;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.MeetingService;
 import lombok.RequiredArgsConstructor;
@@ -35,9 +36,7 @@ public class RecordingTimeoutChecker {
 
     private final MeetingMapper meetingMapper;
     private final MeetingService meetingService;
-
-    /** 最大录音时长（小时） */
-    private static final int MAX_DURATION_HOURS = 4;
+    private final MeetingAudioProperties audioProperties;
 
     /**
      * 每5分钟检查录音超时
@@ -46,7 +45,7 @@ public class RecordingTimeoutChecker {
     public void checkTimeout() {
         log.debug("Checking recording timeouts...");
 
-        LocalDateTime timeoutThreshold = LocalDateTime.now().minusHours(MAX_DURATION_HOURS);
+        LocalDateTime timeoutThreshold = LocalDateTime.now().minusHours(audioProperties.getMaxDurationHours());
 
         // 查询超时会议（须括号：(RECORDING OR PAUSED) AND startTime < threshold）
         LambdaQueryWrapper<Meeting> wrapper = new LambdaQueryWrapper<>();

@@ -16,6 +16,7 @@ import com.smartmeeting.service.FeishuService;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.util.MeetingWebPageUrls;
 import com.smartmeeting.statemachine.MeetingEvent;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +59,7 @@ public class MeetingService {
     private final MeetingScenarioResolver meetingScenarioResolver;
     private final PostMeetingOrchestrator postMeetingOrchestrator;
     private final RecordingService recordingService;
+    private final MeetingWebPageUrls meetingWebPageUrls;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -84,7 +86,8 @@ public class MeetingService {
                           MeetingStateMachineService meetingStateMachineService,
                           MeetingScenarioResolver meetingScenarioResolver,
                           PostMeetingOrchestrator postMeetingOrchestrator,
-                          RecordingService recordingService) {
+                          RecordingService recordingService,
+                          MeetingWebPageUrls meetingWebPageUrls) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.feishuService = feishuService;
@@ -98,6 +101,7 @@ public class MeetingService {
         this.meetingScenarioResolver = meetingScenarioResolver;
         this.postMeetingOrchestrator = postMeetingOrchestrator;
         this.recordingService = recordingService;
+        this.meetingWebPageUrls = meetingWebPageUrls;
     }
 
     /**
@@ -329,7 +333,8 @@ public class MeetingService {
         resp.setDocUrl(meeting.getDocUrl());
         boolean hasDoc = meeting.getDocUrl() != null && !meeting.getDocUrl().isBlank();
         resp.setHasMinute(hasDoc || meetingMinuteService.exists(meeting.getId()));
-        resp.setRecordingUrl(meeting.getRecordingUrl());
+        resp.setRecordingUrl(meetingWebPageUrls.resolveRecordingPageUrl(
+                meeting.getId(), meeting.getRecordingToken(), meeting.getRecordingUrl()));
         resp.setCreatedAt(meeting.getCreatedAt());
         resp.setUpdatedAt(meeting.getUpdatedAt());
 

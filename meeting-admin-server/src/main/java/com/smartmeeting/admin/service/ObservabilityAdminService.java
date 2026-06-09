@@ -6,6 +6,7 @@ import com.smartmeeting.admin.api.dto.TranscriptLineDto;
 import com.smartmeeting.admin.entity.MeetingMinute;
 import com.smartmeeting.admin.entity.TranscriptSegment;
 import com.smartmeeting.admin.repository.MeetingMinuteMapper;
+import com.smartmeeting.admin.config.MeetingApiProperties;
 import com.smartmeeting.admin.repository.TranscriptSegmentMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -19,6 +20,7 @@ public class ObservabilityAdminService {
 
     private final MeetingMinuteMapper minuteMapper;
     private final TranscriptSegmentMapper transcriptMapper;
+    private final MeetingApiProperties apiProperties;
 
     public MeetingMinuteViewDto getMinute(String meetingId) {
         MeetingMinute m = minuteMapper.selectById(meetingId);
@@ -37,7 +39,7 @@ public class ObservabilityAdminService {
     }
 
     public List<TranscriptLineDto> listTranscripts(String meetingId, int limit, boolean finalsOnly) {
-        int cap = Math.min(Math.max(limit, 1), 500);
+        int cap = Math.min(Math.max(limit, 1), apiProperties.getObservabilityLimitMax());
         LambdaQueryWrapper<TranscriptSegment> q = new LambdaQueryWrapper<>();
         q.eq(TranscriptSegment::getMeetingId, meetingId);
         if (finalsOnly) {

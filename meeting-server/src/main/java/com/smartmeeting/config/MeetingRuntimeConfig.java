@@ -5,7 +5,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 会中运行时配置：YAML 默认值 + DB 覆盖（{@link MeetingRuntimeConfigLoader}）。
+ * 会中运行时配置：Java 出厂默认 + DB 覆盖（{@link MeetingRuntimeConfigLoader}）。
  */
 @Data
 @Component
@@ -21,6 +21,13 @@ public class MeetingRuntimeConfig {
      */
     private String topicTimeoutStrategy = "REMIND_ONLY";
     private RollCall rollCall = new RollCall();
+    private Reminder reminder = new Reminder();
+
+    @Data
+    public static class Reminder {
+        private int topicMinutesLeft = 1;
+        private String meetingMinutesLeft = "10,3";
+    }
 
     @Data
     public static class RollCall {

@@ -1,6 +1,7 @@
 package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.entity.Meeting;
@@ -61,14 +62,17 @@ public class FeishuMeetingStartCoordinator {
         Meeting active = meetingMapper.selectOne(activeQuery);
         if (active != null) {
             // 兼容恢复链路：若存在进行中的会议，直接返回该会议并补发入口，避免前端陷入“可见但不可继续”状态。
-            String existingUrl = active.getRecordingUrl();
-            if (existingUrl == null || existingUrl.isBlank()) {
-                String recordingToken = jwtUtil.generateOperatorMeetingToken(active.getId(), JwtUtil.TYPE_RECORDING);
-                existingUrl = meetingWebPageUrls.recordingPageUrl(active.getId(), recordingToken);
-                active.setRecordingToken(recordingToken);
-                active.setRecordingUrl(existingUrl);
-                meetingMapper.updateById(active);
+            String recordingToken = active.getRecordingToken();
+            if (recordingToken == null || recordingToken.isBlank()) {
+                String userName = feishuService.getUserNameByUserId(openId);
+                recordingToken = jwtUtil.generateOperatorMeetingToken(
+                        active.getId(), JwtUtil.TYPE_RECORDING, openId, userName);
+                meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
+                        .eq(Meeting::getId, active.getId())
+                        .set(Meeting::getRecordingToken, recordingToken));
             }
+            String existingUrl = meetingWebPageUrls.resolveRecordingPageUrl(
+                    active.getId(), recordingToken, active.getRecordingUrl());
             String card = cardBuilder.buildMeetingStartedNotifyCard(active.getId(), active.getTitle(), existingUrl);
             boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
             if (!sentToChat) {
@@ -90,13 +94,14 @@ public class FeishuMeetingStartCoordinator {
         meetingPreStageService.runPreStage(meetingId, meeting.getPresetTypeCode());
         meetingService.startMeeting(meetingId);
 
-        String recordingToken = jwtUtil.generateOperatorMeetingToken(meetingId, JwtUtil.TYPE_RECORDING);
+        String userName = feishuService.getUserNameByUserId(openId);
+        String recordingToken = jwtUtil.generateOperatorMeetingToken(
+                meetingId, JwtUtil.TYPE_RECORDING, openId, userName);
         String recordingUrl = meetingWebPageUrls.recordingPageUrl(meetingId, recordingToken);
 
-        Meeting entity = meetingMapper.selectById(meetingId);
-        entity.setRecordingToken(recordingToken);
-        entity.setRecordingUrl(recordingUrl);
-        meetingMapper.updateById(entity);
+        meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
+                .eq(Meeting::getId, meetingId)
+                .set(Meeting::getRecordingToken, recordingToken));
 
         String card = cardBuilder.buildMeetingStartedNotifyCard(meetingId, displayTitle, recordingUrl);
         boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);

@@ -44,12 +44,22 @@ public final class BitableRecordSorter {
     private BitableRecordSorter() {
     }
 
+    public static List<JsonNode> sortedCopy(List<JsonNode> items) {
+        if (items == null || items.isEmpty()) {
+            return List.of();
+        }
+        List<JsonNode> copy = new ArrayList<>(items);
+        if (copy.size() >= 2) {
+            copy.sort(COMPARATOR);
+        }
+        return copy;
+    }
+
     public static void sort(List<JsonNode> items) {
         if (items == null || items.size() < 2) {
             return;
         }
-        List<JsonNode> copy = new ArrayList<>(items);
-        copy.sort(COMPARATOR);
+        List<JsonNode> copy = sortedCopy(items);
         items.clear();
         items.addAll(copy);
     }

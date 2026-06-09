@@ -16,7 +16,7 @@ class PcmSliceUtilTest {
 
     @Test
     void slice_extractsMiddlePortion() throws Exception {
-        byte[] pcm = new byte[32000];
+        byte[] pcm = new byte[64000];
         for (int i = 0; i < pcm.length; i++) {
             pcm[i] = (byte) (i % 256);
         }

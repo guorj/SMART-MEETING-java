@@ -143,9 +143,9 @@ class MeetingControllerTest extends BaseTest {
         mockMvc.perform(get("/api/v1/meeting-type-presets"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.code").value(0))
-                .andExpect(jsonPath("$.data.length()").value(6))
+                .andExpect(jsonPath("$.data.length()").value(5))
                 .andExpect(jsonPath("$.data[0].code").value(1))
-                .andExpect(jsonPath("$.data[5].code").value(6));
+                .andExpect(jsonPath("$.data[4].code").value(5));
     }
 
     /** 健康检查端点应返回 code=0。 */

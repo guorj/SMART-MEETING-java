@@ -34,6 +34,6 @@ public class HostEnabledDescriptor implements SystemConfigDescriptor {
 
     @Override
     public String description() {
-        return "是否启用 AI 主持";
+        return "AI 主持总开关";
     }
 }

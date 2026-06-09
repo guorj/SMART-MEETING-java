@@ -2,11 +2,13 @@ package com.smartmeeting.asr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.MeetingAsrProperties;
 import com.smartmeeting.util.XfyunSignatureUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.java_websocket.client.WebSocketClient;
 import org.java_websocket.handshake.ServerHandshake;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Scope;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -36,6 +38,7 @@ import java.util.function.Consumer;
  */
 @Slf4j
 @Component
+@Scope("prototype")
 public class XfyunRealtimeClient {
 
     @Value("${meeting.asr.xfyun.app-id:test}")
@@ -57,6 +60,8 @@ public class XfyunRealtimeClient {
     @Value("${meeting.asr.xfyun.post-open-wait-ms:0}")
     private int postOpenWaitMs;
 
+    private final MeetingAsrProperties asrProperties;
+
     private WebSocketClient client;
     private final AtomicBoolean connected = new AtomicBoolean(false);
     private final AtomicBoolean firstFrame = new AtomicBoolean(true);
@@ -65,6 +70,10 @@ public class XfyunRealtimeClient {
 
     private String currentMeetingId;
     private String sessionId;  // 讯飞会话ID（参考官方Demo）
+
+    public XfyunRealtimeClient(MeetingAsrProperties asrProperties) {
+        this.asrProperties = asrProperties;
+    }
 
     /**
      * 建立与讯飞实时 ASR 的 WebSocket 连接。
@@ -98,7 +107,8 @@ public class XfyunRealtimeClient {
             URI uri = new URI(authUrl);
             log.info("Connecting to Xfyun ASR: {}", maskUrl(uri.toString()));
 
-            final int waitAfterOpenMs = Math.max(0, Math.min(postOpenWaitMs, 60_000));
+            int postOpenCap = asrProperties.getRealtime().getPostOpenWaitMaxMs();
+            final int waitAfterOpenMs = Math.max(0, Math.min(postOpenWaitMs, postOpenCap));
             if (postOpenWaitMs != waitAfterOpenMs) {
                 log.warn("post-open-wait-ms={} clamped to {}", postOpenWaitMs, waitAfterOpenMs);
             }

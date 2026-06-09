@@ -1,6 +1,7 @@
 package com.smartmeeting.tools;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.MatterProgressFetchProperties;
 import com.smartmeeting.service.FeishuService;
 import com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -37,7 +38,7 @@ final class FeishuProbeFactory {
             throw new IllegalStateException("application-dev.yml 缺少 meeting.feishu.app-id/app-secret");
         }
         FeishuService svc = new FeishuService(new RestTemplate(), new ObjectMapper(),
-                new MeetingHostFeishuMuteRegistry());
+                new MeetingHostFeishuMuteRegistry(), new MatterProgressFetchProperties());
         ReflectionTestUtils.setField(svc, "appId", appId);
         ReflectionTestUtils.setField(svc, "appSecret", appSecret);
         ReflectionTestUtils.setField(svc, "baseUrl", baseUrl != null ? baseUrl : "https://open.feishu.cn");

@@ -2,6 +2,9 @@ package com.smartmeeting.admin.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.smartmeeting.admin.api.dto.DashboardGrantEntryDto;
+import com.smartmeeting.admin.api.dto.DashboardGrantPolicyDto;
+import com.smartmeeting.admin.api.dto.UserDashboardGrantDto;
 import com.smartmeeting.admin.api.dto.UserMappingDto;
 import com.smartmeeting.admin.api.dto.UserProfileDetailDto;
 import com.smartmeeting.admin.api.dto.UserProfileSaveDto;
@@ -10,6 +13,7 @@ import com.smartmeeting.admin.api.dto.VoiceprintDto;
 import com.smartmeeting.admin.entity.UserMapping;
 import com.smartmeeting.admin.entity.Voiceprint;
 import com.smartmeeting.admin.exception.BusinessException;
+import com.smartmeeting.admin.config.MeetingVoiceprintLifecycleProperties;
 import com.smartmeeting.admin.repository.UserMappingMapper;
 import com.smartmeeting.admin.repository.VoiceprintMapper;
 import lombok.RequiredArgsConstructor;
@@ -17,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -28,11 +33,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class UserAdminService {
 
-    private static final int VOICEPRINT_EXPIRE_YEARS = 10;
-    private static final int EXPIRING_HOURS = 48;
-
     private final UserMappingMapper userMappingMapper;
     private final VoiceprintMapper voiceprintMapper;
+    private final DashboardGrantAdminService dashboardGrantAdminService;
+    private final MeetingVoiceprintLifecycleProperties lifecycleProperties;
 
     public Page<UserMappingDto> listMappings(int page, int size, String keyword) {
         LambdaQueryWrapper<UserMapping> q = new LambdaQueryWrapper<>();
@@ -122,7 +126,7 @@ public class UserAdminService {
         if (row.getExpiresAt() == null) {
             row.setExpiresAt(existing.getExpiresAt() != null
                     ? existing.getExpiresAt()
-                    : row.getRegisteredAt().plusYears(VOICEPRINT_EXPIRE_YEARS));
+                    : row.getRegisteredAt().plusYears(lifecycleProperties.getExpireYears()));
         }
         if (!row.getExpiresAt().isAfter(row.getRegisteredAt())) {
             throw new BusinessException("expiresAt must be after registeredAt");
@@ -144,12 +148,54 @@ public class UserAdminService {
         Page<UserMapping> raw = userMappingMapper.selectPage(new Page<>(page, size), q);
         List<Integer> userIds = raw.getRecords().stream().map(UserMapping::getUserId).toList();
         Map<Integer, List<Voiceprint>> vpByUser = loadVoiceprintsByUserIds(userIds);
+        Map<String, DashboardGrantEntryDto> grantByFeishuId = loadGrantEntriesByFeishuId();
 
         Page<UserProfileSummaryDto> out = new Page<>(raw.getCurrent(), raw.getSize(), raw.getTotal());
         out.setRecords(raw.getRecords().stream()
-                .map(m -> toProfileSummary(m, vpByUser.getOrDefault(m.getUserId(), List.of())))
+                .map(m -> toProfileSummary(m, vpByUser.getOrDefault(m.getUserId(), List.of()), grantByFeishuId))
                 .toList());
         return out;
+    }
+
+    public DashboardGrantPolicyDto getGrantPolicy() {
+        return dashboardGrantAdminService.getGrantPolicy();
+    }
+
+    public DashboardGrantPolicyDto updateGrantPolicy(DashboardGrantPolicyDto policy) {
+        return dashboardGrantAdminService.updateGrantPolicy(policy);
+    }
+
+    /**
+     * 一键应用前台授权预设。
+     *
+     * @param userId  OA userId
+     * @param preset  BASIC=访问前台+注册声纹；FULL=含建会/结束会
+     */
+    public UserDashboardGrantDto applyQuickDashboardGrant(int userId, String preset) {
+        UserMapping mapping = requireMapping(userId);
+        if (!StringUtils.hasText(mapping.getFeishuUserId())) {
+            throw new BusinessException("一键授权前须先填写 feishu_user_id");
+        }
+        UserDashboardGrantDto grant = buildQuickGrantPreset(preset);
+        syncDashboardGrant(toMappingDto(mapping), grant, mapping.getFeishuUserId());
+        return grant;
+    }
+
+    private UserDashboardGrantDto buildQuickGrantPreset(String preset) {
+        String mode = preset == null ? "BASIC" : preset.trim().toUpperCase();
+        UserDashboardGrantDto grant = new UserDashboardGrantDto();
+        grant.setEnabled(true);
+        grant.setCanRegisterVoiceprint(true);
+        if ("FULL".equals(mode)) {
+            grant.setCanCreateMeeting(true);
+            grant.setCanEndMeeting(true);
+        } else if ("BASIC".equals(mode)) {
+            grant.setCanCreateMeeting(false);
+            grant.setCanEndMeeting(false);
+        } else {
+            throw new BusinessException("未知授权预设: " + preset + "（可用 BASIC / FULL）");
+        }
+        return grant;
     }
 
     public UserProfileDetailDto getProfile(int userId) {
@@ -164,6 +210,7 @@ public class UserAdminService {
         dto.setMapping(toMappingDto(mapping));
         dto.setVoiceprints(voiceprints);
         dto.setPrimaryVoiceprint(voiceprints.isEmpty() ? null : voiceprints.get(0));
+        dto.setDashboardGrant(toUserDashboardGrant(dashboardGrantAdminService.findEntry(mapping.getFeishuUserId())));
         return dto;
     }
 
@@ -178,6 +225,7 @@ public class UserAdminService {
         } else {
             upsertVoiceprintForUser(userId, mapping.getUserName(), mapping.getFeishuUserId(), body.getVoiceprint());
         }
+        syncDashboardGrant(mapping, body.getDashboardGrant(), null);
         return userId;
     }
 
@@ -185,21 +233,119 @@ public class UserAdminService {
         if (body == null || body.getMapping() == null) {
             throw new BusinessException("mapping required");
         }
+        UserMapping existing = requireMapping(userId);
+        String previousFeishuUserId = existing.getFeishuUserId();
         UserMappingDto mapping = body.getMapping();
         mapping.setUserId(userId);
         updateMapping(userId, mapping);
         if (body.isClearVoiceprint()) {
             deleteVoiceprintsByUserId(userId);
-            return;
+        } else {
+            upsertVoiceprintForUser(userId, mapping.getUserName(), mapping.getFeishuUserId(), body.getVoiceprint());
         }
-        upsertVoiceprintForUser(userId, mapping.getUserName(), mapping.getFeishuUserId(), body.getVoiceprint());
+        syncDashboardGrant(mapping, body.getDashboardGrant(), previousFeishuUserId);
     }
 
     public void deleteProfile(int userId) {
+        UserMapping mapping = userMappingMapper.selectById(userId);
+        if (mapping != null && StringUtils.hasText(mapping.getFeishuUserId())) {
+            removeGrantEntryIfExists(mapping.getFeishuUserId());
+        }
         deleteVoiceprintsByUserId(userId);
-        if (userMappingMapper.selectById(userId) != null) {
+        if (mapping != null) {
             userMappingMapper.deleteById(userId);
         }
+    }
+
+    private void syncDashboardGrant(UserMappingDto mapping,
+                                    UserDashboardGrantDto grant,
+                                    String previousFeishuUserId) {
+        if (grant == null) {
+            return;
+        }
+        String feishuUserId = trimToNull(mapping.getFeishuUserId());
+        if (StringUtils.hasText(previousFeishuUserId)
+                && feishuUserId != null
+                && !previousFeishuUserId.equals(feishuUserId)) {
+            removeGrantEntryIfExists(previousFeishuUserId);
+        }
+        if (!StringUtils.hasText(feishuUserId)) {
+            if (grant.isEnabled()) {
+                throw new BusinessException("启用前台授权前须填写 feishu_user_id");
+            }
+            return;
+        }
+        if (!grant.isEnabled()) {
+            removeGrantEntryIfExists(feishuUserId);
+            return;
+        }
+        DashboardGrantEntryDto entry = new DashboardGrantEntryDto();
+        entry.setFeishuUserId(feishuUserId);
+        entry.setUserName(mapping.getUserName());
+        entry.setEnabled(true);
+        entry.setCanCreateMeeting(grant.isCanCreateMeeting());
+        entry.setCanEndMeeting(grant.isCanEndMeeting());
+        entry.setCanRegisterVoiceprint(grant.isCanRegisterVoiceprint());
+        entry.setRemark(trimToNull(grant.getRemark()));
+        if (dashboardGrantAdminService.findEntry(feishuUserId) != null) {
+            dashboardGrantAdminService.updateEntry(entry);
+        } else {
+            dashboardGrantAdminService.addEntry(entry);
+        }
+    }
+
+    private void removeGrantEntryIfExists(String feishuUserId) {
+        if (!StringUtils.hasText(feishuUserId)) {
+            return;
+        }
+        if (dashboardGrantAdminService.findEntry(feishuUserId) != null) {
+            dashboardGrantAdminService.deleteEntry(feishuUserId);
+        }
+    }
+
+    private Map<String, DashboardGrantEntryDto> loadGrantEntriesByFeishuId() {
+        var config = dashboardGrantAdminService.getConfig();
+        Map<String, DashboardGrantEntryDto> map = new HashMap<>();
+        if (config.getEntries() == null) {
+            return map;
+        }
+        for (DashboardGrantEntryDto entry : config.getEntries()) {
+            if (StringUtils.hasText(entry.getFeishuUserId())) {
+                map.put(entry.getFeishuUserId(), entry);
+            }
+        }
+        return map;
+    }
+
+    private UserDashboardGrantDto toUserDashboardGrant(DashboardGrantEntryDto entry) {
+        if (entry == null) {
+            return null;
+        }
+        UserDashboardGrantDto dto = new UserDashboardGrantDto();
+        dto.setEnabled(entry.isEnabled());
+        dto.setCanCreateMeeting(entry.isCanCreateMeeting());
+        dto.setCanEndMeeting(entry.isCanEndMeeting());
+        dto.setCanRegisterVoiceprint(entry.isCanRegisterVoiceprint());
+        dto.setRemark(entry.getRemark());
+        return dto;
+    }
+
+    private void applyGrantSummary(UserProfileSummaryDto dto,
+                                   String feishuUserId,
+                                   Map<String, DashboardGrantEntryDto> grantByFeishuId) {
+        if (!StringUtils.hasText(feishuUserId)) {
+            dto.setDashboardGrantEnabled(false);
+            dto.setDashboardCanCreateMeeting(false);
+            return;
+        }
+        DashboardGrantEntryDto entry = grantByFeishuId.get(feishuUserId);
+        if (entry == null || !entry.isEnabled()) {
+            dto.setDashboardGrantEnabled(false);
+            dto.setDashboardCanCreateMeeting(false);
+            return;
+        }
+        dto.setDashboardGrantEnabled(true);
+        dto.setDashboardCanCreateMeeting(entry.isCanCreateMeeting());
     }
 
     private void applyProfileListFilters(LambdaQueryWrapper<UserMapping> q, String keyword, String expiryFilter) {
@@ -301,12 +447,15 @@ public class UserAdminService {
         }
     }
 
-    private UserProfileSummaryDto toProfileSummary(UserMapping mapping, List<Voiceprint> voiceprints) {
+    private UserProfileSummaryDto toProfileSummary(UserMapping mapping,
+                                                   List<Voiceprint> voiceprints,
+                                                   Map<String, DashboardGrantEntryDto> grantByFeishuId) {
         UserProfileSummaryDto dto = new UserProfileSummaryDto();
         dto.setUserId(mapping.getUserId());
         dto.setUserName(mapping.getUserName());
         dto.setFeishuUserId(mapping.getFeishuUserId());
         dto.setVoiceprintCount(voiceprints.size());
+        applyGrantSummary(dto, mapping.getFeishuUserId(), grantByFeishuId);
         if (voiceprints.isEmpty()) {
             dto.setHasVoiceprint(false);
             return dto;
@@ -389,7 +538,7 @@ public class UserAdminService {
             case "VALID" -> q.gt(Voiceprint::getExpiresAt, now);
             case "EXPIRED" -> q.le(Voiceprint::getExpiresAt, now);
             case "EXPIRING" -> q.gt(Voiceprint::getExpiresAt, now)
-                    .le(Voiceprint::getExpiresAt, now.plusHours(EXPIRING_HOURS));
+                    .le(Voiceprint::getExpiresAt, now.plusHours(lifecycleProperties.getExpiringWarningHours()));
             default -> throw new BusinessException("invalid expiryFilter: " + expiryFilter);
         }
     }
@@ -424,7 +573,7 @@ public class UserAdminService {
             row.setRegisteredAt(LocalDateTime.now());
         }
         if (row.getExpiresAt() == null) {
-            row.setExpiresAt(row.getRegisteredAt().plusYears(VOICEPRINT_EXPIRE_YEARS));
+            row.setExpiresAt(row.getRegisteredAt().plusYears(lifecycleProperties.getExpireYears()));
         }
     }
 
@@ -479,7 +628,7 @@ public class UserAdminService {
         if (!expiresAt.isAfter(now)) {
             return "EXPIRED";
         }
-        if (!expiresAt.isAfter(now.plusHours(EXPIRING_HOURS))) {
+        if (!expiresAt.isAfter(now.plusHours(lifecycleProperties.getExpiringWarningHours()))) {
             return "EXPIRING";
         }
         return "VALID";

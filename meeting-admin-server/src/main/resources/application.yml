@@ -92,12 +92,21 @@ meeting:
   # ----- 调用运行时与其它服务的基址 -----
   runtime:
     # meeting-server 根 URL（触发内部刷新、代理部分 API）
-    meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765/meeting-server}
+    meeting-server-base-url: ${MEETING_SERVER_URL:https://oa.qdyhjz.cn/meeting-server}
     # feishu-scheduled-bot 推送服务
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
     # 调用 meeting-server /api/v1/internal/* 时的 X-Internal-Token
     internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
+
+  api:
+    system-config-audit-limit-max: 100
+    observability-limit-max: 500
+
+  voiceprint:
+    lifecycle:
+      expire-years: 10
+      expiring-warning-hours: 48
 
   oauth:
     feishu:

@@ -1,5 +1,6 @@
 package com.smartmeeting.api.controller;
 
+import com.smartmeeting.config.MeetingVoiceprintRegisterProperties;
 import com.smartmeeting.service.VoiceprintRegisterService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,7 @@ import java.util.Map;
 public class VoiceprintRegisterController {
 
     private final VoiceprintRegisterService registerService;
+    private final MeetingVoiceprintRegisterProperties registerProperties;
 
     /**
      * 声纹注册页面：校验 token 后返回内嵌录音 UI 的 HTML。
@@ -51,6 +53,18 @@ public class VoiceprintRegisterController {
         return ResponseEntity.ok()
             .header("Content-Type", "text/html; charset=UTF-8")
             .body(buildRegisterPage(token, userName));
+    }
+
+    private int registerMinDurationSec() {
+        return registerProperties.getMinDurationSec();
+    }
+
+    private int registerMaxDurationSec() {
+        return registerProperties.getMaxDurationSec();
+    }
+
+    private int registerGatewaySafeBytes() {
+        return registerProperties.getGatewaySafeBytes();
     }
 
     /**
@@ -161,7 +175,10 @@ public class VoiceprintRegisterController {
         html.append("<div class=\"card\">\n");
         html.append("<div class=\"header\"><h1>声纹注册</h1><p>请完整朗读以下三句话（合计约 200 字）</p></div>\n");
         html.append("<div class=\"user-info\"><div class=\"name\">").append(userName).append("</div></div>\n");
-        html.append("<div class=\"tips\"><b>录音提示：</b>建议一次录音 <b>35-90 秒</b>；请在安静环境、距离麦克风 15-30cm、避免中途停顿和环境噪音。超过 90 秒将自动停止并提交。</div>\n");
+        html.append("<div class=\"tips\"><b>录音提示：</b>建议一次录音 <b>")
+                .append(registerMinDurationSec()).append("-").append(registerMaxDurationSec())
+                .append(" 秒</b>；请在安静环境、距离麦克风 15-30cm、避免中途停顿和环境噪音。超过 ")
+                .append(registerMaxDurationSec()).append(" 秒将自动停止并提交。</div>\n");
         html.append("<div class=\"phrases\">\n");
         html.append("1. 我是智能会议系统的正式用户，当前正在进行声纹注册验证，请系统准确记录我此刻的自然发音、语速变化与停顿习惯，以便在真实会议场景中稳定完成说话人识别，减少纪要归属错误并提升协作效率。<br/>\n");
         html.append("2. 在日常会议讨论中，我会围绕项目目标、任务分工、风险评估和时间节点进行连续表达，因此希望本次采集能够覆盖长句、短句与转折句，让模型在不同语境下都能保持一致判断，并在多人交流时快速锁定我的声音特征。<br/>\n");
@@ -170,11 +187,15 @@ public class VoiceprintRegisterController {
         html.append("<button id=\"recordBtn\" class=\"btn btn-start\">开始录音</button>\n");
         html.append("<div id=\"timer\" class=\"timer\" style=\"display:none;\">00:00</div>\n");
         html.append("<div id=\"status\" class=\"status info\" style=\"display:none;\">正在处理...</div>\n");
-        html.append("<p style=\"text-align:center;color:#999;font-size:12px;margin-top:20px;\">建议录音 35-90 秒，注册链接 30 分钟内有效</p>\n");
+        html.append("<p style=\"text-align:center;color:#999;font-size:12px;margin-top:20px;\">建议录音 ")
+                .append(registerMinDurationSec()).append("-").append(registerMaxDurationSec())
+                .append(" 秒，注册链接 30 分钟内有效</p>\n");
         html.append("</div>\n");
         html.append("<script>\n");
         html.append("let mediaRecorder=null,audioChunks=[],startTime=null,timerInterval=null;\n");
-        html.append("const token='" + token + "',MIN_DURATION=35,MAX_DURATION=90,GATEWAY_SAFE_BYTES=900*1024;\n");
+        html.append("const token='" + token + "',MIN_DURATION=" + registerMinDurationSec()
+                + ",MAX_DURATION=" + registerMaxDurationSec()
+                + ",GATEWAY_SAFE_BYTES=" + registerGatewaySafeBytes() + ";\n");
         html.append("const PAGE_BASE=window.location.pathname.replace(/\\/voiceprint$/,'');\n");
         html.append("const REGISTER_API=(PAGE_BASE+'/api/v1/voiceprint/register').replace(/\\/\\/+/, '/');\n");
         html.append("const recordBtn=document.getElementById('recordBtn'),timerDiv=document.getElementById('timer'),statusDiv=document.getElementById('status');\n");
@@ -185,7 +206,7 @@ public class VoiceprintRegisterController {
         html.append("source.buffer=mono;source.connect(oac.destination);source.start(0);const rendered=await oac.startRendering();const pcm=floatTo16BitPCM(rendered.getChannelData(0));return new Blob([pcm],{type:'application/octet-stream'});}\n");
         html.append("function trimPcmForGateway(blob,maxBytes){const safe=Math.max(2,maxBytes-(maxBytes%2));if(blob.size<=safe){return {blob:blob,trimmed:false};}return {blob:blob.slice(0,safe,'application/octet-stream'),trimmed:true};}\n");
         html.append("function showStatus(msg,type){statusDiv.textContent=msg;statusDiv.className='status '+type;statusDiv.style.display='block';}\n");
-        html.append("function updateTimer(){const elapsed=Math.floor((Date.now()-startTime)/1000);timerDiv.textContent=Math.floor(elapsed/60).toString().padStart(2,'0')+':'+(elapsed%60).toString().padStart(2,'0');if(mediaRecorder&&mediaRecorder.state==='recording'&&elapsed>=MAX_DURATION){showStatus('已达到90秒，自动停止并提交...','info');stopRecording();}}\n");
+        html.append("function updateTimer(){const elapsed=Math.floor((Date.now()-startTime)/1000);timerDiv.textContent=Math.floor(elapsed/60).toString().padStart(2,'0')+':'+(elapsed%60).toString().padStart(2,'0');if(mediaRecorder&&mediaRecorder.state==='recording'&&elapsed>=MAX_DURATION){showStatus('已达到'+MAX_DURATION+'秒，自动停止并提交...','info');stopRecording();}}\n");
         html.append("async function startRecording(){\n");
         html.append("try{\n");
         html.append("const stream=await navigator.mediaDevices.getUserMedia({audio:true});\n");
@@ -194,7 +215,7 @@ public class VoiceprintRegisterController {
         html.append("mediaRecorder.onstop=async()=>{\n");
         html.append("clearInterval(timerInterval);\n");
         html.append("const elapsed=(Date.now()-startTime)/1000;\n");
-        html.append("if(elapsed<MIN_DURATION){showStatus('录音时长不足35秒，请完整朗读三句话后再提交','error');recordBtn.className='btn btn-start';recordBtn.textContent='开始录音';timerDiv.style.display='none';return;}\n");
+        html.append("if(elapsed<MIN_DURATION){showStatus('录音时长不足'+MIN_DURATION+'秒，请完整朗读三句话后再提交','error');recordBtn.className='btn btn-start';recordBtn.textContent='开始录音';timerDiv.style.display='none';return;}\n");
         html.append("showStatus('正在处理音频...','info');recordBtn.disabled=true;\n");
         html.append("try{\n");
         html.append("const webmBlob=new Blob(audioChunks,{type:'audio/webm'});\n");

@@ -3,609 +3,77 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>
+    (function () {
+      var p = location.pathname || '';
+      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var base = document.createElement('base');
+      base.href = ctx ? ctx + '/' : '/';
+      document.head.appendChild(base);
+    })();
+  </script>
   <title>智能会议</title>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body.host-page {
-      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-      background: #f0f2f5;
-      color: #1a1a1a;
-      min-height: 100vh;
-      padding: 16px 20px max(20px, env(safe-area-inset-bottom, 0px));
-    }
-    .host-header { margin-bottom: 12px; }
-    .host-header h1 { font-size: 1.25rem; font-weight: 700; color: #111; margin-bottom: 4px; }
-    .host-header .sub { font-size: 14px; color: #555; line-height: 1.4; }
-    .ios-banner { font-size: 13px; color: #856404; background: #fff3cd; border-radius: 8px; padding: 8px 12px; margin-top: 10px; }
-    .err { color: #c62828; font-size: 13px; margin: 8px 0 12px; padding: 8px 12px; background: #ffebee; border-radius: 8px; border: 1px solid #ffcdd2; }
-    .card-light { background: #fff; border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 1px 3px rgba(0,0,0,.06); padding: 14px 16px; }
-    .host-workspace { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: stretch; min-height: calc(100vh - 200px); }
-    .host-col-left { display: flex; flex-direction: column; gap: 12px; min-height: 0; flex: 1; }
-    .host-col-left .card-matter {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      min-height: 0;
-      margin-top: 0;
-    }
-    .host-col-left .card-matter #progressReportBody {
-      flex: 1;
-      min-height: min(420px, calc(100vh - 320px));
-      max-height: none;
-      margin-top: 0;
-    }
-    .host-col-right { min-height: 0; display: flex; flex-direction: column; }
-    .card-agenda-progress { flex-shrink: 0; }
-    .row-primary-right {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      margin-left: auto;
-      flex-shrink: 0;
-    }
-    /* 录音模块：主持栏右上角紧凑角标（离线状态 / 实时字幕 flyout） */
-    .host-recording-widget {
-      position: relative;
-      flex-shrink: 0;
-      max-width: min(200px, 36vw);
-    }
-    .host-recording-chip {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 5px 9px;
-      border-radius: 8px;
-      background: #f7f8fa;
-      border: 1px solid #e0e0e0;
-      box-shadow: 0 1px 2px rgba(0,0,0,.05);
-    }
-    .recording-status-panel { display: flex; flex-direction: column; gap: 0; min-width: 0; }
-    .transcript-panel-hidden { display: none; }
-    .rec-status-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
-    .rec-status-dot {
-      width: 8px; height: 8px; border-radius: 50%; background: #bdbdbd; flex-shrink: 0;
-    }
-    .rec-status-dot.recording { background: #e53935; animation: rec-pulse 1s infinite; }
-    .rec-status-dot.paused { background: #ff9800; }
-    .rec-status-dot.reconnecting { background: #2196f3; animation: rec-pulse 0.5s infinite; }
-    .rec-status-dot.idle, .rec-status-dot.stopped { background: #9e9e9e; }
-    @keyframes rec-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
-    .rec-status-main {
-      font-size: 12px; font-weight: 600; flex: 1; min-width: 0;
-      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    }
-    .rec-status-timer {
-      font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums;
-      letter-spacing: 0.5px; color: #333; flex-shrink: 0;
-    }
-    .rec-status-sub { display: none; }
-    .host-recording-transcript-flyout {
-      position: absolute;
-      top: calc(100% + 6px);
-      right: 0;
-      width: min(340px, calc(100vw - 32px));
-      z-index: 150;
-      background: #fff;
-      border: 1px solid #e0e0e0;
-      border-radius: 10px;
-      box-shadow: 0 8px 24px rgba(0,0,0,.12);
-      padding: 8px;
-    }
-    .host-recording-transcript-label {
-      font-size: 11px; font-weight: 600; color: #757575;
-      margin: 0 0 6px; padding-bottom: 4px; border-bottom: 1px solid #eee;
-    }
-    /* 时间类提醒：固定右下角 */
-    .host-toast-stack {
-      position: fixed;
-      right: 16px;
-      bottom: max(16px, env(safe-area-inset-bottom, 0px));
-      z-index: 200;
-      display: flex;
-      flex-direction: column;
-      align-items: flex-end;
-      gap: 8px;
-      max-width: min(360px, calc(100vw - 32px));
-      pointer-events: none;
-    }
-    .host-toast {
-      pointer-events: auto;
-      padding: 12px 16px;
-      border-radius: 10px;
-      background: #fff;
-      color: #1a237e;
-      font-size: 14px;
-      font-weight: 600;
-      line-height: 1.45;
-      box-shadow: 0 4px 16px rgba(0,0,0,.14);
-      border: 1px solid #90caf9;
-      word-break: break-word;
-      opacity: 1;
-      transition: opacity 0.35s ease;
-    }
-    .host-toast.host-toast-fade { opacity: 0; }
-    .card-avatar { flex-shrink: 0; }
-    .avatar-card-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid #eee; }
-    .avatar-card-top .panel-title { margin-bottom: 0; padding-bottom: 0; border-bottom: none; flex: 1; min-width: 0; }
-    .avatar-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; letter-spacing: .02em; padding: 4px 10px; border-radius: 999px; background: #eceff1; color: #546e7a; border: 1px solid #cfd8dc; }
-    .avatar-badge[data-badge="speaking"] { background: #e8eaf6; color: #3949ab; border-color: #9fa8da; animation: avatar-badge-pulse 1.8s ease-in-out infinite; }
-    @keyframes avatar-badge-pulse { 0%,100%{ box-shadow: 0 0 0 0 rgba(57,73,171,.25);} 50%{ box-shadow: 0 0 0 6px rgba(57,73,171,0);} }
-    .avatar-stage { display: flex; flex-direction: column; align-items: center; padding: 4px 0 0; }
-    /* 单层圆形虚拟主持：一体渐变 + 内阴影，口型仅底部一条，避免多环拼接感 */
-    .avatar-figure {
-      position: relative;
-      width: 152px;
-      height: 152px;
-      border-radius: 50%;
-      flex-shrink: 0;
-      background:
-        radial-gradient(circle at 34% 22%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.14) 22%, transparent 38%),
-        radial-gradient(circle at 50% 118%, rgba(25,118,210,.3) 0%, transparent 50%),
-        linear-gradient(158deg, #eef7fc 0%, #c5e3f6 42%, #64b5f6 88%, #42a5f5 100%);
-      box-shadow:
-        0 4px 16px rgba(25,118,210,.24),
-        inset 0 0 0 1px rgba(255,255,255,.65),
-        inset 0 -26px 52px rgba(13,71,161,.11);
-      transition: box-shadow 0.35s ease;
-    }
-    .avatar-stage[data-state="speaking"] .avatar-figure {
-      animation: avatar-figure-breathe 2s ease-in-out infinite;
-      box-shadow:
-        0 8px 24px rgba(57,73,171,.28),
-        inset 0 0 0 1px rgba(255,255,255,.72),
-        inset 0 -26px 52px rgba(25,118,210,.16),
-        0 0 0 3px rgba(129,212,250,.4);
-    }
-    @keyframes avatar-figure-breathe {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.035); }
-    }
-    .avatar-mouth-slot {
-      position: absolute;
-      left: 50%;
-      bottom: 17%;
-      transform: translateX(-50%);
-      width: 56px;
-      height: 14px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 2;
-    }
-    #avatarMouth {
-      width: 48px;
-      height: 9px;
-      border-radius: 999px;
-      background: linear-gradient(180deg, #5c6bc0, #283593);
-      transform: scaleY(0.35);
-      transform-origin: center center;
-      transition: none;
-      will-change: transform;
-      box-shadow: inset 0 1px 2px rgba(255,255,255,.28), 0 2px 6px rgba(40,53,147,.4);
-    }
-    .avatar-caption {
-      margin-top: 14px; text-align: center; max-width: 100%; font-size: 12px; line-height: 1.5; color: #616161;
-      min-height: 2.8em; padding: 0 6px;
-    }
-    .card-agenda-detail { flex: 1; display: flex; flex-direction: column; min-height: 200px; }
-    .panel-title { font-size: 15px; font-weight: 700; color: #333; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #eee; }
-    .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-    .row-primary { align-items: center; }
-    .row-extend { align-items: center; }
-    .extend-label { font-size: 14px; font-weight: 600; color: #333; white-space: nowrap; }
-    .extend-select {
-      padding: 8px 10px;
-      border: 1px solid #ccc;
-      border-radius: 8px;
-      font-size: 14px;
-      background: #fff;
-      color: #333;
-      min-width: 6.5rem;
-    }
-    .extend-select:disabled { opacity: 0.5; cursor: not-allowed; }
-    button { padding: 9px 14px; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; }
-    .btn-primary { background: #2e7d32; color: #fff; }
-    .btn-primary:hover:not(:disabled) { background: #1b5e20; }
-    .btn-secondary { background: #fff; color: #333; border: 1px solid #ccc; }
-    .btn-secondary:hover:not(:disabled) { background: #f5f5f5; }
-    .btn-danger { background: #c62828; color: #fff; }
-    .btn-danger:hover:not(:disabled) { background: #b71c1c; }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
-    .timers { margin-top: 12px; display: flex; flex-direction: column; gap: 6px; }
-    .timer { font-size: 1.15rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #1565c0; }
-    .current-agenda-panel {
-      margin-bottom: 12px;
-      padding: 12px 14px;
-      border-radius: 10px;
-      border: 1px solid #90caf9;
-      background: linear-gradient(165deg, #e8eaf6 0%, #e3f2fd 100%);
-      flex-shrink: 0;
-    }
-    .current-agenda-panel h3 { font-size: 13px; font-weight: 700; color: #3949ab; margin: 0 0 8px; letter-spacing: 0.02em; }
-    .current-agenda-title { font-size: 15px; font-weight: 700; color: #1a237e; margin: 0 0 4px; line-height: 1.35; }
-    .current-agenda-meta { font-size: 12px; color: #5c6bc0; margin: 0 0 10px; }
-    .current-agenda-detail-body { font-size: 13px; line-height: 1.55; max-height: min(28vh, 220px); overflow-y: auto; }
-    .current-agenda-detail-plain { white-space: pre-wrap; word-break: break-word; color: #333; }
-    .agenda-detail-body { flex: 1; overflow-y: auto; font-size: 14px; line-height: 1.5; min-height: 120px; }
-    .topic { padding: 10px 12px; border-bottom: 1px solid #eee; font-size: 14px; color: #333; border-radius: 8px; margin-bottom: 6px; background: #fafafa; border: 1px solid #eee; }
-    .topic:last-child { margin-bottom: 0; }
-    .topic.PENDING { color: #555; }
-    .topic.RUNNING { color: #1565c0; background: #e3f2fd; border-color: #90caf9; font-weight: 600; }
-    .topic.COMPLETED { color: #2e7d32; text-decoration: line-through; opacity: 0.75; }
-    .topic.SKIPPED { color: #e65100; }
-    .roll-call-wrap { margin-top: 12px; padding-top: 12px; border-top: 1px solid #eee; }
-    .roll-call-wrap h3 { font-size: 14px; font-weight: 700; margin-bottom: 8px; color: #333; }
-    .rc-countdown { font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; color: #6a1b9a; margin: 6px 0 10px; }
-    .rc-list { font-size: 13px; line-height: 1.45; max-height: 200px; overflow-y: auto; }
-    .rc-row { padding: 6px 8px; border-radius: 6px; margin-bottom: 4px; background: #fafafa; border: 1px solid #eee; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-    .rc-row.current { border-color: #ce93d8; background: #f3e5f5; }
-    .rc-row .rc-name { font-weight: 600; color: #333; }
-    .rc-row .rc-st { font-size: 12px; color: #616161; flex-shrink: 0; }
-    .rc-row.ANSWERED .rc-st { color: #2e7d32; }
-    .rc-row.MISSED .rc-st { color: #c62828; }
-    .rc-row.SKIPPED .rc-st { color: #e65100; }
-    .muted { color: #757575; font-size: 13px; line-height: 1.5; }
-    .transcript-inner { flex: 1; min-height: 0; display: flex; flex-direction: column; margin-top: 0; border: 1px solid #e0e0e0; border-radius: 8px; background: #fafafa; overflow: hidden; }
-    /* 实时字幕 flyout：可滚动小窗 */
-    .transcript-host-viewport {
-      flex: none;
-      min-height: 4rem;
-      max-height: min(28vh, 9rem);
-      height: 7rem;
-      overflow-y: auto;
-      overflow-x: hidden;
-      scroll-behavior: smooth;
-      padding: 10px 12px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-    .transcript-line { padding: 8px 0; border-bottom: 1px solid #e8e8e8; }
-    .transcript-line:last-child { border-bottom: none; }
-    .transcript-line.interim .transcript-body { color: #757575; font-style: italic; }
-    .speaker { font-weight: 600; color: #1565c0; }
-    .card-matter { margin-top: 16px; }
-    #progressErr { font-size: 13px; color: #c62828; margin-bottom: 8px; min-height: 0; }
-    #matterProgressCard #progressReportBody { min-height: 200px; }
-    .host-main-doc-body { flex: 1; min-height: 0; overflow-y: auto; }
-    .transcript-box { min-height: 180px; max-height: min(52vh, 520px); overflow-y: auto; font-size: 13px; line-height: 1.55; margin-top: 8px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; background: #fafafa; }
-    .md-body-host { font-size: 14px; line-height: 1.6; color: #333; word-break: break-word; }
-    .md-body-host h1 { font-size: 1.2rem; margin: 10px 0 6px; color: #111; font-weight: 700; }
-    .md-body-host h2 { font-size: 1.05rem; margin: 12px 0 6px; color: #222; font-weight: 600; border-bottom: 1px solid #e0e0e0; padding-bottom: 4px; }
-    .md-body-host h3 { font-size: 1rem; margin: 8px 0 4px; color: #333; font-weight: 600; }
-    .md-body-host p { margin: 6px 0; }
-    .md-body-host ul, .md-body-host ol { margin: 6px 0; padding-left: 1.25rem; }
-    .md-body-host li { margin: 3px 0; }
-    .md-body-host code { background: #eceff1; padding: 1px 5px; border-radius: 4px; font-family: ui-monospace, monospace; font-size: 12px; }
-    .md-body-host pre { background: #fff; padding: 10px; border-radius: 8px; overflow-x: auto; margin: 6px 0; border: 1px solid #e0e0e0; }
-    .md-body-host pre code { background: transparent; padding: 0; }
-    .md-body-host table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 8px 0; }
-    .md-body-host th, .md-body-host td { border: 1px solid #e0e0e0; padding: 6px 4px; text-align: left; }
-    .md-body-host th { background: #f5f5f5; font-weight: 600; }
-    .feishu-doc-view { padding: 14px 16px; background: linear-gradient(180deg, #f8fafc 0%, #fff 48px); border: none; }
-    .feishu-doc-panel { max-width: 100%; }
-    .feishu-kind-badge {
-      display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em;
-      padding: 4px 11px; border-radius: 999px; margin-bottom: 12px;
-    }
-    .feishu-kind-base { background: #e8f5e9; color: #1b5e20; border: 1px solid #a5d6a7; }
-    .feishu-kind-docx { background: #e3f2fd; color: #0d47a1; border: 1px solid #90caf9; }
-    .feishu-kind-wiki { background: #f3e5f5; color: #4a148c; border: 1px solid #ce93d8; }
-    .feishu-kind-unknown { background: #eceff1; color: #455a64; border: 1px solid #cfd8dc; }
-    .feishu-bitable-summary { font-size: 13px; color: #546e7a; margin: 0 0 12px; line-height: 1.5; }
-    .feishu-bitable-scroll {
-      overflow: auto; border-radius: 10px; border: 1px solid #dde3ea;
-      background: #fff; box-shadow: 0 2px 8px rgba(15, 23, 42, .06);
-    }
-    .feishu-bitable-table { width: max-content; min-width: 100%; border-collapse: collapse; font-size: 13px; table-layout: auto; }
-    .feishu-bitable-table th {
-      position: sticky; top: 0; z-index: 1;
-      background: linear-gradient(180deg, #f5f7fa, #eceff1); color: #37474f;
-      font-weight: 600; padding: 10px 12px; text-align: left;
-      border-bottom: 2px solid #cfd8dc; white-space: nowrap;
-    }
-    .feishu-bitable-table th.col-narrow,
-    .feishu-bitable-table td.col-narrow { min-width: 56px; max-width: 96px; }
-    .feishu-bitable-table th.col-medium,
-    .feishu-bitable-table td.col-medium { min-width: 88px; max-width: 160px; }
-    .feishu-bitable-table th.col-wide,
-    .feishu-bitable-table td.col-wide { min-width: 220px; max-width: 520px; }
-    .feishu-bitable-table td {
-      padding: 10px 12px; border-bottom: 1px solid #eef2f6;
-      vertical-align: top; color: #263238; line-height: 1.5;
-      word-break: break-word; white-space: pre-wrap;
-    }
-    .feishu-bitable-table td.cell-truncated { max-height: 8.5em; overflow: hidden; position: relative; }
-    .feishu-bitable-table td.cell-truncated.expanded { max-height: none; }
-    .feishu-bitable-expand {
-      display: inline-block; margin-top: 6px; padding: 0; border: none; background: none;
-      color: #1565c0; font-size: 12px; font-weight: 600; cursor: pointer;
-    }
-    .feishu-bitable-expand:hover { text-decoration: underline; }
-    .weekly-report-block {
-      margin-top: 4px; padding: 16px 18px 14px;
-      background: linear-gradient(180deg, #f8fbff 0%, #fff 40px);
-      border: 1px solid #dbe7f5; border-radius: 12px;
-      box-shadow: 0 2px 10px rgba(21, 101, 192, .06);
-    }
-    .weekly-report-block h4 { font-size: 15px; font-weight: 700; color: #0d47a1; margin: 0 0 10px; }
-    .weekly-report-block .muted { font-size: 12px; margin-bottom: 10px; }
-    .weekly-report-block .feishu-doc-article { padding: 4px 2px 0; }
-    .md-body-host blockquote {
-      margin: 8px 0 12px; padding: 8px 12px; border-left: 4px solid #90caf9;
-      background: #f5f9ff; color: #455a64; font-size: 13px; border-radius: 0 8px 8px 0;
-    }
-    .md-body-host h2.docx-section-cn {
-      margin-top: 18px; padding-bottom: 6px; border-bottom: 2px solid #e3f2fd; color: #1565c0;
-    }
-    .md-body-host h3.docx-status-completed { color: #2e7d32; }
-    .md-body-host h3.docx-status-delayed { color: #c62828; }
-    .md-body-host h3.docx-status-progress { color: #1565c0; }
-    .md-body-host h3.docx-status-completed + ul,
-    .md-body-host h3.docx-status-completed + p + ul {
-      border-left: 4px solid #81c784; padding-left: 1.1rem; background: #f1f8e9; border-radius: 0 8px 8px 0;
-      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
-    }
-    .md-body-host h3.docx-status-delayed + ul,
-    .md-body-host h3.docx-status-delayed + p + ul {
-      border-left: 4px solid #ef5350; padding-left: 1.1rem; background: #ffebee; border-radius: 0 8px 8px 0;
-      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
-    }
-    .md-body-host h3.docx-status-progress + ul,
-    .md-body-host h3.docx-status-progress + p + ul {
-      border-left: 4px solid #64b5f6; padding-left: 1.1rem; background: #e3f2fd; border-radius: 0 8px 8px 0;
-      padding-top: 6px; padding-bottom: 6px; margin-top: 4px;
-    }
-    .md-body-host li { line-height: 1.55; }
-    .md-body-host strong { color: #1a237e; }
-    .feishu-bitable-table tbody tr:nth-child(even) td { background: #fafbfc; }
-    .feishu-bitable-table tbody tr:hover td { background: #e8f4fd; }
-    .feishu-bitable-empty { padding: 28px 16px; text-align: center; color: #90a4ae; font-size: 14px; }
-    .feishu-bitable-table-group {
-      margin-top: 22px; padding-top: 4px;
-      border-top: 2px dashed #b0bec5;
-    }
-    .feishu-bitable-table-group:first-of-type { border-top: none; margin-top: 12px; }
-    .feishu-bitable-table-group-title {
-      font-size: 15px; font-weight: 800; color: #37474f;
-      margin: 0 0 12px; padding: 8px 12px;
-      background: #eceff1; border-radius: 8px; border-left: 4px solid #546e7a;
-    }
-    .feishu-bitable-section { margin-top: 18px; }
-    .feishu-bitable-section:first-of-type { margin-top: 8px; }
-    .feishu-bitable-section-head {
-      display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-      padding: 11px 14px; margin-bottom: 0;
-      font-size: 14px; font-weight: 700; border-radius: 10px 10px 0 0;
-      border: 1px solid transparent; border-bottom: none;
-    }
-    .feishu-bitable-section-recent .feishu-bitable-section-head {
-      background: linear-gradient(90deg, #e3f2fd 0%, #e8f5e9 100%);
-      color: #0d47a1; border-color: #90caf9;
-    }
-    .feishu-bitable-section-recent .feishu-bitable-section-badge::before { content: '近 3 个月'; }
-    .feishu-bitable-section-older { margin-top: 24px; }
-    .feishu-bitable-section-older .feishu-bitable-section-head {
-      background: linear-gradient(90deg, #f5f5f5 0%, #eceff1 100%);
-      color: #546e7a; border-color: #cfd8dc;
-    }
-    .feishu-bitable-section-older .feishu-bitable-section-badge::before { content: '更早'; }
-    .feishu-bitable-section-badge {
-      font-size: 11px; font-weight: 800; letter-spacing: .06em;
-      padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.75);
-    }
-    .feishu-bitable-section-count {
-      margin-left: auto; font-size: 12px; font-weight: 600; opacity: .85;
-    }
-    .feishu-bitable-section .feishu-bitable-scroll,
-    .feishu-bitable-section .feishu-record-cards {
-      border: 1px solid; border-top: none; border-radius: 0 0 10px 10px;
-      padding-top: 4px;
-    }
-    .feishu-bitable-section-recent .feishu-bitable-scroll,
-    .feishu-bitable-section-recent .feishu-record-cards { border-color: #90caf9; background: #fafcff; }
-    .feishu-bitable-section-older .feishu-bitable-scroll,
-    .feishu-bitable-section-older .feishu-record-cards {
-      border-color: #cfd8dc; background: #f8f9fa;
-    }
-    .feishu-bitable-section-older .feishu-bitable-table { opacity: .94; }
-    .feishu-bitable-status-group {
-      margin: 14px 0 0 12px;
-      padding: 0 0 4px 12px;
-      border-left: 4px solid #cfd8dc;
-    }
-    .feishu-bitable-status-group:first-of-type { margin-top: 10px; }
-    .feishu-bitable-status-head {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      margin-bottom: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      color: #37474f;
-    }
-    .feishu-bitable-status-tag {
-      display: inline-block;
-      padding: 2px 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      font-weight: 700;
-      letter-spacing: .02em;
-    }
-    .feishu-bitable-status-completed { border-left-color: #66bb6a; }
-    .feishu-bitable-status-completed .feishu-bitable-status-tag { background: #e8f5e9; color: #2e7d32; }
-    .feishu-bitable-status-delayed { border-left-color: #ef5350; }
-    .feishu-bitable-status-delayed .feishu-bitable-status-tag { background: #ffebee; color: #c62828; }
-    .feishu-bitable-status-in-progress { border-left-color: #42a5f5; }
-    .feishu-bitable-status-in-progress .feishu-bitable-status-tag { background: #e3f2fd; color: #1565c0; }
-    .feishu-bitable-status-count { font-size: 12px; font-weight: 500; color: #78909c; }
-    .feishu-bitable-status-empty {
-      margin: 4px 0 8px 4px;
-      padding: 10px 12px;
-      font-size: 13px;
-      color: #90a4ae;
-      background: #f5f7f8;
-      border-radius: 6px;
-      border: 1px dashed #cfd8dc;
-    }
-    .feishu-bitable-table tbody tr.row-status-done td { background: #f1f8e9; }
-    .feishu-bitable-table tbody tr.row-status-delayed td { background: #ffebee; }
-    .feishu-bitable-table tbody tr.row-status-delayed:hover td { background: #ffcdd2; }
-    .feishu-bitable-table tbody tr.row-status-done-stale td { background: #f5f5f5; color: #757575; }
-    .feishu-bitable-table tbody tr.row-status-pending td { background: #fffde7; }
-    .feishu-bitable-table tbody tr.row-status-progress td { background: #e3f2fd; }
-    .feishu-bitable-table tbody tr.row-status-done:hover td { background: #dcedc8; }
-    .feishu-bitable-table tbody tr.row-status-done-stale:hover td { background: #eeeeee; }
-    .feishu-bitable-table tbody tr.row-status-pending:hover td { background: #fff9c4; }
-    .feishu-bitable-table tbody tr.row-status-progress:hover td { background: #bbdefb; }
-    .feishu-record-cards { display: grid; gap: 12px; }
-    .feishu-record-card {
-      background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
-      padding: 14px 16px; box-shadow: 0 1px 4px rgba(15, 23, 42, .05);
-    }
-    .feishu-record-card h4 { font-size: 12px; color: #78909c; margin: 0 0 10px; font-weight: 700; text-transform: none; }
-    .feishu-field-row {
-      display: grid; grid-template-columns: minmax(96px, 30%) 1fr;
-      gap: 6px 14px; padding: 7px 0; border-bottom: 1px dashed #eceff1; font-size: 13px; align-items: start;
-    }
-    .feishu-field-row:last-child { border-bottom: none; }
-    .feishu-field-label { color: #607d8b; font-weight: 600; line-height: 1.45; }
-    .feishu-field-value { color: #263238; word-break: break-word; line-height: 1.5; }
-    .feishu-field-value-long {
-      max-height: 14em; min-height: 2.5em; overflow-y: auto; overflow-x: hidden;
-      padding: 8px 10px; margin-top: 2px;
-      background: #f8fafc; border: 1px solid #dde3ea; border-radius: 6px;
-      white-space: pre-wrap; word-break: break-word; line-height: 1.55;
-      font-size: 13px; scrollbar-width: thin;
-    }
-    .feishu-field-value-long::-webkit-scrollbar { width: 6px; }
-    .feishu-field-value-long::-webkit-scrollbar-thumb { background: #b0bec5; border-radius: 4px; }
-    .feishu-bitable-table td.cell-long-text { vertical-align: top; padding: 6px 8px; }
-    .feishu-bitable-table td.cell-long-text .feishu-field-value-long { max-height: 10em; }
-    .feishu-doc-article { padding: 2px 4px 8px; }
-    .feishu-doc-plain {
-      white-space: pre-wrap; word-break: break-word; font-size: 13px;
-      line-height: 1.6; color: #37474f; padding: 4px 2px;
-    }
-    .feishu-part-block { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid #e8ecef; }
-    .feishu-part-block:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
-    .local-material-block { width: 100%; }
-    .local-material-gallery { display: flex; flex-direction: column; gap: 14px; width: 100%; }
-    .local-material-figure { margin: 0; width: 100%; }
-    .local-material-figure figcaption { font-size: 13px; color: #666; margin-bottom: 6px; }
-    .local-material-img,
-    .local-doc-embed-img,
-    .local-material-preview img {
-      width: 100%;
-      max-width: 100%;
-      height: auto;
-      max-height: min(560px, calc(100vh - 320px));
-      object-fit: contain;
-      border-radius: 6px;
-      display: block;
-      margin: 8px auto 0;
-      background: #fafafa;
-    }
-    .local-material-file { margin: 8px 0 0; font-size: 14px; }
-    .local-material-preview {
-      margin-top: 10px;
-      padding: 12px 14px;
-      background: #fafafa;
-      border: 1px solid #e8e8e8;
-      border-radius: 6px;
-      max-height: min(560px, calc(100vh - 320px));
-      overflow: auto;
-      font-size: 14px;
-      line-height: 1.7;
-      color: #333;
-      width: 100%;
-    }
-    .local-material-preview.local-doc-preview { white-space: normal; }
-    .local-doc-body p { margin: 0 0 10px; }
-    .local-doc-body p:last-child { margin-bottom: 0; }
-    .local-doc-extra-media { display: flex; flex-direction: column; gap: 12px; margin-top: 8px; }
-    .local-material-loading { margin-top: 8px; font-size: 13px; color: #888; }
-    .local-material-error { margin-top: 8px; font-size: 13px; color: #c62828; }
-    .feishu-fetch-error {
-      background: #fff8e1; border: 1px solid #ffe082; border-radius: 8px;
-      padding: 10px 14px; font-size: 13px; color: #e65100; margin: 8px 0; line-height: 1.5;
-    }
-    .feishu-open-link {
-      display: inline-flex; align-items: center; gap: 4px; margin-top: 10px;
-      font-size: 12px; font-weight: 600; color: #1565c0; text-decoration: none;
-    }
-    .feishu-open-link:hover { text-decoration: underline; }
-    .feishu-link-url {
-      font-size: 12px; color: #607d8b; word-break: break-all;
-      margin: 4px 0 8px; line-height: 1.45;
-    }
-    .feishu-links-only-hint {
-      font-size: 13px; color: #78909c; margin: 0 0 14px; line-height: 1.5;
-    }
-    .feishu-doc-loading {
-      display: flex; align-items: center; gap: 10px; padding: 20px 8px;
-      color: #78909c; font-size: 14px;
-    }
-    .feishu-doc-loading::before {
-      content: ''; width: 18px; height: 18px; border: 2px solid #cfd8dc;
-      border-top-color: #1565c0; border-radius: 50%;
-      animation: feishu-spin 0.7s linear infinite;
-    }
-    @keyframes feishu-spin { to { transform: rotate(360deg); } }
-    @media (max-width: 900px) {
-      .feishu-field-row { grid-template-columns: 1fr; gap: 2px; }
-      .feishu-bitable-table { min-width: 360px; font-size: 12px; }
-      .host-workspace { grid-template-columns: 1fr; min-height: auto; }
-      .host-col-right { order: 3; }
-      .row-primary-right { margin-left: 0; width: 100%; justify-content: flex-end; flex-wrap: wrap; }
-      .host-recording-widget { max-width: 100%; }
-    }
-  </style>
+  <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
+  <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
+  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-20260608-2">
 </head>
 <body class="host-page">
   <header class="host-header">
-    <h1>智能会议 · 会议主页</h1>
+    <div class="host-header-main">
+      <h1 id="meetingTitleH1">加载中…</h1>
+      <span class="ui-badge ui-badge-neutral" id="meetingStatusBadge">未开始</span>
+    </div>
     <p class="sub" id="titleLine">加载中…</p>
-    <p class="ios-banner" id="iosNoticeHost" style="display:none">🍎 iOS：请保持屏幕常亮，勿切换到其他应用</p>
+    <p class="ios-banner ui-banner-warn" id="iosNoticeHost" style="display:none">iOS：请保持屏幕常亮，勿切换到其他应用</p>
   </header>
-  <div class="err" id="err" style="display:none"></div>
+  <div class="err ui-banner-err" id="err" style="display:none"></div>
+  <p class="ios-banner ui-banner-info" id="viewerNotice" style="display:none;background:#e6f4ff;color:#1677ff;border:1px solid #91caff">
+    旁观模式：会序与资料同步更新，操作按钮已隐藏。如需主控请使用操作员链接。
+  </p>
 
   <div class="host-workspace">
     <div class="host-col-left">
+      <div id="currentAgendaPanel" class="current-agenda-panel" style="display:none" aria-live="polite">
+        <h3>当前议程</h3>
+        <p id="currentAgendaTitle" class="current-agenda-title"></p>
+        <p id="currentAgendaMeta" class="current-agenda-meta"></p>
+        <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
+      </div>
       <section class="card-light card-agenda-progress" aria-label="主持模块">
-        <h2 class="panel-title">主持模块 · 议程进度</h2>
-        <div class="row row-primary" style="margin-top:0">
-          <button class="btn-primary" type="button" id="btnStartMeeting">开始会议</button>
-          <button class="btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
-          <button class="btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
-          <div class="row-primary-right">
-            <div class="host-recording-widget" id="hostRecordingWidget" role="region" aria-label="录音模块">
-              <div class="host-recording-chip">
-                <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
-                  <div class="rec-status-row">
-                    <span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
-                    <span class="rec-status-main" id="recStatusMain">未开始</span>
-                    <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
-                  </div>
-                  <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
+        <h2 class="panel-title">会议控制</h2>
+        <div class="control-primary-sticky">
+          <div class="control-primary">
+            <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting">开始会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink" style="display:none">复制旁观链接</button>
+          </div>
+          <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
+            <div class="host-recording-chip">
+              <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
+                <div class="rec-status-row">
+                  <span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
+                  <span class="rec-status-main" id="recStatusMain">未开始</span>
+                  <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
                 </div>
+                <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
               </div>
-              <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
-                <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
-                <div class="transcript-inner" id="transcriptHost">
-                  <div class="transcript-host-viewport" id="transcriptViewport">
-                    <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
-                  </div>
+            </div>
+            <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
+              <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
+              <div class="transcript-inner" id="transcriptHost">
+                <div class="transcript-host-viewport" id="transcriptViewport">
+                  <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
                 </div>
               </div>
             </div>
-            <button class="btn-danger" type="button" id="btnEnd">结束会议</button>
           </div>
         </div>
-        <div class="row">
-          <button class="btn-secondary" type="button" id="btnNext">下一议题</button>
-          <button class="btn-secondary" type="button" id="btnSkip">跳过议题</button>
+        <div class="control-secondary row">
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext">下一议题</button>
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip">跳过议题</button>
         </div>
-        <div class="row row-extend">
+        <div class="control-secondary row row-extend">
           <span class="extend-label" id="extendTopicLabel">议题加时</span>
           <select id="extendMinutesSelect" class="extend-select" disabled aria-labelledby="extendTopicLabel">
             <option value="1" selected>1 分钟</option>
@@ -613,25 +81,31 @@
             <option value="5">5 分钟</option>
             <option value="10">10 分钟</option>
           </select>
-          <button class="btn-secondary" type="button" id="btnExtendTopic" disabled>确认加时</button>
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled>确认加时</button>
         </div>
-        <div class="timers">
-          <div class="timer" id="topicTimer">议题剩余 —:—</div>
-          <div class="timer" id="meetTimer">会议剩余 —:—</div>
+        <div class="timers timers-display">
+          <div class="timer ui-timer" id="topicTimer">议题剩余 —:—</div>
+          <div class="timer ui-timer" id="meetTimer">会议剩余 —:—</div>
+        </div>
+        <div class="control-danger-zone">
+          <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd">结束会议</button>
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
-          <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
+          <details class="ui-help">
+            <summary>检点说明</summary>
+            <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
+          </details>
           <div class="row" style="margin-top:0">
-            <button class="btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
-            <button class="btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
           </div>
           <div class="rc-countdown" id="rollCallCountdown"></div>
           <div class="rc-list" id="rollCallList"></div>
         </div>
       </section>
       <section class="card-light card-matter" id="agendaDocCard" style="display:none" aria-label="会序模块">
-        <h2 class="panel-title" id="agendaDocPanelTitle">会序模块 · 会序参考资料</h2>
+        <h2 class="panel-title" id="agendaDocPanelTitle">当前议题资料</h2>
         <div id="progressErr" style="margin-bottom:8px"></div>
         <p id="agendaDocExternalLink" class="muted" style="font-size:12px;margin-bottom:8px;display:none"></p>
         <div class="transcript-box md-body-host host-main-doc-body" id="progressReportBody"><p class="muted" style="padding:4px 0">当前会序若已配置飞书资料，将在此提供文档链接。</p></div>
@@ -640,7 +114,7 @@
     <aside class="host-col-right">
       <section class="card-light card-avatar" aria-label="主持模块">
         <div class="avatar-card-top">
-          <h2 class="panel-title">主持模块 · 数字人</h2>
+          <h2 class="panel-title">AI 主持</h2>
           <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
         </div>
         <div class="avatar-stage" id="avatarStage" data-state="idle">
@@ -653,13 +127,7 @@
         </div>
       </section>
       <section class="card-light card-agenda-detail" aria-label="会序模块">
-        <h2 class="panel-title">会序模块 · 议程详情</h2>
-        <div id="currentAgendaPanel" class="current-agenda-panel" style="display:none" aria-live="polite">
-          <h3>当前议程</h3>
-          <p id="currentAgendaTitle" class="current-agenda-title"></p>
-          <p id="currentAgendaMeta" class="current-agenda-meta"></p>
-          <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
-        </div>
+        <h2 class="panel-title">议程列表</h2>
         <div id="topics" class="agenda-detail-body"></div>
       </section>
     </aside>
@@ -667,26 +135,72 @@
 
   <div id="hostToastStack" class="host-toast-stack" aria-live="polite" aria-atomic="false"></div>
 
-  <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V；host 内联脚本变更记 sm-20260607-4 -->
-  <script>
-    (function () {
-      var p = location.pathname || '';
-      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
-      var base = document.createElement('base');
-      base.href = ctx ? ctx + '/' : '/';
-      document.head.appendChild(base);
-    })();
-  </script>
+  <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V；host 内联脚本变更记 sm-20260608-2 -->
   <script src="static/meeting-context.js?v=sm-20260525-1"></script>
   <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
-  <script src="static/recorder.js?v=sm-20260607-2"></script>
+  <script src="static/recorder.js?v=sm-20260608-2"></script>
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
       const token = params.get('token');
       const parts = location.pathname.split('/').filter(Boolean);
       const meetingId = parts[parts.length - 1] || '';
+
+      function parseJwtPayload(jwt) {
+        if (!jwt) return {};
+        var seg = jwt.split('.');
+        if (seg.length < 2) return {};
+        try {
+          var json = atob(seg[1].replace(/-/g, '+').replace(/_/g, '/'));
+          return JSON.parse(json);
+        } catch (e) { return {}; }
+      }
+      var tokenClaims = parseJwtPayload(token);
+      var tokenPageType = tokenClaims.type || '';
+      var tokenFeishuUserId = tokenClaims.feishu_user_id || '';
+      var isViewerPath = /\/view\//i.test(location.pathname || '');
+      var readOnlyMode = isViewerPath || tokenPageType === 'viewer';
+      var canOperate = !readOnlyMode;
+
+      function applyReadOnlyUi() {
+        if (!readOnlyMode) return;
+        var notice = document.getElementById('viewerNotice');
+        if (notice) notice.style.display = 'block';
+        ['btnStartMeeting', 'btnPauseMeeting', 'btnResumeMeeting', 'btnEnd',
+          'btnNext', 'btnSkip', 'btnExtendTopic', 'btnRollCallStart', 'btnRollCallSkip',
+          'btnCopyViewerLink'].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) { el.style.display = 'none'; el.disabled = true; }
+        });
+        var extSel = document.getElementById('extendMinutesSelect');
+        if (extSel) extSel.disabled = true;
+        var recWidget = document.getElementById('hostRecordingWidget');
+        if (recWidget) recWidget.style.display = 'none';
+      }
+
+      function syncReadOnlyFromState(obj) {
+        if (readOnlyMode || !obj) return;
+        var opId = obj.operatorFeishuUserId || '';
+        if (!opId || !tokenFeishuUserId) return;
+        if (opId !== tokenFeishuUserId) {
+          readOnlyMode = true;
+          canOperate = false;
+          applyReadOnlyUi();
+          var notice = document.getElementById('viewerNotice');
+          if (notice) {
+            var opName = obj.operatorUserName || '其他操作员';
+            notice.textContent = '旁观模式：当前主控为「' + opName + '」，您仅可同步查看。';
+            notice.style.display = 'block';
+          }
+        }
+      }
+
+      function showCopyViewerLinkButton() {
+        if (readOnlyMode || !canOperate) return;
+        var btn = document.getElementById('btnCopyViewerLink');
+        if (btn) btn.style.display = 'inline-block';
+      }
 
       let recorder = null;
       /** 当前一条「进行中」转写行：同发言人连续 partial 在此行内刷新，定稿后清空以便下一句新开一行。 */
@@ -2594,8 +2108,12 @@
           renderTopicsPreviewFromCache();
           if (rcw) rcw.style.display = 'none';
           updateExtendTopicControls(false);
+          var stOff = meetingStatusFromState(obj, meetingLive);
+          updateMeetingStatusBadge(stOff.label, stOff.tone);
           return;
         }
+        var stOn = meetingStatusFromState(obj, meetingLive);
+        updateMeetingStatusBadge(stOn.label, stOn.tone);
         document.getElementById('topicTimer').textContent = '议题剩余 ' + fmtMs(obj.topicLeftMs);
         document.getElementById('meetTimer').textContent = '会议剩余 ' + fmtMs(obj.meetingLeftMs);
         const topics = obj.topics || [];
@@ -2678,7 +2196,8 @@
           btnRs.disabled = !meetingLive || !rollCallAgendaConfigured || rollCallActive;
           btnRk.disabled = !meetingLive || (phase !== 'OFFLINE_ROLL_CALL' && phase !== 'ACTIVE');
         }
-        updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length);
+        updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length && canOperate);
+        syncReadOnlyFromState(obj);
       }
 
       function setRecordingUiMode(mode) {
@@ -2861,7 +2380,7 @@
           if (j.code !== 0 || !j.data) return;
           var d = j.data;
           if (d.title) {
-            document.getElementById('titleLine').textContent = d.title + ' · ' + pageEntryLabel();
+            updateMeetingHeader(d.title, pageEntryLabel());
           }
           var items = null;
           if (d.hostAgendaItems && d.hostAgendaItems.length) {
@@ -2917,9 +2436,32 @@
 
       function pageEntryLabel() {
         var p = location.pathname || '';
+        if (/\/view\//i.test(p)) return '旁观入口';
         if (/\/rec\//i.test(p)) return '操作员入口';
         if (/\/host\//i.test(p)) return '主持入口';
         return '会议主页';
+      }
+
+      function updateMeetingHeader(title, entryLabel) {
+        var h1 = document.getElementById('meetingTitleH1');
+        if (h1 && title) h1.textContent = title;
+        var sub = document.getElementById('titleLine');
+        if (sub) sub.textContent = entryLabel || pageEntryLabel();
+      }
+
+      function updateMeetingStatusBadge(label, tone) {
+        var badge = document.getElementById('meetingStatusBadge');
+        if (!badge) return;
+        badge.textContent = label || '未开始';
+        badge.className = 'ui-badge ui-badge-' + (tone || 'neutral');
+      }
+
+      function meetingStatusFromState(obj, meetingLiveFlag) {
+        if (readOnlyMode) return { label: '旁观', tone: 'primary' };
+        if (!meetingLiveFlag && !(obj && obj.active)) return { label: '未开始', tone: 'neutral' };
+        if (obj && obj.paused) return { label: '已暂停', tone: 'warning' };
+        if (obj && obj.active) return { label: '进行中', tone: 'success' };
+        return { label: '未开始', tone: 'neutral' };
       }
 
       /** 主持页时间提醒 toast：右下角展示，durationMs 后淡出移除 */
@@ -2944,16 +2486,27 @@
         showErr('缺少 token 或会议 ID');
         return;
       }
+      applyReadOnlyUi();
       var btnStartInit = document.getElementById('btnStartMeeting');
-      btnStartInit.disabled = true;
-      btnStartInit.textContent = '加载中…';
+      if (canOperate) {
+        btnStartInit.disabled = true;
+        btnStartInit.textContent = '加载中…';
+      } else {
+        btnStartInit.style.display = 'none';
+      }
+      if (readOnlyMode) {
+        updateMeetingStatusBadge('旁观', 'primary');
+      }
       document.getElementById('titleLine').textContent =
           pageEntryLabel() + ' · 会议 ID: ' + meetingId.substring(0, 12) + '…';
       prefillHostAgendaFromServer()
         .then(function () { return refreshHostStateFromApi(); })
         .finally(function () {
-          btnStartInit.disabled = false;
-          btnStartInit.textContent = '开始会议';
+          if (canOperate) {
+            btnStartInit.disabled = false;
+            btnStartInit.textContent = '开始会议';
+            showCopyViewerLinkButton();
+          }
         });
       setMeetingPausedUI(false);
       setRecordingUiMode('offline');
@@ -3014,6 +2567,7 @@
       }
 
       document.getElementById('btnStartMeeting').onclick = async function () {
+        if (!canOperate) return;
         showErr('');
         const btn = document.getElementById('btnStartMeeting');
         btn.disabled = true;
@@ -3053,6 +2607,7 @@
           }
           meetingLive = true;
           renderHostState(st);
+          showCopyViewerLinkButton();
           startHostStatePoll();
           setMeetingPausedUI(false);
           btn.textContent = '会议进行中';
@@ -3136,6 +2691,28 @@
         try { renderHostState(await hostApi('/roll-call/skip-current', { method: 'POST' })); } catch (e) { showErr(e.message); }
       };
 
+      document.getElementById('btnCopyViewerLink').onclick = async function () {
+        if (!canOperate) return;
+        showErr('');
+        try {
+          var res = await fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/viewer-page-url'), {
+            headers: authHeader()
+          });
+          var j = await res.json();
+          if (!res.ok || j.code !== 0) throw new Error(j.message || '获取旁观链接失败');
+          var url = j.data && j.data.viewerUrl;
+          if (!url) throw new Error('未返回旁观链接');
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(url);
+            showHostToast('旁观链接已复制到剪贴板', 2500);
+          } else {
+            prompt('请复制旁观链接：', url);
+          }
+        } catch (e) {
+          showErr(e.message || String(e));
+        }
+      };
+
       document.getElementById('btnEnd').onclick = async function () {
         if (!confirm('确定结束会议并生成纪要？')) return;
         showErr('');
@@ -3165,7 +2742,7 @@
           document.getElementById('btnEnd').disabled = true;
           setMeetingPausedUI(false);
           updateExtendTopicControls(false);
-          alert('会议已结束：' + (j.data && j.data.status ? j.data.status : 'ok'));
+          showHostToast('会议已结束' + (j.data && j.data.status ? '（' + j.data.status + '）' : ''), 4000);
         } catch (e) {
           showErr(e.message || String(e));
           endBtn.disabled = false;

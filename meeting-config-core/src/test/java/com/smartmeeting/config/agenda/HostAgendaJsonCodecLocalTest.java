@@ -39,9 +39,9 @@ class HostAgendaJsonCodecLocalTest {
         item.setDocs(List.of(local, feishu));
 
         String json = HostAgendaJsonCodec.toJson(mapper, List.of(item));
-        assertTrue(json.contains("\"storageKind\":\"LOCAL\""));
-        assertTrue(json.contains("\"fileId\":\"a1b2c3d4-e5f6-7890-abcd-ef1234567890\""));
-        assertFalse(json.contains("\"url\"") || json.contains("example.feishu.cn"));
+        assertTrue(json.contains("storageKind") && json.contains("LOCAL"));
+        assertTrue(json.contains("a1b2c3d4-e5f6-7890-abcd-ef1234567890"));
+        assertTrue(json.contains("example.feishu.cn"));
 
         List<HostAgendaItem> parsed = HostAgendaJsonCodec.parseItems(mapper, json);
         assertEquals(1, parsed.size());

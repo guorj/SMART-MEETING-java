@@ -4,6 +4,8 @@ import com.smartmeeting.config.system.ConfigValueType;
 import com.smartmeeting.config.system.SystemConfigDescriptor;
 import org.springframework.stereotype.Component;
 
+import java.util.Optional;
+
 @Component
 public class HostTtsEnabledDescriptor implements SystemConfigDescriptor {
 
@@ -35,5 +37,10 @@ public class HostTtsEnabledDescriptor implements SystemConfigDescriptor {
     @Override
     public String description() {
         return "主持 TTS 播报";
+    }
+
+    @Override
+    public Optional<String> parentKey() {
+        return Optional.of("meeting.host.enabled");
     }
 }

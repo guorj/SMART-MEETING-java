@@ -2,6 +2,7 @@ package com.smartmeeting.admin.api.controller;
 
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.smartmeeting.admin.api.dto.ApiResponse;
+import com.smartmeeting.admin.api.dto.DashboardGrantPolicyDto;
 import com.smartmeeting.admin.api.dto.UserMappingDto;
 import com.smartmeeting.admin.api.dto.UserProfileDetailDto;
 import com.smartmeeting.admin.api.dto.UserProfileSaveDto;
@@ -28,6 +29,27 @@ public class UserAdminController {
             @RequestParam(required = false) String keyword,
             @RequestParam(required = false, defaultValue = "ALL") String expiryFilter) {
         return ApiResponse.ok(userAdminService.listProfiles(page, size, keyword, expiryFilter));
+    }
+
+    /** 前台授权全局策略：defaultDeny */
+    @GetMapping("/grant-policy")
+    public ApiResponse<DashboardGrantPolicyDto> getGrantPolicy() {
+        return ApiResponse.ok(userAdminService.getGrantPolicy());
+    }
+
+    @PutMapping("/grant-policy")
+    public ApiResponse<DashboardGrantPolicyDto> updateGrantPolicy(@RequestBody DashboardGrantPolicyDto body) {
+        return ApiResponse.ok(userAdminService.updateGrantPolicy(body));
+    }
+
+    /**
+     * 一键前台授权：BASIC=访问前台+注册声纹；FULL=额外含建会/结束会。
+     */
+    @PostMapping("/{userId}/dashboard-grant/quick")
+    public ApiResponse<com.smartmeeting.admin.api.dto.UserDashboardGrantDto> quickDashboardGrant(
+            @PathVariable int userId,
+            @RequestParam(defaultValue = "BASIC") String preset) {
+        return ApiResponse.ok(userAdminService.applyQuickDashboardGrant(userId, preset));
     }
 
     @GetMapping("/{userId}")

@@ -1,6 +1,7 @@
 package com.smartmeeting.scheduled;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.smartmeeting.config.MeetingSchedulerProperties;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.PipelineStepExecution;
 import com.smartmeeting.entity.PipelineTemplate;
@@ -10,7 +11,6 @@ import com.smartmeeting.repository.PipelineStepExecutionMapper;
 import com.smartmeeting.repository.PipelineTemplateMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -29,26 +29,15 @@ public class MeetingScheduler {
     private final PipelineStepExecutionMapper executionMapper;
     private final PipelineTemplateMapper templateMapper;
     private final PipelineStepDispatcher dispatcher;
-
-    @Value("${meeting.scheduler.pre-enabled:true}")
-    private boolean preEnabled;
-
-    @Value("${meeting.scheduler.pre-window-minutes:5}")
-    private int preWindowMinutes;
-
-    @Value("${meeting.scheduler.pre-24h-template-code:}")
-    private String pre24hTemplateCode;
-
-    @Value("${meeting.scheduler.pre-10m-template-code:}")
-    private String pre10mTemplateCode;
+    private final MeetingSchedulerProperties schedulerProperties;
 
     @Scheduled(fixedDelayString = "${meeting.scheduler.scan-ms:300000}")
     public void triggerPreStage() {
-        if (!preEnabled) {
+        if (!schedulerProperties.isPreEnabled()) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
-        int window = Math.max(1, preWindowMinutes);
+        int window = Math.max(1, schedulerProperties.getPreWindowMinutes());
         LocalDateTime upper = now.plusHours(24).plusMinutes(window);
         List<Meeting> meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
                 .isNotNull(Meeting::getScheduledTime)
@@ -57,18 +46,18 @@ public class MeetingScheduler {
                 .last("LIMIT 200"));
         for (Meeting meeting : meetings) {
             // 兼容旧配置：未提供双时点模板时，沿用“会前 24h 单次触发 PRE”
-            if ((pre24hTemplateCode == null || pre24hTemplateCode.isBlank())
-                    && (pre10mTemplateCode == null || pre10mTemplateCode.isBlank())) {
+            if ((schedulerProperties.getPre24hTemplateCode() == null || schedulerProperties.getPre24hTemplateCode().isBlank())
+                    && (schedulerProperties.getPre10mTemplateCode() == null || schedulerProperties.getPre10mTemplateCode().isBlank())) {
                 if (!alreadyTriggeredPre(meeting.getId())) {
                     triggerPreTemplate(meeting.getId(), null);
                 }
                 continue;
             }
             if (shouldTriggerAt(now, meeting.getScheduledTime().minusHours(24), window)) {
-                triggerPreTemplate(meeting.getId(), safeTrim(pre24hTemplateCode));
+                triggerPreTemplate(meeting.getId(), safeTrim(schedulerProperties.getPre24hTemplateCode()));
             }
             if (shouldTriggerAt(now, meeting.getScheduledTime().minusMinutes(10), window)) {
-                triggerPreTemplate(meeting.getId(), safeTrim(pre10mTemplateCode));
+                triggerPreTemplate(meeting.getId(), safeTrim(schedulerProperties.getPre10mTemplateCode()));
             }
         }
     }

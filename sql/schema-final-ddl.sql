@@ -40,8 +40,8 @@ CREATE TABLE IF NOT EXISTS int_meeting (
     audio_path           VARCHAR(500) NULL     COMMENT '音频本地路径',
     doc_url              VARCHAR(500) NULL     COMMENT '飞书纪要文档URL',
     doc_token            VARCHAR(100) NULL     COMMENT '飞书文档token',
-    recording_url        VARCHAR(500) NULL     COMMENT '录音页面URL',
-    recording_token      VARCHAR(500) NULL     COMMENT '录音页面JWT',
+    recording_url        VARCHAR(500) NULL     COMMENT '历史完整URL（已废弃写入，仅只读兼容）',
+    recording_token      VARCHAR(2048) NULL    COMMENT '录音页面JWT（持久化token，URL由base-url动态拼接）',
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 

@@ -2,21 +2,26 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.event.DomainEventPublisher;
 import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.model.OfflineAsrMessage;
+import com.smartmeeting.model.OfflineTranscribeRequest;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
@@ -28,6 +33,8 @@ class OfflineAsrServiceTest {
 
     @Mock
     private MeetingMapper meetingMapper;
+    @Mock
+    private ParticipantMapper participantMapper;
     @Mock
     private MeetingAudioMaterializerService meetingAudioMaterializerService;
     @Mock
@@ -47,6 +54,7 @@ class OfflineAsrServiceTest {
         minuteProperties = new MeetingMinuteProperties();
         service = new OfflineAsrService(
                 meetingMapper,
+                participantMapper,
                 meetingAudioMaterializerService,
                 correctionService,
                 minuteProperties,
@@ -56,10 +64,11 @@ class OfflineAsrServiceTest {
     }
 
     @Test
-    @DisplayName("离线完成后 minute=true 时发布 MeetingEndedEvent")
+    @DisplayName("离线完成后 minute=true 时发布 MeetingEndedEvent 并传递 featureIds")
     void afterOffline_minuteEnabled_publishesMinuteEvent() {
         minuteProperties.setGenerationEnabled(true);
         Meeting meeting = stubMeeting();
+        stubParticipants();
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
 
@@ -71,7 +80,9 @@ class OfflineAsrServiceTest {
                 .build();
         service.process(message);
 
-        verify(correctionService).correct(MEETING_ID, "/tmp/a.pcm");
+        ArgumentCaptor<OfflineTranscribeRequest> captor = ArgumentCaptor.forClass(OfflineTranscribeRequest.class);
+        verify(correctionService).correct(captor.capture());
+        assertThat(captor.getValue().getFeatureIds()).containsExactly("f1");
         verify(domainEventPublisher).publish(any(MeetingEndedEvent.class));
         verify(meetingStateMachineService, never()).apply(eq(MEETING_ID), any());
         verify(meetingMapper, never()).updateById(meeting);
@@ -82,6 +93,7 @@ class OfflineAsrServiceTest {
     void afterOffline_minuteDisabled_completesMeeting() {
         minuteProperties.setGenerationEnabled(false);
         Meeting meeting = stubMeeting();
+        stubParticipants();
         when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(true);
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
@@ -102,6 +114,7 @@ class OfflineAsrServiceTest {
     void afterOffline_noSegments_keepsProcessing() {
         minuteProperties.setGenerationEnabled(false);
         stubMeeting();
+        stubParticipants();
         when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(false);
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
@@ -122,5 +135,11 @@ class OfflineAsrServiceTest {
         meeting.setStatus(MeetingStatus.PROCESSING.name());
         when(meetingMapper.selectById(MEETING_ID)).thenReturn(meeting);
         return meeting;
+    }
+
+    private void stubParticipants() {
+        Participant p = new Participant();
+        p.setFeatureId("f1");
+        when(participantMapper.selectList(any())).thenReturn(List.of(p));
     }
 }

@@ -2,6 +2,7 @@ package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.asr.XfyunIsvClient;
+import com.smartmeeting.config.MeetingAudioProperties;
 import com.smartmeeting.asr.XfyunIsvClient.VoiceprintMember;
 import com.smartmeeting.entity.Participant;
 import com.smartmeeting.entity.TranscriptSegment;
@@ -36,6 +37,7 @@ public class VoiceprintService {
     private final ParticipantMapper participantMapper;
     private final TranscriptMapper transcriptMapper;
     private final RedisTemplate<String, String> redisTemplate;
+    private final MeetingAudioProperties audioProperties;
 
     /**
      * @param isvClient           讯飞 ISV 客户端
@@ -43,19 +45,21 @@ public class VoiceprintService {
      * @param participantMapper   参会人
      * @param transcriptMapper    转写分段
      * @param redisTemplate       可选 Redis 缓存（未注入时跳过缓存）
+     * @param audioProperties     PCM 缓存保留时长等基础设施配置
      */
     public VoiceprintService(XfyunIsvClient isvClient, VoiceprintMapper voiceprintMapper,
                              ParticipantMapper participantMapper, TranscriptMapper transcriptMapper,
-                             @org.springframework.beans.factory.annotation.Autowired(required = false) RedisTemplate<String, String> redisTemplate) {
+                             @org.springframework.beans.factory.annotation.Autowired(required = false) RedisTemplate<String, String> redisTemplate,
+                             MeetingAudioProperties audioProperties) {
         this.isvClient = isvClient;
         this.voiceprintMapper = voiceprintMapper;
         this.participantMapper = participantMapper;
         this.transcriptMapper = transcriptMapper;
         this.redisTemplate = redisTemplate;
+        this.audioProperties = audioProperties;
     }
 
     private static final String CACHE_KEY_PREFIX = "voiceprint:feature:";
-    private static final long CACHE_EXPIRE_HOURS = 72;
 
     /**
      * 注册用户声纹
@@ -92,7 +96,7 @@ public class VoiceprintService {
         // 缓存到 Redis（如果可用）
         if (redisTemplate != null) {
             String cacheKey = CACHE_KEY_PREFIX + userId;
-            redisTemplate.opsForValue().set(cacheKey, featureId, CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
+            redisTemplate.opsForValue().set(cacheKey, featureId, audioProperties.getCacheRetentionHours(), TimeUnit.HOURS);
         }
 
         log.info("Voiceprint registered and saved: userId={}, featureId={}", userId, featureId);
@@ -118,6 +122,18 @@ public class VoiceprintService {
             return "speaker_unknown";
         }
         return featureId;
+    }
+
+    /**
+     * 全库 ISV 1:N 识别，返回 featureId 与 score（不按参会人白名单过滤）。
+     */
+    public Optional<XfyunIsvClient.IdentifyResult> identifyAmongCandidates(byte[] audioSegment,
+                                                                           Collection<String> candidateFeatureIds,
+                                                                           int topK) {
+        if (audioSegment == null || audioSegment.length == 0) {
+            return Optional.empty();
+        }
+        return isvClient.identifyAmongCandidates(audioSegment, candidateFeatureIds, topK);
     }
 
     /**
@@ -269,7 +285,7 @@ public class VoiceprintService {
         if (vp != null) {
             // 回写缓存
             if (redisTemplate != null) {
-                redisTemplate.opsForValue().set(cacheKey, vp.getFeatureId(), CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
+                redisTemplate.opsForValue().set(cacheKey, vp.getFeatureId(), audioProperties.getCacheRetentionHours(), TimeUnit.HOURS);
             }
             return true;
         }
@@ -286,7 +302,7 @@ public class VoiceprintService {
         for (VoiceprintMember member : members) {
             String cacheKey = CACHE_KEY_PREFIX + member.userId;
             if (redisTemplate != null) {
-                redisTemplate.opsForValue().set(cacheKey, member.featureId, CACHE_EXPIRE_HOURS, TimeUnit.HOURS);
+                redisTemplate.opsForValue().set(cacheKey, member.featureId, audioProperties.getCacheRetentionHours(), TimeUnit.HOURS);
             }
         }
 

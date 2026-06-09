@@ -9,6 +9,8 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.config.MeetingHostRuntimeProperties;
+import com.smartmeeting.config.MeetingAudioProperties;
 import com.smartmeeting.config.MeetingRuntimeConfig;
 import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
@@ -66,7 +68,9 @@ class MeetingHostRollCallAgendaGateTest {
                 hostWebSocketHandler,
                 ttsSynthesizeService,
                 new ObjectMapper(),
-                runtimeConfig);
+                runtimeConfig,
+                new MeetingHostRuntimeProperties(),
+                new MeetingAudioProperties());
     }
 
     private HostStartRequest agendaWithoutRollCall() {

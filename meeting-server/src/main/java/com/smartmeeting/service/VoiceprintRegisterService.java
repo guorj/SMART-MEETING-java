@@ -2,6 +2,8 @@ package com.smartmeeting.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.asr.XfyunIsvClient;
+import com.smartmeeting.config.MeetingSessionProperties;
+import com.smartmeeting.config.MeetingVoiceprintLifecycleProperties;
 import com.smartmeeting.entity.UserMapping;
 import com.smartmeeting.entity.Voiceprint;
 import com.smartmeeting.repository.UserMappingMapper;
@@ -26,11 +28,10 @@ public class VoiceprintRegisterService {
     private final XfyunIsvClient isvClient;
     private final VoiceprintMapper voiceprintMapper;
     private final UserMappingMapper userMappingMapper;
+    private final MeetingSessionProperties sessionProperties;
+    private final MeetingVoiceprintLifecycleProperties lifecycleProperties;
 
     private final Map<String, RegisterSession> pendingSessions = new ConcurrentHashMap<>();
-
-    private static final int SESSION_EXPIRE_MINUTES = 30;
-    private static final int VOICEPRINT_EXPIRE_YEARS = 10;
 
     public void createRegisterSession(String token, String feishuUserId, String userName) {
         pendingSessions.entrySet().removeIf(e ->
@@ -51,7 +52,7 @@ public class VoiceprintRegisterService {
         if (session == null) {
             return null;
         }
-        if (session.getCreatedAt().plusMinutes(SESSION_EXPIRE_MINUTES)
+        if (session.getCreatedAt().plusMinutes(sessionProperties.getFeishuStartPendingTtlMinutes())
                 .isBefore(LocalDateTime.now())) {
             pendingSessions.remove(token);
             log.warn("注册session已过期: token={}", token);
@@ -113,7 +114,7 @@ public class VoiceprintRegisterService {
         target.setFeatureId(featureId);
         target.setGroupId(isvClient.getGroupId());
         target.setRegisteredAt(LocalDateTime.now());
-        target.setExpiresAt(LocalDateTime.now().plusYears(VOICEPRINT_EXPIRE_YEARS));
+        target.setExpiresAt(LocalDateTime.now().plusYears(lifecycleProperties.getExpireYears()));
 
         try {
             if (hadExisting) {

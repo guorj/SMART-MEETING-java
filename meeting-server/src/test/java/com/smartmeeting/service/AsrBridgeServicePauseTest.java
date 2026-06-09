@@ -1,7 +1,7 @@
 package com.smartmeeting.service;
 
 import com.smartmeeting.api.config.AudioWebSocketHandler;
-import com.smartmeeting.asr.XfyunRealtimeClient;
+import com.smartmeeting.asr.XfyunRealtimeSessionPool;
 import com.smartmeeting.config.MeetingAsrProperties;
 import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.service.host.MeetingHostSessionService;
@@ -13,6 +13,9 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 /**
@@ -22,7 +25,7 @@ import static org.mockito.Mockito.*;
 class AsrBridgeServicePauseTest {
 
     @Mock
-    private XfyunRealtimeClient xfyunClient;
+    private XfyunRealtimeSessionPool asrSessionPool;
     @Mock
     private AudioWebSocketHandler audioWebSocketHandler;
     @Mock
@@ -42,7 +45,7 @@ class AsrBridgeServicePauseTest {
         asrProperties = new MeetingAsrProperties();
         asrProperties.setRealtimeEnabled(true);
         service = new AsrBridgeService(
-                xfyunClient,
+                asrSessionPool,
                 audioWebSocketHandler,
                 audioCacheService,
                 transcriptMapper,
@@ -55,34 +58,33 @@ class AsrBridgeServicePauseTest {
     @Test
     @DisplayName("suspendRealtimeAsr：end 后 disconnect")
     void suspendRealtimeAsr_disconnects() {
-        when(xfyunClient.isConnected()).thenReturn(true);
-        when(xfyunClient.getCurrentMeetingId()).thenReturn("m-1");
+        when(asrSessionPool.isActiveForMeeting("m-1")).thenReturn(true);
 
         service.suspendRealtimeAsr("m-1");
 
-        verify(xfyunClient).end();
-        verify(xfyunClient).disconnect();
+        verify(asrSessionPool).end("m-1");
+        verify(asrSessionPool).disconnect("m-1");
     }
 
     @Test
     @DisplayName("resumeRealtimeAsr：未连接时 start")
     void resumeRealtimeAsr_startsWhenInactive() {
-        when(xfyunClient.isConnected()).thenReturn(false);
-        when(xfyunClient.connect("m-2")).thenReturn(true);
+        when(asrSessionPool.isActiveForMeeting("m-2")).thenReturn(false);
+        when(asrSessionPool.connect(eq("m-2"), any())).thenReturn(true);
 
         boolean ok = service.resumeRealtimeAsr("m-2");
 
-        verify(xfyunClient).connect("m-2");
-        org.junit.jupiter.api.Assertions.assertTrue(ok);
+        verify(asrSessionPool).connect(eq("m-2"), any());
+        assertTrue(ok);
     }
 
     @Test
     @DisplayName("isAsrActiveForMeeting：匹配当前会议")
     void isAsrActiveForMeeting() {
-        when(xfyunClient.isConnected()).thenReturn(true);
-        when(xfyunClient.getCurrentMeetingId()).thenReturn("m-3");
+        when(asrSessionPool.isActiveForMeeting("m-3")).thenReturn(true);
+        when(asrSessionPool.isActiveForMeeting("other")).thenReturn(false);
 
-        org.junit.jupiter.api.Assertions.assertTrue(service.isAsrActiveForMeeting("m-3"));
-        org.junit.jupiter.api.Assertions.assertFalse(service.isAsrActiveForMeeting("other"));
+        assertTrue(service.isAsrActiveForMeeting("m-3"));
+        assertFalse(service.isAsrActiveForMeeting("other"));
     }
 }

@@ -47,6 +47,8 @@ public class JwtUtil {
     public static final String TYPE_HOST = "host";
     /** 页面类型：个人入会页 */
     public static final String TYPE_JOIN = "join";
+    /** 页面类型：旁观（只读同步，不推流） */
+    public static final String TYPE_VIEWER = "viewer";
     /** JWT claim 键：参会人用户 ID */
     public static final String CLAIM_USER_ID = "user_id";
     /** JWT claim 键：参会人展示姓名 */
@@ -245,11 +247,46 @@ public class JwtUtil {
      * @return 操作员 JWT
      */
     public String generateOperatorMeetingToken(String meetingId, String pageType) {
+        return generateOperatorMeetingToken(meetingId, pageType, null, null);
+    }
+
+    /**
+     * 生成会议室操作员令牌（含飞书 user_id，供主控占用识别）。
+     *
+     * @param meetingId    会议 ID
+     * @param pageType     页面类型 recording/host
+     * @param feishuUserId 飞书 user_id（可选）
+     * @param displayName  用户姓名（可选，展示用）
+     * @return 操作员 JWT
+     */
+    public String generateOperatorMeetingToken(String meetingId, String pageType,
+                                             String feishuUserId, String displayName) {
         Map<String, Object> claims = new HashMap<>();
         claims.put(CLAIM_MEETING_ID, meetingId);
         claims.put(CLAIM_TYPE, pageType != null ? pageType : TYPE_HOST);
         claims.put(CLAIM_CAN_PUSH_AUDIO, true);
         claims.put(CLAIM_ATTENDANCE_MODE, "OFFLINE");
+        if (feishuUserId != null && !feishuUserId.isBlank()) {
+            claims.put(CLAIM_FEISHU_USER_ID, feishuUserId);
+        }
+        if (displayName != null && !displayName.isBlank()) {
+            claims.put(CLAIM_DISPLAY_NAME, displayName);
+        }
+        return generateToken(meetingId, claims);
+    }
+
+    /**
+     * 生成旁观页 JWT：只读 state + agenda-doc-content，禁止推流与写操作。
+     *
+     * @param meetingId 会议 ID
+     * @return 旁观 JWT
+     */
+    public String generateViewerMeetingToken(String meetingId) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put(CLAIM_MEETING_ID, meetingId);
+        claims.put(CLAIM_TYPE, TYPE_VIEWER);
+        claims.put(CLAIM_CAN_PUSH_AUDIO, false);
+        claims.put(CLAIM_ATTENDANCE_MODE, "ONLINE");
         return generateToken(meetingId, claims);
     }
 
@@ -286,6 +323,7 @@ public class JwtUtil {
             String meetingId,
             String userId,
             String displayName,
+            String feishuUserId,
             String attendanceMode,
             boolean canPushAudio,
             String pageType
@@ -309,10 +347,12 @@ public class JwtUtil {
         }
         String resolvedMeetingId = mid != null && !mid.isBlank() ? mid : sub;
         Boolean canPush = c.get(CLAIM_CAN_PUSH_AUDIO, Boolean.class);
+        String feishuUid = c.get(CLAIM_FEISHU_USER_ID, String.class);
         return new ParticipantMeetingToken(
                 resolvedMeetingId,
                 c.get(CLAIM_USER_ID, String.class),
                 c.get(CLAIM_DISPLAY_NAME, String.class),
+                feishuUid,
                 c.get(CLAIM_ATTENDANCE_MODE, String.class),
                 canPush == null || canPush,
                 c.get(CLAIM_TYPE, String.class)
@@ -322,7 +362,7 @@ public class JwtUtil {
     /**
      * 校验任意有效会议页令牌（含个人入会链接，只读场景）。
      *
-     * <p>{@code type} 仅允许 {@link #TYPE_RECORDING}、{@link #TYPE_HOST}、{@link #TYPE_JOIN}；
+     * <p>{@code type} 允许 {@link #TYPE_RECORDING}、{@link #TYPE_HOST}、{@link #TYPE_JOIN}、{@link #TYPE_VIEWER}；
      * 缺省或其它值（如 admin）拒绝。
      *
      * @param token     JWT 字符串
@@ -335,9 +375,18 @@ public class JwtUtil {
         if (pageType != null && !pageType.isBlank()
                 && !TYPE_RECORDING.equals(pageType)
                 && !TYPE_HOST.equals(pageType)
-                && !TYPE_JOIN.equals(pageType)) {
+                && !TYPE_JOIN.equals(pageType)
+                && !TYPE_VIEWER.equals(pageType)) {
             throw new BusinessException(403, "令牌类型不允许访问该页面");
         }
+    }
+
+    /**
+     * 是否为旁观只读令牌。
+     */
+    public boolean isViewerToken(String token, String meetingId) {
+        ParticipantMeetingToken t = parseParticipantMeetingToken(token, meetingId);
+        return TYPE_VIEWER.equals(t.pageType());
     }
 
     /**
@@ -349,6 +398,9 @@ public class JwtUtil {
      */
     public void verifyHostOperatorToken(String token, String meetingId) {
         ParticipantMeetingToken t = parseParticipantMeetingToken(token, meetingId);
+        if (TYPE_VIEWER.equals(t.pageType())) {
+            throw new BusinessException(403, "旁观链接仅只读，不能操作主持或录音");
+        }
         if (TYPE_JOIN.equals(t.pageType())) {
             throw new BusinessException(403, "个人入会链接仅用于到场确认，不能操作主持或录音");
         }

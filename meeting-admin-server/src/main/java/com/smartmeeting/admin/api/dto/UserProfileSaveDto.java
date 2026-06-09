@@ -9,4 +9,6 @@ public class UserProfileSaveDto {
     private VoiceprintDto voiceprint;
     /** 为 true 时删除该用户全部声纹（保存映射后执行） */
     private boolean clearVoiceprint;
+    /** 前台授权；null 表示不修改授权状态 */
+    private UserDashboardGrantDto dashboardGrant;
 }

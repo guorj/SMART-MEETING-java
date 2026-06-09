@@ -25,4 +25,35 @@ public class MeetingAsrProperties {
      * 会议结束时独立触发，不依赖 meeting.minute.generation-enabled；有实时定稿分段时跳过。
      */
     private boolean offlineEnabled = true;
+
+    /** 离线 IST 是否开启说话人分离（false 时 roleType=0）。 */
+    private boolean offlineRoleEnabled = true;
+
+    /**
+     * 离线 IST 角色分离模式：auto（≥2 声纹用 roleType=3，否则 1）、blind（1）、voiceprint（3，不足则回退 1）。
+     */
+    private String offlineRoleMode = "auto";
+
+    /** 是否向 IST 传 roleNum（参会人数 hint，上限见 offline-ist-max-role-num）。 */
+    private boolean offlineRoleNumHintEnabled = true;
+
+    /** IST upload roleNum 上限（讯飞文档 0–10）。 */
+    private int offlineIstMaxRoleNum = 10;
+
+    /** IST upload featureIds 个数上限。 */
+    private int offlineIstMaxFeatureIds = 64;
+
+    /** 离线转写轮询最大次数。 */
+    private int offlinePollMaxRetries = 60;
+
+    /** 离线转写轮询间隔（毫秒）。 */
+    private int offlinePollIntervalMs = 5000;
+
+    private Realtime realtime = new Realtime();
+
+    @Data
+    public static class Realtime {
+        /** 实时 ASR 握手后 post-open-wait 上限（毫秒）。 */
+        private int postOpenWaitMaxMs = 60000;
+    }
 }

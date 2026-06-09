@@ -1,0 +1,248 @@
+/* 系统参数页 — 树形级联布局 */
+.cfg-page { max-width: 920px; }
+.cfg-toolbar { margin-bottom: 1.25rem; }
+.cfg-toolbar .module-intro { margin: 0 0 0.75rem; line-height: 1.5; color: #555; }
+.cfg-tier-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.82rem;
+}
+.cfg-tier-legend-text { color: #64748b; margin-right: 0.5rem; }
+.cfg-tier-stats { margin: 0 0 0.65rem; font-size: 0.82rem; color: #475569; }
+.cfg-tier-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-bottom: 0.75rem;
+}
+.cfg-tier-chip {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: #fff;
+  color: #475569;
+  cursor: pointer;
+}
+.cfg-tier-chip:hover { border-color: #94a3b8; background: #f8fafc; }
+.cfg-tier-chip--active {
+  border-color: #3b82f6;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-weight: 500;
+}
+.cfg-tier-hidden { display: none !important; }
+.cfg-toolbar-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+.cfg-category { margin-bottom: 1.75rem; }
+.cfg-cat-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #1a1a2e;
+  margin: 0 0 0.65rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid #e8ecf4;
+}
+.cfg-cat-title--infra { color: #666; border-bottom-color: #eee; }
+
+.cfg-tree {
+  background: #fff;
+  border: 1px solid #e4e8f0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.cfg-tree--unified { margin-bottom: 1.75rem; }
+
+/* 整页单树：分支标题（非配置项，仅分组） */
+.cfg-branch-head {
+  padding: 0.5rem 1rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border-top: 1px solid #e2e8f0;
+  border-bottom: 1px solid #e2e8f0;
+}
+.cfg-tree--unified > .cfg-branch-head:first-child { border-top: none; }
+.cfg-branch-head--hot {
+  color: #166534;
+  background: linear-gradient(180deg, #f0fdf4 0%, #ecfdf5 100%);
+  border-color: #bbf7d0;
+}
+.cfg-branch-head--cold {
+  color: #64748b;
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: #e2e8f0;
+}
+
+.cfg-node + .cfg-node { border-top: 1px solid #f0f2f7; }
+
+.cfg-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.5rem 1rem;
+  align-items: start;
+  padding: 0.75rem 1rem;
+  transition: background 0.15s;
+}
+.cfg-row:hover { background: #fafbfd; }
+.cfg-row--blocked { opacity: 0.55; background: #f9f9fb; }
+.cfg-row--master { background: #f8faff; }
+.cfg-row--master .cfg-title { font-weight: 600; }
+.cfg-row--hot {
+  background: #fafffb;
+  border-left: 3px solid #86efac;
+}
+.cfg-row--hot:hover { background: #f0fdf4; }
+.cfg-row--cold,
+.cfg-row--readonly { background: #f7f8fa; border-left: 3px solid #cbd5e1; }
+
+.cfg-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.cfg-indent {
+  flex-shrink: 0;
+  width: 12px;
+  border-left: 2px solid #c5d0e6;
+  margin-left: calc(var(--depth, 0) * 20px);
+  min-height: 1.5rem;
+  align-self: stretch;
+}
+.cfg-indent--root { border-left-color: transparent; width: 0; margin-left: 0; }
+
+.cfg-row-text { flex: 1; min-width: 0; }
+.cfg-title {
+  font-weight: 500;
+  color: #222;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.5rem;
+}
+.cfg-key {
+  font-size: 0.72rem;
+  color: #8892a4;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  margin-top: 0.15rem;
+  word-break: break-all;
+}
+.cfg-hint {
+  font-size: 0.8rem;
+  color: #6b7280;
+  margin-top: 0.35rem;
+  line-height: 1.45;
+}
+.cfg-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 0.1rem 0.45rem;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #4338ca;
+}
+.cfg-badge--hot { background: #dcfce7; color: #166534; }
+.cfg-badge--cold { background: #f1f5f9; color: #64748b; }
+.cfg-badge--dep { background: #eef2ff; color: #4338ca; }
+.cfg-badge--warn { background: #fef3c7; color: #92400e; }
+
+.cfg-control { flex-shrink: 0; padding-top: 0.1rem; }
+
+/* Toggle switch */
+.cfg-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+  cursor: pointer;
+}
+.cfg-switch input { opacity: 0; width: 0; height: 0; }
+.cfg-switch-slider {
+  position: absolute;
+  inset: 0;
+  background: #cbd5e1;
+  border-radius: 24px;
+  transition: 0.2s;
+}
+.cfg-switch-slider:before {
+  content: "";
+  position: absolute;
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background: #fff;
+  border-radius: 50%;
+  transition: 0.2s;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.15);
+}
+.cfg-switch input:checked + .cfg-switch-slider { background: #3b82f6; }
+.cfg-switch input:checked + .cfg-switch-slider:before { transform: translateX(20px); }
+.cfg-switch input:disabled + .cfg-switch-slider { opacity: 0.45; cursor: not-allowed; }
+
+.cfg-input {
+  width: 100%;
+  max-width: 280px;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  font-size: 0.9rem;
+}
+.cfg-input:disabled { background: #f3f4f6; color: #9ca3af; }
+
+.cfg-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: flex-end;
+}
+.cfg-actions button {
+  font-size: 0.78rem;
+  padding: 0.25rem 0.55rem;
+  white-space: nowrap;
+}
+.cfg-btn-reset {
+  background: transparent;
+  border: none;
+  color: #6b7280;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.15rem 0;
+}
+.cfg-btn-reset:hover { color: #374151; }
+
+.cfg-children {
+  margin-left: 12px;
+  padding-left: calc(var(--depth, 0) * 20px);
+  border-left: 2px solid #c5d0e6;
+  background: #fbfcfe;
+}
+.cfg-children .cfg-node:last-child { border-bottom: none; }
+
+.cfg-toast {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  background: #1e293b;
+  color: #fff;
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  z-index: 9999;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  animation: cfg-toast-in 0.2s ease;
+}
+@keyframes cfg-toast-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+#audit-out { margin-top: 1rem; max-height: 320px; overflow: auto; font-size: 0.75rem; }

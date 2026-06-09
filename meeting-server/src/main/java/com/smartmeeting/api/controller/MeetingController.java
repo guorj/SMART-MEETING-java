@@ -23,6 +23,7 @@ import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.service.host.MeetingHostSessionService;
 import com.smartmeeting.service.TodoService;
 import com.smartmeeting.util.JwtUtil;
+import com.smartmeeting.util.MeetingWebPageUrls;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.core.io.FileSystemResource;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -61,6 +63,7 @@ public class MeetingController {
     private final MeetingMinuteQueryService meetingMinuteQueryService;
     private final AgendaMaterialStorageService agendaMaterialStorageService;
     private final ObjectMapper objectMapper;
+    private final MeetingWebPageUrls meetingWebPageUrls;
 
     /**
      * 创建会议（未启动）。
@@ -277,6 +280,17 @@ public class MeetingController {
             return queryToken.trim();
         }
         throw new BusinessException(401, "缺少 Authorization: Bearer 或 token 查询参数");
+    }
+
+    @GetMapping("/{id}/viewer-page-url")
+    public ApiResponse<Map<String, String>> viewerPageUrl(
+            @PathVariable String id,
+            @RequestHeader("Authorization") String authorization) {
+        String token = bearerToken(authorization);
+        jwtUtil.verifyHostOperatorToken(token, id);
+        String viewerToken = jwtUtil.generateViewerMeetingToken(id);
+        String viewerUrl = meetingWebPageUrls.viewerPageUrl(id, viewerToken);
+        return ApiResponse.ok(Map.of("viewerUrl", viewerUrl));
     }
 
     /**

@@ -6,6 +6,7 @@ import com.smartmeeting.admin.api.dto.SystemConfigEntryDto;
 import com.smartmeeting.admin.api.dto.SystemConfigSchemaItemDto;
 import com.smartmeeting.admin.entity.MeetingSystemConfigAudit;
 import com.smartmeeting.admin.repository.MeetingSystemConfigAuditMapper;
+import com.smartmeeting.admin.config.MeetingApiProperties;
 import com.smartmeeting.admin.config.ConfigDescriptorRegistry;
 import com.smartmeeting.admin.service.MeetingServerBridgeService;
 import com.smartmeeting.admin.entity.MeetingSystemConfig;
@@ -30,6 +31,8 @@ public class SystemConfigAdminService {
     private final MeetingSystemConfigMapper configMapper;
     private final MeetingSystemConfigAuditMapper auditMapper;
     private final MeetingServerBridgeService meetingServerBridge;
+    private final SystemConfigCascadeSupport cascadeSupport;
+    private final MeetingApiProperties apiProperties;
 
     public List<SystemConfigSchemaItemDto> schema() {
         Map<String, String> dbValues = configMapper.selectList(null).stream()
@@ -46,6 +49,14 @@ public class SystemConfigAdminService {
                     .hotReloadable(d.hotReloadable())
                     .description(d.description())
                     .sensitive(d.sensitive())
+                    .parentKey(d.parentKey().orElse(null))
+                    .editable(d.requiresRestart() ? false : cascadeSupport.isEditable(d, dbValues))
+                    .requiresRestart(d.requiresRestart())
+                    .minValue(d.intMin().isPresent() ? d.intMin().getAsInt() : null)
+                    .maxValue(d.intMax().isPresent() ? d.intMax().getAsInt() : null)
+                    .doubleMinValue(d.doubleMin().isPresent() ? d.doubleMin().getAsDouble() : null)
+                    .doubleMaxValue(d.doubleMax().isPresent() ? d.doubleMax().getAsDouble() : null)
+                    .valueRangeHint(d.valueRangeHint())
                     .build());
         }
         return items;
@@ -57,6 +68,13 @@ public class SystemConfigAdminService {
         if (d.sensitive()) {
             throw new BusinessException("sensitive key cannot be edited");
         }
+        if (d.requiresRestart()) {
+            throw new BusinessException("此参数须在 application.yml 或环境变量中修改并重启 meeting-server");
+        }
+        Map<String, String> dbValues = configMapper.selectList(null).stream()
+                .collect(Collectors.toMap(MeetingSystemConfig::getConfigKey,
+                        MeetingSystemConfig::getValueJson, (a, b) -> b));
+        cascadeSupport.validateUpsert(d, valueJson, dbValues);
         d.validator().ifPresent(v -> {
             if (!v.test(valueJson)) {
                 throw new BusinessException("validation failed for " + key);
@@ -81,6 +99,11 @@ public class SystemConfigAdminService {
     }
 
     public void delete(String key) {
+        SystemConfigDescriptor d = descriptorRegistry.find(key)
+                .orElseThrow(() -> new BusinessException("unknown config key"));
+        if (d.requiresRestart()) {
+            throw new BusinessException("此参数须在 application.yml 或环境变量中修改并重启 meeting-server");
+        }
         LambdaQueryWrapper<MeetingSystemConfig> q = new LambdaQueryWrapper<>();
         q.eq(MeetingSystemConfig::getConfigKey, key);
         MeetingSystemConfig existing = configMapper.selectOne(q);
@@ -104,7 +127,7 @@ public class SystemConfigAdminService {
     }
 
     public List<SystemConfigAuditDto> listAudit(String configKey, int limit) {
-        int cap = Math.min(Math.max(limit, 1), 100);
+        int cap = Math.min(Math.max(limit, 1), apiProperties.getSystemConfigAuditLimitMax());
         LambdaQueryWrapper<MeetingSystemConfigAudit> q = new LambdaQueryWrapper<>();
         if (configKey != null && !configKey.isBlank()) {
             q.eq(MeetingSystemConfigAudit::getConfigKey, configKey);

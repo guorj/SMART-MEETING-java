@@ -64,12 +64,20 @@ public class FeishuCommandHandler {
     private final AgendaFillCampaignService agendaFillCampaignService;
     private final TranscriptMapper transcriptMapper;
     private final PostMeetingOrchestrator postMeetingOrchestrator;
+    private final DashboardGrantService dashboardGrantService;
+    private final com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry muteRegistry;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
 
     /**
      * 处理「会议管理」统一入口：发送 dashboard 链接卡片。
+     * <p>
+     * 白名单校验：不在名单或 enabled=false 时拒绝。
+     * 群静音兜底：会中群被静音时改为单聊发送卡片/拒绝提示。
+     *
+     * @param openId 操作人飞书 user_id
+     * @param chatId 飞书群 chat_id
      */
     public void handleOpenDashboard(String openId, String chatId) {
         try {
@@ -78,10 +86,33 @@ public class FeishuCommandHandler {
                 feishuService.sendMessage(chatId, "未识别到您的飞书 user_id，请联系管理员检查飞书事件配置（需上送 user_id）。");
                 return;
             }
+
+            // 白名单校验
+            try {
+                dashboardGrantService.requireDashboardAccess(openId);
+            } catch (BusinessException e) {
+                String denyMsg = "您未被授权访问会议管理前台，请联系管理员添加白名单。";
+                if (muteRegistry.isMuted(chatId)) {
+                    feishuService.sendMessageToUserId(openId, denyMsg);
+                    log.info("会议管理入口拒绝（群静音单聊提示）: openId={}, chatId={}", openId, chatId);
+                } else {
+                    feishuService.sendMessage(chatId, denyMsg);
+                    log.info("会议管理入口拒绝: openId={}, chatId={}", openId, chatId);
+                }
+                return;
+            }
+
             String userName = feishuService.getUserNameByUserId(openId);
             String token = jwtUtil.generateFeishuWebDashboardToken(openId, chatId, userName);
             String entryUrl = baseUrl + "/dashboard?token=" + java.net.URLEncoder.encode(token, java.nio.charset.StandardCharsets.UTF_8);
-            feishuService.sendInteractiveCard(chatId, cardBuilder.buildDashboardEntryCard(userName, entryUrl));
+
+            // 群静音时改为单聊发送
+            if (muteRegistry.isMuted(chatId)) {
+                feishuService.sendMessageToUserId(openId, "会议管理入口：" + entryUrl);
+                log.info("会议管理入口单聊发送（群静音）: openId={}, chatId={}", openId, chatId);
+            } else {
+                feishuService.sendInteractiveCard(chatId, cardBuilder.buildDashboardEntryCard(userName, entryUrl));
+            }
         } catch (Exception e) {
             log.error("发送会议前台入口卡片失败", e);
             feishuService.sendMessage(chatId, "❌ 无法打开会议前台：" + e.getMessage());
@@ -699,6 +730,20 @@ public class FeishuCommandHandler {
      */
     public void handleRegisterVoiceprint(String openId, String chatId, String userName) {
         try {
+            // 权限检查：需 voiceprintRegister 权限
+            try {
+                dashboardGrantService.requireVoiceprintRegistration(openId);
+            } catch (BusinessException e) {
+                String denyMsg = "您没有注册声纹的权限，请联系管理员添加。";
+                if (muteRegistry.isMuted(chatId)) {
+                    feishuService.sendMessageToUserId(openId, denyMsg);
+                } else {
+                    feishuService.sendMessage(chatId, denyMsg);
+                }
+                log.info("声纹注册权限拒绝: openId={}, chatId={}", openId, chatId);
+                return;
+            }
+
             // 如果未提供姓名，从飞书API获取
             if (userName == null || userName.isEmpty()) {
                 userName = feishuService.getUserNameByUserId(openId);

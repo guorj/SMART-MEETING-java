@@ -42,7 +42,7 @@ CREATE TABLE int_meeting (
     doc_url         VARCHAR(500) NULL,
     doc_token       VARCHAR(100) NULL,
     recording_url   VARCHAR(500) NULL,
-    recording_token VARCHAR(500) NULL,
+    recording_token VARCHAR(2048) NULL,
     created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

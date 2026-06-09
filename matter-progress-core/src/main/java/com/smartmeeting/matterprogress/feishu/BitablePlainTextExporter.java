@@ -103,10 +103,10 @@ public final class BitablePlainTextExporter {
     }
 
     private static int appendGroupedRecords(StringBuilder out, List<JsonNode> items, int rowStart) {
-        BitableRecordSorter.sort(items);
+        List<JsonNode> sorted = BitableRecordSorter.sortedCopy(items);
         List<JsonNode> recent = new ArrayList<>();
         List<JsonNode> older = new ArrayList<>();
-        for (JsonNode item : items) {
+        for (JsonNode item : sorted) {
             if (BitableRecordSorter.recentBucket(item) == 0) {
                 recent.add(item);
             } else {

@@ -46,6 +46,31 @@ class JwtUtilRecordingPageTokenTest {
         assertDoesNotThrow(() -> jwtUtil.verifyRecordingPageToken(token, mid));
     }
 
+    /** type=viewer 的旁观令牌应可通过只读页面校验。 */
+    @Test
+    @DisplayName("type=viewer 的令牌可通过只读校验")
+    void validViewerType() {
+        String mid = "m-viewer";
+        String token = jwtUtil.generateViewerMeetingToken(mid);
+
+        assertDoesNotThrow(() -> jwtUtil.verifyRecordingPageToken(token, mid));
+        assertTrue(jwtUtil.isViewerToken(token, mid));
+    }
+
+    /** viewer 令牌不得用于主持写操作。 */
+    @Test
+    @DisplayName("type=viewer 不可通过 verifyHostOperatorToken")
+    void viewerType_rejectedForHostWrite() {
+        String mid = "m-viewer-write";
+        String token = jwtUtil.generateViewerMeetingToken(mid);
+
+        BusinessException ex = assertThrows(
+                BusinessException.class,
+                () -> jwtUtil.verifyHostOperatorToken(token, mid));
+
+        assertEquals(403, ex.getCode());
+    }
+
     /** 会议 ID 与 subject/claim 均不一致时应抛出 403。 */
     @Test
     @DisplayName("会议 ID 与 subject/claim 均不一致 → 403")
@@ -59,9 +84,9 @@ class JwtUtilRecordingPageTokenTest {
         assertEquals(403, ex.getCode());
     }
 
-    /** type 非 recording/host 时应抛出 403。 */
+    /** type 非 recording/host/join/viewer 时应抛出 403。 */
     @Test
-    @DisplayName("type 非 recording/host → 403")
+    @DisplayName("type 非 recording/host/join/viewer → 403")
     void invalidType_throws403() {
         String mid = "m-200";
         String token = jwtUtil.generateToken(mid, Map.of("meetingId", mid, "type", "admin"));

@@ -13,6 +13,6 @@ import org.springframework.stereotype.Component;
 public class MeetingTodoProperties {
 
     /** 会后是否执行待办提取与同步链路 */
-    private boolean extractionEnabled = true;
+    private boolean extractionEnabled = false;
 }
 

@@ -3,52 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script>
+(function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
+</script>
 <title>智能会议前台</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;background:#f0f2f5;display:flex;justify-content:center;align-items:flex-start;padding:20px 12px;min-height:100vh}
-.card{background:#fff;border-radius:16px;padding:20px;box-shadow:0 2px 12px rgba(0,0,0,0.08);max-width:480px;width:100%;margin-bottom:16px}
-.card h2{font-size:18px;font-weight:600;margin-bottom:12px;color:#1a1a1a}
-.card h3{font-size:15px;font-weight:600;margin-bottom:8px;color:#333}
-.section{margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid #eee}
-.section:last-child{border-bottom:none;margin-bottom:0}
-.user-bar{display:flex;align-items:center;justify-content:space-between;padding:12px;background:#f0f7ff;border-radius:8px;margin-bottom:8px}
-.user-name{font-size:16px;font-weight:600;color:#1677ff}
-.badge{display:inline-block;padding:3px 8px;border-radius:12px;font-size:12px;font-weight:500}
-.badge-valid{background:#e8f5e9;color:#52c41a}
-.badge-expiring{background:#fff7e6;color:#fa8c16}
-.badge-expired{background:#fff2f0;color:#ff4d4f}
-.badge-none{background:#f5f5f5;color:#999}
-.btn-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:8px}
-.btn{padding:14px 16px;border:none;border-radius:12px;font-size:14px;font-weight:600;cursor:pointer;text-align:center;transition:all .15s}
-.btn-primary{background:#1677ff;color:#fff}
-.btn-primary:active{background:#0d6efd}
-.btn-secondary{background:#f0f2f5;color:#333;border:1px solid #e0e0e0}
-.btn-secondary:active{background:#e6e6e6}
-.btn-voice{background:#52c41a;color:#fff}
-.btn-voice:active{background:#3dae0a}
-.btn-recover{background:#fa8c16;color:#fff}
-.btn-recover:active{background:#d46b08}
-.btn-danger{background:#ff4d4f;color:#fff}
-.btn-danger:active{background:#cf1322}
-.meeting-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f0f0f0}
-.meeting-item:last-child{border-bottom:none}
-.meeting-icon{font-size:16px;width:24px;text-align:center}
-.meeting-title{font-size:14px;color:#333;flex:1}
-.meeting-time{font-size:12px;color:#999}
-.meeting-link{font-size:13px;color:#1677ff;text-decoration:none}
-.other-input{width:100%;padding:12px;border:1px solid #ddd;border-radius:8px;font-size:14px;margin-top:10px}
-.msg{padding:12px;border-radius:8px;margin-top:12px;font-size:14px}
-.msg-ok{background:#f6ffed;color:#52c41a}
-.msg-err{background:#fff2f0;color:#ff4d4f}
-.msg-info{background:#f0f7ff;color:#1677ff}
-.hidden{display:none}
-.muted{color:#999;font-size:12px}
-.loading{text-align:center;padding:40px;color:#999;font-size:16px}
-</style>
+<link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
+<link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
 </head>
-<body>
-<div id="app" class="loading">加载中…</div>
+<body class="dashboard-page">
+<div id="app" class="loading-skeleton-wrap">
+  <div class="ui-card"><div class="ui-skeleton ui-skeleton-block"></div></div>
+  <div class="ui-card"><div class="ui-skeleton ui-skeleton-line"></div><div class="ui-skeleton ui-skeleton-line short"></div></div>
+  <div class="ui-card"><div class="ui-skeleton ui-skeleton-line"></div><div class="ui-skeleton ui-skeleton-line"></div></div>
+</div>
 <script>
 const params=new URLSearchParams(location.search);
 const TOKEN=params.get('token')||'';
@@ -58,7 +25,7 @@ function withBase(path){
   if(path.startsWith('/')) return BASE + path;
   return BASE + '/' + path;
 }
-if(!TOKEN){document.getElementById('app').innerHTML='<div class="card msg msg-err">缺少访问令牌，请从飞书重新发送「会议管理」</div>';throw new Error('no token');}
+if(!TOKEN){document.getElementById('app').innerHTML='<div class="ui-card msg msg-err">缺少访问令牌，请从飞书重新发送「会议管理」</div>';throw new Error('no token');}
 
 async function api(path, options){
   const fullPath=withBase(path);
@@ -75,18 +42,33 @@ async function api(path, options){
 
 function esc(s){return(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function fmtDt(s){return s?String(s).replace('T',' ').slice(0,16):'-';}
-function statusIcon(st){
-  if(st==='COMPLETED')return '✅';
-  if(st==='RECORDING')return '🔴';
-  if(st==='STARTED')return '🟢';
-  if(st==='PROCESSING')return '⏳';
-  return '⏹️';
+
+function statusLabel(st){
+  const map={
+    RECORDING:'录音中',
+    STARTED:'进行中',
+    PAUSED:'已暂停',
+    PROCESSING:'纪要生成中',
+    COMPLETED:'已结束'
+  };
+  return map[st]||st||'未知';
+}
+function statusBadgeClass(st){
+  if(st==='COMPLETED')return 'badge-completed';
+  if(st==='RECORDING')return 'badge-recording';
+  if(st==='STARTED')return 'badge-started';
+  if(st==='PAUSED')return 'badge-expiring';
+  if(st==='PROCESSING')return 'badge-processing';
+  return 'ui-badge-neutral';
+}
+function statusBadge(st){
+  return '<span class="ui-badge '+statusBadgeClass(st)+'">'+esc(statusLabel(st))+'</span>';
 }
 function vpBadge(status){
-  if(status==='VALID')return '<span class="badge badge-valid">声纹有效</span>';
-  if(status==='EXPIRING')return '<span class="badge badge-expiring">即将过期</span>';
-  if(status==='EXPIRED')return '<span class="badge badge-expired">已过期</span>';
-  return '<span class="badge badge-none">未注册</span>';
+  if(status==='VALID')return '<span class="ui-badge badge-valid">声纹有效</span>';
+  if(status==='EXPIRING')return '<span class="ui-badge badge-expiring">即将过期</span>';
+  if(status==='EXPIRED')return '<span class="ui-badge badge-expired">已过期</span>';
+  return '<span class="ui-badge ui-badge-neutral">未注册</span>';
 }
 function canRecover(st){
   return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
@@ -97,68 +79,92 @@ function canEnd(st){
 
 async function init(){
   try{
-    const me=await api('/api/v1/dashboard/me');
+    const meResp=await api('/api/v1/dashboard/me');
+    const me=meResp.userInfo||meResp;
+    const perms=meResp.permissions||{};
     const vp=await api('/api/v1/dashboard/voiceprint-status');
     const activeMeeting=await api('/api/v1/dashboard/active-meeting');
     const meetings=await api('/api/v1/dashboard/recent-meetings?limit=10');
     const presets=await api('/api/v1/dashboard/meeting-presets');
 
-    const presetButtons=presets.map(p=>`<button class="btn btn-primary" data-code="${p.code}">${esc(p.displayName)}</button>`).join('');
+    const canCreate=perms.canCreateMeeting;
+    const canEndMeeting=perms.canEndMeeting;
+    const canVoiceprint=perms.canRegisterVoiceprint;
+
+    const presetButtons=canCreate
+      ? presets.map(p=>`<button class="ui-btn ui-btn-primary btn btn-primary" data-code="${p.code}">${esc(p.displayName)}</button>`).join('')
+      : '<p class="muted">您没有创建会议的权限，请联系管理员。</p>';
     const meetingList=meetings.length===0?'<p class="muted">暂无近期会议</p>':
-      meetings.map(m=>`<div class="meeting-item"><span class="meeting-icon">${statusIcon(m.status)}</span><span class="meeting-title">${esc(m.title)}</span><span class="meeting-time">${fmtDt(m.createdAt)}</span>${m.docUrl?'<a class="meeting-link" href="'+esc(m.docUrl)+'" target="_blank">纪要</a>':''}</div>`).join('');
-    const activeHtml=activeMeeting
+      meetings.map(m=>`<div class="meeting-item"><span class="meeting-title">${esc(m.title)}</span>${statusBadge(m.status)}<span class="meeting-time">${fmtDt(m.createdAt)}</span>${m.docUrl?'<a class="meeting-link" href="'+esc(m.docUrl)+'" target="_blank">纪要</a>':''}</div>`).join('');
+    const activeHtml=(activeMeeting && canEndMeeting)
       ? `<div class="msg msg-info" style="margin-top:0;margin-bottom:10px">
-           检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b>（${esc(activeMeeting.status)}）
+           检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}
          </div>
          <div class="btn-grid" style="margin-top:0">
-           <button class="btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>
-           <button class="btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
+           ${canCreate?`<button class="ui-btn ui-btn-recover btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>`:''}
+           <button class="ui-btn ui-btn-danger btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
          </div>`
-      : '';
+      : (activeMeeting && !canEndMeeting
+        ? `<div class="msg msg-info" style="margin-top:0;margin-bottom:0">
+             进行中：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}<br/>
+             <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
+           </div>`
+        : '');
+
+    const accountDetails=me.mappingExists
+      ? '<p class="muted">OA userId: '+esc(me.oaUserId)+'</p>'
+      : '<p class="muted">未关联 OA 账号</p>';
 
     document.getElementById('app').innerHTML=`
-      <div class="card">
+      <div class="ui-card card">
         <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuUserId)}</span>${vpBadge(vp.expiryStatus)}</div>
-        ${me.mappingExists?'<p class="muted">OA userId: '+esc(me.oaUserId)+'</p>':'<p class="muted">未关联 OA 账号</p>'}
+        <details class="ui-help"><summary>账号信息</summary>${accountDetails}</details>
       </div>
-      <div class="card">
+      ${canCreate ? `<div class="ui-card card">
         <h2>开始会议</h2>
         <div class="btn-grid">${presetButtons}</div>
         <p id="create-msg" class="msg hidden"></p>
-      </div>
-      ${activeMeeting ? `<div class="card">${activeHtml}</div>` : ''}
-      <div class="card">
+      </div>` : ''}
+      ${activeMeeting ? `<div class="ui-card card">${activeHtml}</div>` : ''}
+      ${canVoiceprint ? `<div class="ui-card card">
         <h2>声纹管理</h2>
         <p>${vp.registered?'声纹特征 ID: '+esc(vp.featureId)+'<br/>有效期至: '+fmtDt(vp.expiresAt):'您尚未注册声纹，注册后会议纪要可自动识别您的声音。'}</p>
-        <button class="btn btn-voice" id="btn-register">${vp.registered?'重新注册声纹':'注册声纹'}</button>
-      </div>
-      <div class="card">
+        <button class="ui-btn ui-btn-voice btn btn-voice" id="btn-register">${vp.registered?'重新注册声纹':'注册声纹'}</button>
+      </div>` : ''}
+      <div class="ui-card card">
         <h2>近期会议</h2>
         ${meetingList}
       </div>
-      <div class="card">
-        <p class="muted">令牌有效期 8 小时 · 过期后请重新发送「会议管理」</p>
+      <div class="ui-card card">
+        <details class="ui-help"><summary>帮助</summary>
+          <p class="muted">令牌有效期 8 小时 · 过期后请重新发送「会议管理」</p>
+        </details>
       </div>`;
 
-    document.querySelectorAll('[data-code]').forEach(btn=>{
-      btn.onclick=async()=>{
-        const code=parseInt(btn.dataset.code);
-        await doCreateMeeting(code);
+    if(canCreate){
+      document.querySelectorAll('[data-code]').forEach(btn=>{
+        btn.onclick=async()=>{
+          const code=parseInt(btn.dataset.code);
+          await doCreateMeeting(code);
+        };
+      });
+    }
+    if(canVoiceprint){
+      const regBtn=document.getElementById('btn-register');
+      if(regBtn) regBtn.onclick=async()=>{
+        try{
+          const r=await api('/api/v1/dashboard/voiceprint-register-url');
+          location.href=r.registerUrl;
+        }catch(e){showMsg('create-msg',e.message,true);}
       };
-    });
-    document.getElementById('btn-register').onclick=async()=>{
-      try{
-        const r=await api('/api/v1/dashboard/voiceprint-register-url');
-        location.href=r.registerUrl;
-      }catch(e){showMsg('create-msg',e.message,true);}
-    };
+    }
     const recoverBtn=document.getElementById('btn-recover');
     const endBtn=document.getElementById('btn-end-active');
     const setActiveButtonsDisabled=(disabled)=>{
       if(recoverBtn) recoverBtn.disabled=disabled;
       if(endBtn) endBtn.disabled=disabled;
     };
-    if(recoverBtn && activeMeeting){
+    if(recoverBtn && activeMeeting && canCreate){
       recoverBtn.onclick=async()=>{
         if(!canRecover(activeMeeting.status)) return;
         setActiveButtonsDisabled(true);
@@ -176,7 +182,7 @@ async function init(){
         }
       };
     }
-    if(endBtn && activeMeeting){
+    if(endBtn && activeMeeting && canEndMeeting){
       endBtn.onclick=async()=>{
         if(!canEnd(activeMeeting.status)) return;
         if(!confirm('确认结束当前会议？结束后将进入纪要处理流程。')) return;
@@ -193,7 +199,7 @@ async function init(){
     }
 
   }catch(e){
-    document.getElementById('app').innerHTML='<div class="card msg msg-err">加载失败: '+esc(e.message)+'</div>';
+    document.getElementById('app').innerHTML='<div class="ui-card msg msg-err">加载失败: '+esc(e.message)+'</div>';
   }
 }
 

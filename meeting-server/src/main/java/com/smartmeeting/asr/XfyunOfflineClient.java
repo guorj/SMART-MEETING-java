@@ -2,6 +2,7 @@ package com.smartmeeting.asr;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.MeetingAsrProperties;
 import com.smartmeeting.entity.TranscriptSegment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,21 +22,6 @@ import java.util.concurrent.TimeUnit;
 
 /**
  * 讯飞办公离线语音转写（IST v2）HTTP 客户端。
- * <p>
- * 协作组件：{@link RestTemplate} 上传与轮询、{@link ObjectMapper} 解析 lattice 结果，
- * 输出 {@link com.smartmeeting.entity.TranscriptSegment} 列表供纪要/回放等业务使用。
- * </p>
- * <p>
- * 流程：{@code POST /v2/upload} 上传二进制 PCM → 获得 orderId → {@code POST /v2/getResult}
- * 轮询直至 status=4 → 解析 orderResult。
- * </p>
- * <p>
- * 文档参考：<a href="https://www.xfyun.cn/doc/spark/asr_llm/Ifasr_llm.html">Ifasr_llm</a>。
- * 注意：查询参数值须按文档 URL 编码（如 dateTime 中 {@code +} → {@code %2B}），
- * 否则 {@code +0800} 会被解析为空格导致 100003；签名计算时对键值同样单独 URLEncode。
- * </p>
- *
- * @see TranscriptSegment
  */
 @Slf4j
 @Component
@@ -46,26 +32,19 @@ public class XfyunOfflineClient {
     private String appId;
 
     @Value("${meeting.asr.xfyun.api-key:}")
-    private String accessKeyId;  // 文档中叫 accessKeyId
+    private String accessKeyId;
 
     @Value("${meeting.asr.xfyun.api-secret:}")
-    private String accessKeySecret;  // 文档中叫 accessKeySecret
-
-    @Value("${meeting.asr.offline-role-enabled:true}")
-    private boolean offlineRoleEnabled;
+    private String accessKeySecret;
 
     private static final String BASE_URL = "https://office-api-ist-dx.iflyaisol.com";
     private static final ZoneId XFYUN_ZONE = ZoneId.of("Asia/Shanghai");
     private static final DateTimeFormatter XFYUN_DATE_TIME =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssZ");
-    private static final int MAX_RETRIES = 60;
-    private static final int POLL_INTERVAL_MS = 5000;
 
     private final ObjectMapper objectMapper;
+    private final MeetingAsrProperties asrProperties;
 
-    /**
-     * IST 请求 URL 已手动百分号编码；须禁用 RestTemplate 二次编码/解码（否则 {@code +} → 空格 → 100003）。
-     */
     private static final RestTemplate IST_HTTP = createIstRestTemplate();
 
     private static RestTemplate createIstRestTemplate() {
@@ -77,76 +56,21 @@ public class XfyunOfflineClient {
     }
 
     /**
-     * 上传音频并离线转写，返回带时间戳的分段列表。
-     *
-     * @param audioData PCM，16 kHz、16 bit、单声道
-     * @param filename  上传时使用的文件名（参与签名与 fileName 参数）
-     * @return 转写分段；上传失败、轮询超时或解析失败时返回空列表
+     * 默认盲分/自动参数转写（无参会人声纹 hint）。
      */
-    public List<TranscriptSegment> transcribe(byte[] audioData, String filename) {
-        log.info("【离线ASR】Starting: {} bytes, filename={}", audioData.length, filename);
-
-        try {
-            // 生成请求参数
-            String dateTime = generateDateTime();
-            String signatureRandom = generateRandomString();
-            int duration = estimateDuration(audioData);  // 估算音频时长（毫秒）
-
-            // 构建参数Map（用于签名）
-            Map<String, String> params = new TreeMap<>();
-            params.put("appId", appId);
-            params.put("accessKeyId", accessKeyId);
-            params.put("dateTime", dateTime);
-            params.put("signatureRandom", signatureRandom);
-            params.put("fileSize", String.valueOf(audioData.length));
-            params.put("fileName", filename);
-            params.put("language", "autodialect");  // 中英+方言免切
-            params.put("duration", String.valueOf(duration));
-            params.put("roleType", offlineRoleEnabled ? "1" : "0");
-
-            // 生成签名
-            String signature = generateSignature(params);
-            
-            log.info("【离线ASR】签名参数: dateTime={}, signatureRandom={}", dateTime, signatureRandom);
-            log.info("【离线ASR】签名结果: {}", signature.substring(0, Math.min(20, signature.length())));
-
-            // Step 1: 上传音频（二进制流）
-            String orderId = uploadAudio(audioData, params, signature);
-            if (orderId == null) {
-                log.error("【离线ASR】Upload failed: no orderId");
-                return List.of();
-            }
-
-            log.info("【离线ASR】Upload success: orderId={}, duration={}ms", orderId, duration);
-
-            // Step 2: 轮询获取结果
-            String result = pollResult(orderId, dateTime, signatureRandom);
-            if (result == null) {
-                log.error("【离线ASR】Poll failed for order: {}", orderId);
-                return List.of();
-            }
-
-            // Step 3: 解析转写结果
-            return parseResult(result);
-
-        } catch (Exception e) {
-            log.error("【离线ASR】Failed: {}", e.getMessage(), e);
-            return List.of();
-        }
+    public List<TranscriptSegment> transcribe(String audioPath) {
+        OfflineIstOptions options = OfflineIstParamBuilder.resolve(asrProperties, List.of(), 0);
+        return transcribe(audioPath, options);
     }
 
     /**
-     * 从本地文件路径读取音频后转写（兼容旧调用方）。
-     *
-     * @param audioPath 本地音频文件绝对或相对路径
-     * @return 转写分段；读文件失败时返回空列表
+     * 按 IST 说话人参数转写；roleType=3 上传失败时自动回退 roleType=1 重试一次。
      */
-    public List<TranscriptSegment> transcribe(String audioPath) {
-        log.warn("Using deprecated file path method: {}", audioPath);
+    public List<TranscriptSegment> transcribe(String audioPath, OfflineIstOptions istOptions) {
         try {
             byte[] audioData = java.nio.file.Files.readAllBytes(java.nio.file.Paths.get(audioPath));
             String filename = java.nio.file.Paths.get(audioPath).getFileName().toString();
-            return transcribe(audioData, filename);
+            return transcribe(audioData, filename, istOptions);
         } catch (Exception e) {
             log.error("Failed to read audio file: {}", audioPath, e);
             return List.of();
@@ -154,198 +78,221 @@ public class XfyunOfflineClient {
     }
 
     /**
-     * 生成讯飞要求的 dateTime（东八区，无冒号时区后缀）。
-     *
-     * @return 形如 {@code 2025-09-08T22:58:29+0800}
+     * 上传音频并离线转写，返回带时间戳的分段列表。
      */
+    public List<TranscriptSegment> transcribe(byte[] audioData, String filename) {
+        OfflineIstOptions options = OfflineIstParamBuilder.resolve(asrProperties, List.of(), 0);
+        return transcribe(audioData, filename, options);
+    }
+
+    public List<TranscriptSegment> transcribe(byte[] audioData, String filename, OfflineIstOptions istOptions) {
+        log.info("【离线ASR】Starting: {} bytes, filename={}, roleType={}, roleNum={}",
+                audioData.length, filename, istOptions.roleType(), istOptions.roleNum());
+
+        List<TranscriptSegment> result = doTranscribe(audioData, filename, istOptions);
+        if (!result.isEmpty() || istOptions.roleType() != 3) {
+            return result;
+        }
+
+        log.warn("【离线ASR】roleType=3 upload/transcribe failed, falling back to blind separation");
+        OfflineIstOptions fallback = OfflineIstOptions.blind(istOptions.roleNum());
+        return doTranscribe(audioData, filename, fallback);
+    }
+
+    private List<TranscriptSegment> doTranscribe(byte[] audioData, String filename, OfflineIstOptions istOptions) {
+        try {
+            String dateTime = generateDateTime();
+            String signatureRandom = generateRandomString();
+            int duration = estimateDuration(audioData);
+
+            Map<String, String> params = buildUploadParams(
+                    appId, accessKeyId, dateTime, signatureRandom,
+                    audioData.length, filename, duration, istOptions);
+            String signature = generateSignature(params);
+
+            log.info("【离线ASR】roleType={}, roleNum={}, featureIds={}",
+                    istOptions.roleType(), istOptions.roleNum(),
+                    istOptions.featureIdsCsv() != null ? "present" : "none");
+
+            UploadResult upload = uploadAudio(audioData, params, signature);
+            if (upload.orderId() == null) {
+                log.error("【离线ASR】Upload failed: code={}", upload.errorCode());
+                return List.of();
+            }
+
+            String result = pollResult(upload.orderId(), dateTime, signatureRandom);
+            if (result == null) {
+                log.error("【离线ASR】Poll failed for order: {}", upload.orderId());
+                return List.of();
+            }
+            return parseResult(result);
+        } catch (Exception e) {
+            log.error("【离线ASR】Failed: {}", e.getMessage(), e);
+            return List.of();
+        }
+    }
+
+    /**
+     * 构建 IST upload 签名参数（供单测断言）。
+     */
+    static Map<String, String> buildUploadParams(String appId,
+                                                 String accessKeyId,
+                                                 String dateTime,
+                                                 String signatureRandom,
+                                                 int fileSize,
+                                                 String filename,
+                                                 int duration,
+                                                 OfflineIstOptions istOptions) {
+        Map<String, String> params = new TreeMap<>();
+        params.put("appId", appId);
+        params.put("accessKeyId", accessKeyId);
+        params.put("dateTime", dateTime);
+        params.put("signatureRandom", signatureRandom);
+        params.put("fileSize", String.valueOf(fileSize));
+        params.put("fileName", filename);
+        params.put("language", "autodialect");
+        params.put("duration", String.valueOf(duration));
+
+        int roleType = istOptions != null ? istOptions.roleType() : 1;
+        params.put("roleType", String.valueOf(roleType));
+
+        if (istOptions != null && roleType != 0) {
+            params.put("roleNum", String.valueOf(Math.max(0, istOptions.roleNum())));
+        }
+        if (istOptions != null && roleType == 3
+                && istOptions.featureIdsCsv() != null && !istOptions.featureIdsCsv().isBlank()) {
+            params.put("featureIds", istOptions.featureIdsCsv());
+        }
+        return params;
+    }
+
     static String generateDateTime() {
         return OffsetDateTime.now(XFYUN_ZONE).format(XFYUN_DATE_TIME);
     }
 
-    /**
-     * 生成 16 位 signatureRandom（UUID 去横线后截取）。
-     *
-     * @return 随机串
-     */
     private String generateRandomString() {
         String uuid = UUID.randomUUID().toString().replaceAll("-", "");
         return uuid.substring(0, 16);
     }
 
-    /**
-     * 按 PCM 16 kHz/16 bit/单声道估算时长（毫秒），用于 upload 的 duration 参数。
-     *
-     * @param audioData 原始 PCM 字节
-     * @return 时长毫秒数
-     */
     private int estimateDuration(byte[] audioData) {
         return (int) (audioData.length / 32000.0 * 1000);
     }
 
-    /**
-     * 按讯飞 v2 规则生成 HMAC-SHA1 签名（Base64）。
-     *
-     * @param params 参与签名的查询参数（不含 signature 字段本身）
-     * @return Base64 签名串
-     * @throws Exception 加密或编码异常
-     */
-    private String generateSignature(Map<String, String> params) throws Exception {
+    static String generateSignature(Map<String, String> params, String accessKeySecret) throws Exception {
         TreeMap<String, String> treeMap = new TreeMap<>(params);
-        treeMap.remove("signature");  // 排除signature字段
+        treeMap.remove("signature");
 
         StringBuilder builder = new StringBuilder();
         for (Map.Entry<String, String> entry : treeMap.entrySet()) {
             String value = entry.getValue();
             if (value != null && !value.isEmpty()) {
-                // 签名计算时需要URL编码
                 String encodedValue = URLEncoder.encode(value, StandardCharsets.UTF_8.name());
                 builder.append(entry.getKey()).append("=").append(encodedValue).append("&");
             }
         }
-        
         if (builder.length() > 0) {
-            builder.deleteCharAt(builder.length() - 1);  // 删除最后的&
+            builder.deleteCharAt(builder.length() - 1);
         }
-        
-        String baseString = builder.toString();
-        log.debug("【离线ASR】baseString: {}", baseString.substring(0, Math.min(100, baseString.length())));
 
-        // HMAC-SHA1签名
         javax.crypto.Mac mac = javax.crypto.Mac.getInstance("HmacSHA1");
-        javax.crypto.spec.SecretKeySpec keySpec = 
-            new javax.crypto.spec.SecretKeySpec(accessKeySecret.getBytes(StandardCharsets.UTF_8), "HmacSHA1");
+        javax.crypto.spec.SecretKeySpec keySpec =
+                new javax.crypto.spec.SecretKeySpec(accessKeySecret.getBytes(StandardCharsets.UTF_8), "HmacSHA1");
         mac.init(keySpec);
-        byte[] signBytes = mac.doFinal(baseString.getBytes(StandardCharsets.UTF_8));
-        
+        byte[] signBytes = mac.doFinal(builder.toString().getBytes(StandardCharsets.UTF_8));
         return Base64.getEncoder().encodeToString(signBytes);
     }
 
-    /**
-     * 以二进制流上传音频至 {@code /v2/upload}，URL 查询参数不整体编码。
-     *
-     * @param audioData  PCM 正文
-     * @param params     与签名一致的查询参数 Map
-     * @param signature  请求头 signature 值
-     * @return 成功时的 orderId；失败返回 null
-     * @throws Exception HTTP 或 JSON 解析异常
-     */
-    private String uploadAudio(byte[] audioData, Map<String, String> params, String signature) throws Exception {
-        String url = buildIstRequestUrl("/v2/upload", params);
-        log.info("【离线ASR】Upload URL: {}", url.substring(0, Math.min(200, url.length())));
+    private String generateSignature(Map<String, String> params) throws Exception {
+        return generateSignature(params, accessKeySecret);
+    }
 
-        // 设置Headers
+    record UploadResult(String orderId, String errorCode) {
+    }
+
+    private UploadResult uploadAudio(byte[] audioData, Map<String, String> params, String signature) throws Exception {
+        String url = buildIstRequestUrl("/v2/upload", params);
+
         HttpHeaders headers = new HttpHeaders();
-        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);  // 二进制流
+        headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
         headers.set("signature", signature);
 
-        // 发送二进制音频数据
         HttpEntity<byte[]> request = new HttpEntity<>(audioData, headers);
         ResponseEntity<String> response = IST_HTTP.postForEntity(url, request, String.class);
 
-        log.info("【离线ASR】Upload response: code={}, body={}", response.getStatusCode(), 
-            response.getBody().length() > 200 ? response.getBody().substring(0, 200) + "..." : response.getBody());
-
         if (!response.getStatusCode().is2xxSuccessful()) {
-            log.error("【离线ASR】Upload failed: {}", response.getStatusCode());
-            return null;
+            return new UploadResult(null, "HTTP_" + response.getStatusCode().value());
         }
 
         JsonNode root = objectMapper.readTree(response.getBody());
         String code = root.path("code").asText("");
         if (!code.equals("000000")) {
-            log.error("【离线ASR】Upload error: code={}, desc={}", code, root.path("descInfo").asText());
-            return null;
+            return new UploadResult(null, code);
         }
 
         String orderId = root.path("content").path("orderId").asText(null);
-        int taskEstimateTime = root.path("content").path("taskEstimateTime").asInt(0);
-        log.info("【离线ASR】Upload success: orderId={}, estimateTime={}ms", orderId, taskEstimateTime);
-        return orderId;
+        return new UploadResult(orderId, code);
     }
 
-    /**
-     * 轮询 {@code /v2/getResult} 直至订单完成或失败/超时。
-     *
-     * @param orderId                 上传返回的订单号
-     * @param uploadDateTime          上传时的 dateTime（日志用，轮询会重新生成）
-     * @param uploadSignatureRandom   与上传一致的 signatureRandom
-     * @return 完成时的 orderResult JSON 字符串；失败或超时返回 null
-     * @throws Exception 睡眠中断或 HTTP 异常
-     */
     private String pollResult(String orderId, String uploadDateTime, String uploadSignatureRandom) throws Exception {
-        // 每次轮询需要重新生成dateTime（文档要求）
         String dateTime = generateDateTime();
-        String signatureRandom = uploadSignatureRandom;  // 文档说使用相同的random
+        String signatureRandom = uploadSignatureRandom;
 
         Map<String, String> params = new TreeMap<>();
         params.put("accessKeyId", accessKeyId);
         params.put("dateTime", dateTime);
         params.put("signatureRandom", signatureRandom);
         params.put("orderId", orderId);
-        params.put("resultType", "transfer");  // 转写结果
+        params.put("resultType", "transfer");
 
         String signature = generateSignature(params);
-
         String url = buildIstRequestUrl("/v2/getResult", params);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("signature", signature);
 
-        for (int i = 0; i < MAX_RETRIES; i++) {
-            // 请求体为空JSON对象
+        for (int i = 0; i < pollMaxRetries(); i++) {
             HttpEntity<String> request = new HttpEntity<>("{}", headers);
             ResponseEntity<String> response = IST_HTTP.postForEntity(url, request, String.class);
 
             if (!response.getStatusCode().is2xxSuccessful()) {
-                log.warn("【离线ASR】Get result failed: {}", response.getStatusCode());
-                TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+                TimeUnit.MILLISECONDS.sleep(pollIntervalMs());
                 continue;
             }
 
             JsonNode root = objectMapper.readTree(response.getBody());
             String code = root.path("code").asText("");
-            
             if (!code.equals("000000")) {
-                log.error("【离线ASR】Get result error: code={}, desc={}", code, root.path("descInfo").asText());
                 return null;
             }
 
             int status = root.path("content").path("orderInfo").path("status").asInt(-1);
-            
             if (status == 4) {
-                // 转写完成
-                log.info("【离线ASR】Completed for order {}", orderId);
                 String orderResult = root.path("content").path("orderResult").asText("");
-                if (orderResult.isEmpty()) {
-                    log.warn("【离线ASR】Empty orderResult");
-                    return null;
-                }
-                return orderResult;
-            } else if (status == 3) {
-                // 处理中
-                log.info("【离线ASR】Processing... ({}/{})", i + 1, MAX_RETRIES);
-            } else if (status == 0) {
-                // 订单已创建
-                log.info("【离线ASR】Created... ({}/{})", i + 1, MAX_RETRIES);
+                return orderResult.isEmpty() ? null : orderResult;
             } else if (status == -1) {
-                // 失败
-                int failType = root.path("content").path("orderInfo").path("failType").asInt(99);
-                log.error("【离线ASR】Order failed: failType={}", failType);
                 return null;
             }
-
-            TimeUnit.MILLISECONDS.sleep(POLL_INTERVAL_MS);
+            TimeUnit.MILLISECONDS.sleep(pollIntervalMs());
         }
-
-        log.error("【离线ASR】Poll timeout for order {}", orderId);
         return null;
     }
 
-    /**
-     * 讯飞 IST v2 查询参数值编码（与签名中的 URLEncoder 规则一致）。
-     * dateTime 含 {@code +0800} 时必须编码，否则 {@code +} 在 query 中会变成空格。
-     */
+    private int pollMaxRetries() {
+        if (asrProperties == null) {
+            return 60;
+        }
+        return Math.max(1, asrProperties.getOfflinePollMaxRetries());
+    }
+
+    private int pollIntervalMs() {
+        if (asrProperties == null) {
+            return 5000;
+        }
+        return Math.max(1000, asrProperties.getOfflinePollIntervalMs());
+    }
+
     static String encodeQueryParam(String value) {
         if (value == null) {
             return "";
@@ -368,12 +315,6 @@ public class XfyunOfflineClient {
         return BASE_URL + path + "?" + buildEncodedQueryString(params);
     }
 
-    /**
-     * 解析 lattice / json_1best 结构为 {@link TranscriptSegment} 列表；失败时降级为单段全文。
-     *
-     * @param orderResult getResult 返回的 orderResult 字段内容
-     * @return 分段列表，至少可能含一段降级文本
-     */
     private List<TranscriptSegment> parseResult(String orderResult) {
         return OfflineAsrLatticeParser.parse(orderResult);
     }

@@ -1,5 +1,6 @@
 package com.smartmeeting.matterprogress.feishu;
 
+import com.smartmeeting.matterprogress.config.SpreadsheetFetchLimits;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -47,12 +48,28 @@ public class RestFeishuDocClient implements FeishuDocClient {
     private final String appId;
     private final String appSecret;
     private final String baseUrl;
+    private int docBlockBatchSize = 50;
+    private int docBlockBatchSleepMs = 400;
+    private SpreadsheetFetchLimits spreadsheetFetchLimits = SpreadsheetFetchLimits.DEFAULT;
 
     public RestFeishuDocClient(RestTemplate restTemplate, String appId, String appSecret, String baseUrl) {
         this.restTemplate = restTemplate;
         this.appId = appId;
         this.appSecret = appSecret;
         this.baseUrl = baseUrl != null && !baseUrl.isBlank() ? baseUrl.replaceAll("/$", "") : "https://open.feishu.cn";
+    }
+
+    public void setDocBlockBatchSize(int docBlockBatchSize) {
+        this.docBlockBatchSize = Math.max(1, docBlockBatchSize);
+    }
+
+    public void setDocBlockBatchSleepMs(int docBlockBatchSleepMs) {
+        this.docBlockBatchSleepMs = Math.max(0, docBlockBatchSleepMs);
+    }
+
+    public void setSpreadsheetFetchLimits(SpreadsheetFetchLimits spreadsheetFetchLimits) {
+        this.spreadsheetFetchLimits = spreadsheetFetchLimits != null
+                ? spreadsheetFetchLimits : SpreadsheetFetchLimits.DEFAULT;
     }
 
     // ---------------------------------------------------------------
@@ -230,7 +247,7 @@ public class RestFeishuDocClient implements FeishuDocClient {
         }
         if ("sheet".equalsIgnoreCase(objType)) {
             return FeishuSpreadsheetPlainTextFetcher.fetch(
-                    restTemplate, baseUrl, getTenantToken(), objToken);
+                    restTemplate, baseUrl, getTenantToken(), objToken, spreadsheetFetchLimits);
         }
         throw new RuntimeException("暂不支持的 Wiki 节点类型: " + objType);
     }
@@ -513,7 +530,7 @@ public class RestFeishuDocClient implements FeishuDocClient {
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(tenantToken);
 
-        final int batchSize = 50;
+        final int batchSize = docBlockBatchSize;
         for (int i = 0; i < blocks.size(); i += batchSize) {
             int end = Math.min(i + batchSize, blocks.size());
             List<Map<String, Object>> batch = blocks.subList(i, end);
@@ -529,8 +546,8 @@ public class RestFeishuDocClient implements FeishuDocClient {
                             json != null ? json.path("msg").asText("") : response.getStatusCode());
                     return false;
                 }
-                if (end < blocks.size()) {
-                    Thread.sleep(400);
+                if (end < blocks.size() && docBlockBatchSleepMs > 0) {
+                    Thread.sleep(docBlockBatchSleepMs);
                 }
             } catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();

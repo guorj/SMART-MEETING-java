@@ -3,47 +3,40 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <script>
+    (function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
+  </script>
   <title>会序资料回填</title>
+  <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
+  <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 780px; margin: 0 auto; padding: 20px 14px 40px; color: #1a1a1a; background: #fafafa; }
+    body { max-width: 780px; margin: 0 auto; padding: 20px 14px 40px; }
     h1 { margin: 0 0 6px; font-size: 1.4rem; }
-    .muted { color: #666; font-size: 0.9rem; }
-    .card { background: #fff; border: 1px solid #e8e8e8; border-radius: 10px; padding: 14px; margin-top: 12px; }
-    .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-    .tag { font-size: 12px; border-radius: 999px; padding: 2px 8px; background: #eef3ff; color: #3859c7; }
+    .ui-card.card { max-width: none; margin-top: 12px; border: 1px solid var(--color-border); box-shadow: var(--shadow-sm); }
     .agenda-title { font-weight: 600; margin-bottom: 8px; }
-    label { display: block; font-size: 0.85rem; color: #444; margin: 6px 0 4px; }
-    input[type="text"], input[type="number"] { width: 100%; box-sizing: border-box; border: 1px solid #d4d4d4; border-radius: 8px; padding: 9px 10px; font-size: 0.95rem; }
-    input:focus { outline: none; border-color: #4b7cff; box-shadow: 0 0 0 2px rgba(75,124,255,0.12); }
-    .btn-bar { margin-top: 16px; display: flex; gap: 10px; }
-    button { border: none; background: #2f6df6; color: #fff; border-radius: 8px; padding: 10px 14px; font-size: 0.95rem; font-weight: 600; cursor: pointer; }
-    button[disabled] { opacity: .65; cursor: not-allowed; }
-    button.secondary { background: #fff; color: #333; border: 1px solid #d4d4d4; }
+    label { display: block; font-size: 0.85rem; color: var(--color-text-secondary); margin: 6px 0 4px; }
+    input[type="text"], input[type="number"] {
+      width: 100%; box-sizing: border-box; border: 1px solid var(--color-border);
+      border-radius: var(--radius-sm); padding: 10px 12px; font-size: 0.95rem; min-height: var(--touch-min);
+    }
+    input:focus { outline: none; border-color: var(--color-primary); box-shadow: 0 0 0 2px rgba(22,119,255,0.12); }
+    .btn-bar { margin-top: 16px; display: flex; gap: 10px; flex-wrap: wrap; }
     #status { margin-top: 14px; font-size: 0.92rem; }
-    .ok { color: #0a7f2e; }
-    .err { color: #bf1d1d; }
+    .ok { color: var(--color-success); }
+    .err { color: var(--color-danger); }
   </style>
 </head>
 <body>
   <h1>会序资料回填</h1>
   <div class="muted">请按需填写您负责会序的【上会资料飞书URL】与【汇报时长】。提交后将直接更新到当前会议会序。</div>
-  <div id="summary" class="card muted">正在加载会序回填会话…</div>
+  <div id="summary" class="ui-card card muted">正在加载会序回填会话…</div>
   <div id="formBody"></div>
   <div class="btn-bar">
-    <button id="submitBtn" onclick="submitUpdates()">提交更新</button>
-    <button class="secondary" onclick="location.reload()">刷新</button>
+    <button class="ui-btn ui-btn-primary" id="submitBtn" onclick="submitUpdates()">提交更新</button>
+    <button class="ui-btn ui-btn-secondary" onclick="location.reload()">刷新</button>
   </div>
   <div id="status"></div>
 
-  <script>
-    (function () {
-      var p = location.pathname || '';
-      var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
-      var base = document.createElement('base');
-      base.href = ctx ? ctx + '/' : '/';
-      document.head.appendChild(base);
-    })();
-  </script>
   <script src="meeting-context.js?v=sm-20260529-1"></script>
   <script>
     var token = new URLSearchParams(location.search).get('token');
@@ -68,7 +61,6 @@
       if (!raw) return '-';
       var d = new Date(raw);
       if (isNaN(d.getTime())) {
-        // 兜底：把 2026-05-31T01:34:08.77089484 这类格式裁剪到分钟
         var s = String(raw).replace('T', ' ');
         return s.length >= 16 ? s.substring(0, 16) : s;
       }
@@ -88,14 +80,14 @@
       var body = document.getElementById('formBody');
       var items = (data.items || []);
       if (!items.length) {
-        body.innerHTML = '<div class="card muted">当前 token 下没有可编辑会序项。</div>';
+        body.innerHTML = '<div class="ui-card card muted">当前 token 下没有可编辑会序项。</div>';
         document.getElementById('submitBtn').disabled = true;
         return;
       }
       body.innerHTML = items.map(function (it) {
         var idx = it.agendaIndex;
         return (
-          '<div class="card">' +
+          '<div class="ui-card card">' +
             '<div class="agenda-title">' + esc(it.title || '未命名会序') + '</div>' +
             '<label>资料链接 URL</label>' +
             '<input type="text" data-kind="url" data-idx="' + idx + '" value="' + esc(it.url || '') + '" placeholder="https://..." />' +
@@ -169,4 +161,3 @@
   </script>
 </body>
 </html>
-

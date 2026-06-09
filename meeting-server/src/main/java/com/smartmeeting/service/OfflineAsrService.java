@@ -1,12 +1,16 @@
 package com.smartmeeting.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.event.DomainEventPublisher;
 import com.smartmeeting.event.MeetingEndedEvent;
 import com.smartmeeting.model.OfflineAsrMessage;
+import com.smartmeeting.model.OfflineTranscribeRequest;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.statemachine.MeetingEvent;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
@@ -24,6 +28,7 @@ import java.util.List;
 public class OfflineAsrService {
 
     private final MeetingMapper meetingMapper;
+    private final ParticipantMapper participantMapper;
     private final MeetingAudioMaterializerService meetingAudioMaterializerService;
     private final OfflineCorrectionService correctionService;
     private final MeetingMinuteProperties minuteProperties;
@@ -31,13 +36,10 @@ public class OfflineAsrService {
     private final MeetingStateMachineService meetingStateMachineService;
     private final TranscriptSegmentHelper transcriptSegmentHelper;
 
-    /**
-     * 异步消费入口：执行离线转写，完成后按开关触发纪要或标记 COMPLETED。
-     */
     public void process(OfflineAsrMessage message) {
         String meetingId = message.getMeetingId();
         try {
-            runOfflineAsrSync(meetingId, message.getAudioPath());
+            runOfflineAsrSync(meetingId, message.getAudioPath(), message.getFeatureIds());
         } catch (Exception e) {
             log.error("Offline ASR failed for meeting {}", meetingId, e);
         } finally {
@@ -45,10 +47,11 @@ public class OfflineAsrService {
         }
     }
 
-    /**
-     * 同步执行离线转写（手动重生成或测试用）。
-     */
     public void runOfflineAsrSync(String meetingId, String audioPath) {
+        runOfflineAsrSync(meetingId, audioPath, null);
+    }
+
+    public void runOfflineAsrSync(String meetingId, String audioPath, List<String> featureIds) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
             log.error("Offline ASR skipped: meeting not found {}", meetingId);
@@ -56,7 +59,19 @@ public class OfflineAsrService {
         }
         String effectivePath = meetingAudioMaterializerService.materialize(
                 meetingId, audioPath, meeting.getSourceAudioUrl());
-        correctionService.correct(meetingId, effectivePath);
+
+        List<Participant> participants = participantMapper.selectList(
+                new LambdaQueryWrapper<Participant>().eq(Participant::getMeetingId, meetingId));
+        List<String> resolvedFeatureIds = featureIds != null && !featureIds.isEmpty()
+                ? featureIds
+                : participants.stream()
+                .map(Participant::getFeatureId)
+                .filter(fid -> fid != null && !fid.isEmpty())
+                .toList();
+
+        OfflineTranscribeRequest request = OfflineTranscribeRequest.of(
+                meetingId, effectivePath, resolvedFeatureIds, participants.size());
+        correctionService.correct(request);
     }
 
     private void completeAfterOffline(OfflineAsrMessage message) {

@@ -20,6 +20,7 @@ import org.springframework.test.context.ActiveProfiles;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
@@ -201,16 +202,50 @@ class XfyunOfflineClientLiveTest {
     }
 
     static Path resolvePcmPath(String meetingId) {
-        String rel = "data/audio/2026-06-07/" + meetingId + ".pcm";
-        Path direct = Path.of(rel);
-        if (Files.isRegularFile(direct)) {
-            return direct.toAbsolutePath().normalize();
+        String relName = meetingId + ".pcm";
+        List<Path> candidates = List.of(
+                Path.of("data/audio/2026-06-08", relName),
+                Path.of("data/audio/2026-06-07", relName),
+                Path.of("meeting-server/data/audio/2026-06-08", relName),
+                Path.of("meeting-server/data/audio/2026-06-07", relName),
+                Path.of("data/audio", relName)
+        );
+        for (Path p : candidates) {
+            if (Files.isRegularFile(p)) {
+                return p.toAbsolutePath().normalize();
+            }
         }
-        Path fromParent = Path.of("meeting-server", rel);
-        if (Files.isRegularFile(fromParent)) {
-            return fromParent.toAbsolutePath().normalize();
+        Path audioRoot = Path.of("data/audio");
+        if (Files.isDirectory(audioRoot)) {
+            try (var stream = Files.list(audioRoot)) {
+                var found = stream
+                        .filter(Files::isDirectory)
+                        .map(d -> d.resolve(relName))
+                        .filter(Files::isRegularFile)
+                        .findFirst();
+                if (found.isPresent()) {
+                    return found.get().toAbsolutePath().normalize();
+                }
+            } catch (IOException ignored) {
+                // fall through
+            }
         }
-        return direct.toAbsolutePath().normalize();
+        Path serverAudioRoot = Path.of("meeting-server/data/audio");
+        if (Files.isDirectory(serverAudioRoot)) {
+            try (var stream = Files.list(serverAudioRoot)) {
+                var found = stream
+                        .filter(Files::isDirectory)
+                        .map(d -> d.resolve(relName))
+                        .filter(Files::isRegularFile)
+                        .findFirst();
+                if (found.isPresent()) {
+                    return found.get().toAbsolutePath().normalize();
+                }
+            } catch (IOException ignored) {
+                // fall through
+            }
+        }
+        return Path.of("data/audio", relName).toAbsolutePath().normalize();
     }
 
     private static String truncate(String text, int max) {

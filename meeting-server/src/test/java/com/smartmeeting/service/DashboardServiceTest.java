@@ -8,6 +8,7 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.UserMappingMapper;
 import com.smartmeeting.repository.VoiceprintMapper;
+import com.smartmeeting.config.MeetingVoiceprintLifecycleProperties;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
 import com.smartmeeting.util.JwtUtil;
 import org.junit.jupiter.api.BeforeEach;
@@ -39,6 +40,7 @@ class DashboardServiceTest {
     @Mock private VoiceprintRegisterService voiceprintRegisterService;
     @Mock private MeetingService meetingService;
     @Mock private JwtUtil jwtUtil;
+    @Mock private MeetingVoiceprintLifecycleProperties lifecycleProperties;
     @Mock private com.smartmeeting.util.MeetingWebPageUrls meetingWebPageUrls;
 
     private DashboardService dashboardService;
@@ -57,6 +59,7 @@ class DashboardServiceTest {
                 voiceprintRegisterService,
                 meetingService,
                 jwtUtil,
+                lifecycleProperties,
                 meetingWebPageUrls
         );
     }
@@ -109,7 +112,7 @@ class DashboardServiceTest {
         MeetingPresetResponse preset = MeetingPresetResponse.builder().code(1).displayName("A").build();
         when(presetService.listPresets()).thenReturn(List.of(preset));
         List<MeetingPresetResponse> list = dashboardService.getMeetingPresets();
-        assertEquals(2, list.size());
-        assertEquals(6, list.get(1).getCode());
+        assertEquals(1, list.size());
+        assertEquals(1, list.get(0).getCode());
     }
 }

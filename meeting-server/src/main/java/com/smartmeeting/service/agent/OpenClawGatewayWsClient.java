@@ -1,5 +1,7 @@
 package com.smartmeeting.service.agent;
 
+import com.smartmeeting.config.OpenClawProperties;
+import com.smartmeeting.matterprogress.openclaw.OpenClawGatewayHistoryFetchSettings;
 import org.springframework.stereotype.Component;
 
 /**
@@ -11,8 +13,17 @@ import org.springframework.stereotype.Component;
 @Component
 public class OpenClawGatewayWsClient {
 
-    private final com.smartmeeting.matterprogress.openclaw.OpenClawGatewayWsClient delegate =
-            new com.smartmeeting.matterprogress.openclaw.OpenClawGatewayWsClient();
+    private final com.smartmeeting.matterprogress.openclaw.OpenClawGatewayWsClient delegate;
+
+    public OpenClawGatewayWsClient(OpenClawProperties openClawProperties) {
+        OpenClawProperties.Gateway gw = openClawProperties.getGateway();
+        OpenClawGatewayHistoryFetchSettings settings = new OpenClawGatewayHistoryFetchSettings(
+                gw.getHistoryFetchAttempts(),
+                gw.getHistoryFetchDelayMs(),
+                gw.getHistoryFetchExtendedAttempts(),
+                gw.getHistoryFetchExtendedDelayMs());
+        this.delegate = new com.smartmeeting.matterprogress.openclaw.OpenClawGatewayWsClient(settings);
+    }
 
     public String sendChatMessage(String gatewayHttpUrl,
                                   String authToken,

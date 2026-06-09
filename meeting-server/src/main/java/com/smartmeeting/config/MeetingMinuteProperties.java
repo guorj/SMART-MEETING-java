@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
 public class MeetingMinuteProperties {
 
     /** 会后是否生成纪要（关闭后不触发 MeetingEndedEvent；离线转写由 meeting.asr.offline-enabled 独立控制） */
-    private boolean generationEnabled = true;
+    private boolean generationEnabled = false;
 
     /** 是否在库内持久化纪要正文 */
     private boolean persistEnabled = true;

@@ -5,14 +5,13 @@
 # 启动：mvn spring-boot:run -pl meeting-server
 # 覆盖关系：本文件覆盖 application.yml 同名键；环境变量仍可覆盖本文件
 #
-# 本环境典型会后组合（继承 application.yml 默认值，除非下方显式覆盖）：
-#   asr.offline-enabled=true（默认） + minute.generation-enabled=false（下方）
-#   → 会议结束后：PROCESSING → 离线转写入 int_transcript_segment → COMPLETED
-#   不自动跑纪要/待办；适合本地验证录音与离线 ASR
+# 业务开关：[Admin热更] → int_meeting_system_config（Java 出厂默认 + DB 覆盖）
+# 下方 dev-only 块为 [冷启动] 例外；reload 后以 DB 或 Java 出厂为准（见 Loader）
+#
+# 配置层级标签见 application.yml 文件头：[Admin热更] / [冷启动] / [部署/密钥]
 #
 # 消息中间件：排除 Kafka 自动配置 + meeting.kafka.enabled=false → LocalEventBus
 # =============================================================================
-
 spring:
   autoconfigure:
     exclude:
@@ -41,61 +40,50 @@ spring:
       timeout: 5000ms
 
 # =============================================================================
-# 业务覆盖 meeting.*
+# meeting.* — infra / 密钥 + dev-only 冷启动例外
 # =============================================================================
 meeting:
   recording:
-    # dev 关闭录音超时自动结束，避免误杀短测会议（生产默认开启）
+    # [冷启动] dev 关闭录音超时自动结束，避免误杀短测会议（生产默认 true）
     timeout-check-enabled: false
 
   kafka:
-    # false：单进程 LocalEventBus，无需创建 Kafka topic
+    # [冷启动]
     enabled: false
 
+  # dev-only [冷启动] 例外（业务开关见 [Admin热更] seed / Admin）
   pipeline:
-    # dev 建会常关 PRE，避免每次建会触发会前飞书流水线
     pre-on-create-enabled: false
     post-auto-trigger:
-      # 会议结束后仍可走 POST 流水线（与纪要/离线独立）
       enabled: true
       template-code: ""
 
   scheduler:
     pre-enabled: true
-    scan-ms: 60000
-    pre-window-minutes: 5
     pre-24h-template-code: "pre_24h_default"
     pre-10m-template-code: "pre_10m_default"
+    # [冷启动] meeting.scheduler.scan-ms
+    scan-ms: 60000
 
-  minute:
-    # dev 默认不自动纪要；要测完整链路可设 MEETING_MINUTE_GENERATION_ENABLED=true
-    # 或仅开离线：保持 false + offline-enabled=true（默认）
-    generation-enabled: ${MEETING_MINUTE_GENERATION_ENABLED:false}
+  isv:
+    enabled: true
+    match-score-threshold: 0.2
+    group-id: "smart_meeting_vp"
+    search-min-audio-sec: 3.0
+    api-timeout: 8
+    register-timeout: 5.0
+    debug-log: true
+    ttl-years: 10
 
-  todo:
-    extraction-enabled: ${MEETING_TODO_EXTRACTION_ENABLED:false}
-    reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
-
-  # 公网入口（frp/反代）；飞书回调、卡片链接、JWT 跳转须与此一致
   base-url: "https://oa.qdyhjz.cn/meeting-server"
 
   feishu:
-    # 测试飞书（备用，当前注释）
-#    app-id: "cli_a955948fda78dbc2"
-#    app-secret: "su4Ld0hCNI7tJwRlWpVWnNBxfILBlftt"
-#    verification-token: "Jo9UaHKiRrSZxfekG9N1ohgXWa0HTbwX"
-#    encrypt-key: "X86ftqCd6Rs3my4tOd3OweBthHypk1yS"
-#    base-url: "https://open.feishu.cn"
-#    token-cache-seconds: 7200
-    # jq 飞书应用（当前启用）
     app-id: "cli_a9742c7795795bc2"
     app-secret: "yNKh96SePvhk4h3b1Z1Rnjw3RZ6fivIj"
     verification-token: "8xLRCY78R4WF2LVOyjtXJfLXePgfSYOG"
     encrypt-key: "UUL5bdPrZN6mgNroM38RRbE6rVE1m35y"
     base-url: "https://open.feishu.cn"
     token-cache-seconds: 7200
-    # 开放平台需订阅：im.chat.member.bot.added_v1、application.bot.menu_v6 等
-    # 会议类型入口为 Web（base-url/start-meeting.html?token=…）
     bot-ux:
       welcome-on-bot-join: true
       welcome-text: "大家好，我是「智能会议」助手。\n请用下方快捷菜单或发送「开始会议」使用本群会议功能。"
@@ -104,8 +92,6 @@ meeting:
       menu-v6-fallback-to-last-group-chat: true
 
   asr:
-    # realtime-enabled 继承 application.yml 默认 false
-    # offline-enabled 继承默认 true → dev 结束后自动离线转写
     primary: xfyun
     fallback: tencent
     lang: "autodialect"
@@ -129,16 +115,6 @@ meeting:
         backoff-ms: 1000
         backoff-multiplier: 2.0
         max-backoff-ms: 30000
-
-  isv:
-    enabled: true
-    group-id: "smart_meeting_vp"
-    match-score-threshold: 0.2
-    search-min-audio-sec: 3.0
-    api-timeout: 8
-    register-timeout: 5.0
-    debug-log: true
-    ttl-years: 10
 
   llm:
     provider: "deepseek"
@@ -168,19 +144,14 @@ meeting:
     interval: 30
     frontend-ws-close-timeout: 5
 
-# =============================================================================
-# OpenClaw（纪要 AI 增强等；provider=mcp 需本机 Gateway）
-# =============================================================================
 openclaw:
-  enabled: ${OPENCLAW_ENABLED:true}
   agent:
+    # [冷启动]
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  timeout-seconds: ${OPENCLAW_TIMEOUT:120}
   auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
-  skill-mode: ${OPENCLAW_SKILL_MODE:true}
 
 logging:
   level:
@@ -190,10 +161,8 @@ logging:
     path: "./logs/smart-meeting"
     max-size: 100MB
     max-history: 7
-
 mybatis-plus:
   configuration:
-    # 使用 Slf4j 输出 SQL；勿用 StdOutImpl（主持 tick 会刷屏）
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl
   global-config:
     db-config:

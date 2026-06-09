@@ -9,6 +9,7 @@ import org.springframework.http.converter.StringHttpMessageConverter;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 
 /**
  * HTTP 客户端配置。
@@ -40,6 +41,9 @@ public class RestTemplateConfig {
     @Bean
     @ConditionalOnMissingBean(RestTemplate.class)
     public RestTemplate restTemplate(RestTemplateBuilder builder) {
-        return builder.build();
+        return builder
+                .setConnectTimeout(Duration.ofSeconds(10))
+                .setReadTimeout(Duration.ofSeconds(60))
+                .build();
     }
 }

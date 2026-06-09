@@ -17,6 +17,7 @@ import com.smartmeeting.matterprogress.feishu.BitablePlainTextExporter;
 import com.smartmeeting.matterprogress.feishu.DocxBlockMarkdownExporter;
 import com.smartmeeting.matterprogress.feishu.BitableTableInfo;
 import com.smartmeeting.matterprogress.feishu.FeishuSpreadsheetPlainTextFetcher;
+import com.smartmeeting.config.MatterProgressFetchProperties;
 import com.smartmeeting.config.feishu.FeishuResourceKind;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 
@@ -40,6 +41,7 @@ public class FeishuService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry meetingHostFeishuMuteRegistry;
+    private final MatterProgressFetchProperties matterProgressFetchProperties;
 
     @Value("${meeting.feishu.app-id:test}")
     private String appId;
@@ -601,7 +603,7 @@ public class FeishuService {
      */
     public String fetchSheetPlainText(String spreadsheetToken) {
         return FeishuSpreadsheetPlainTextFetcher.fetch(
-                restTemplate, baseUrl, getTenantToken(), spreadsheetToken);
+                restTemplate, baseUrl, getTenantToken(), spreadsheetToken, matterProgressFetchProperties.toLimits());
     }
 
     /**

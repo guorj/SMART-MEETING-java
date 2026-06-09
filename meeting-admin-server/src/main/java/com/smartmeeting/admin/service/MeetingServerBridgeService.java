@@ -32,7 +32,12 @@ public class MeetingServerBridgeService {
     private final RestTemplate restTemplate = new RestTemplate();
 
     public boolean triggerRuntimeReload() {
-        return postInternal("/api/v1/internal/runtime-config/reload", null) != null;
+        try {
+            return postInternal("/api/v1/internal/runtime-config/reload", null) != null;
+        } catch (Exception e) {
+            log.error("meeting-server runtime reload failed: {}", e.getMessage());
+            return false;
+        }
     }
 
     public Map<String, Object> refreshHostAgendaEnriched(int presetTypeCode, boolean dryRun, List<String> meetingIds) {

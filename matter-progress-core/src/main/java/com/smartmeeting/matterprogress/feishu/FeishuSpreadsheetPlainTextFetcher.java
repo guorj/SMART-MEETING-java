@@ -1,6 +1,7 @@
 package com.smartmeeting.matterprogress.feishu;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.smartmeeting.matterprogress.config.SpreadsheetFetchLimits;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
@@ -19,12 +20,6 @@ import java.util.List;
  */
 public final class FeishuSpreadsheetPlainTextFetcher {
 
-    private static final int MAX_SHEETS = 20;
-    private static final int DEFAULT_MAX_ROWS = 200;
-    private static final int DEFAULT_MAX_COLS = 26;
-    private static final int ABS_MAX_ROWS = 500;
-    private static final int ABS_MAX_COLS = 50;
-
     private FeishuSpreadsheetPlainTextFetcher() {
     }
 
@@ -32,6 +27,12 @@ public final class FeishuSpreadsheetPlainTextFetcher {
      * @param spreadsheetToken wiki get_node 返回的 obj_token（obj_type=sheet）
      */
     public static String fetch(RestTemplate restTemplate, String baseUrl, String tenantToken, String spreadsheetToken) {
+        return fetch(restTemplate, baseUrl, tenantToken, spreadsheetToken, SpreadsheetFetchLimits.DEFAULT);
+    }
+
+    public static String fetch(RestTemplate restTemplate, String baseUrl, String tenantToken, String spreadsheetToken,
+                               SpreadsheetFetchLimits limits) {
+        SpreadsheetFetchLimits effective = limits != null ? limits : SpreadsheetFetchLimits.DEFAULT;
         if (spreadsheetToken == null || spreadsheetToken.isBlank()) {
             throw new IllegalArgumentException("spreadsheet_token 为空");
         }
@@ -50,7 +51,7 @@ public final class FeishuSpreadsheetPlainTextFetcher {
         int count = 0;
         int skipped = 0;
         for (JsonNode sheet : sheets) {
-            if (count >= MAX_SHEETS) {
+            if (count >= effective.maxSheets()) {
                 out.append("\n\n（其余工作表已省略，请在飞书中打开查看）");
                 break;
             }
@@ -68,7 +69,7 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             }
             String title = sheet.path("title").asText("未命名工作表");
             JsonNode grid = sheet.path("grid_properties");
-            String tableMd = readSheetAsMarkdown(restTemplate, root, tenantToken, token, sheetId, title, grid);
+            String tableMd = readSheetAsMarkdown(restTemplate, root, tenantToken, token, sheetId, title, grid, effective);
             if (tableMd.isBlank()) {
                 skipped++;
                 continue;
@@ -115,8 +116,9 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             String spreadsheetToken,
             String sheetId,
             String title,
-            JsonNode grid) {
-        String range = buildReadRange(sheetId, grid);
+            JsonNode grid,
+            SpreadsheetFetchLimits limits) {
+        String range = buildReadRange(sheetId, grid, limits);
         try {
             JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, range);
             return formatValuesAsMarkdownTable(title, values);
@@ -125,7 +127,7 @@ public final class FeishuSpreadsheetPlainTextFetcher {
                 throw first;
             }
         }
-        String fallbackRange = sheetId + "!A1:" + columnIndexToLetter(DEFAULT_MAX_COLS - 1) + DEFAULT_MAX_ROWS;
+        String fallbackRange = sheetId + "!A1:" + columnIndexToLetter(limits.defaultMaxCols() - 1) + limits.defaultMaxRows();
         try {
             JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, fallbackRange);
             return formatValuesAsMarkdownTable(title, values);
@@ -146,14 +148,19 @@ public final class FeishuSpreadsheetPlainTextFetcher {
     }
 
     static String buildReadRange(String sheetId, JsonNode gridProperties) {
+        return buildReadRange(sheetId, gridProperties, SpreadsheetFetchLimits.DEFAULT);
+    }
+
+    static String buildReadRange(String sheetId, JsonNode gridProperties, SpreadsheetFetchLimits limits) {
+        SpreadsheetFetchLimits effective = limits != null ? limits : SpreadsheetFetchLimits.DEFAULT;
         int rows = gridProperties != null && gridProperties.isObject()
-                ? gridProperties.path("row_count").asInt(DEFAULT_MAX_ROWS)
-                : DEFAULT_MAX_ROWS;
+                ? gridProperties.path("row_count").asInt(effective.defaultMaxRows())
+                : effective.defaultMaxRows();
         int cols = gridProperties != null && gridProperties.isObject()
-                ? gridProperties.path("column_count").asInt(DEFAULT_MAX_COLS)
-                : DEFAULT_MAX_COLS;
-        rows = Math.max(1, Math.min(rows, ABS_MAX_ROWS));
-        cols = Math.max(1, Math.min(cols, ABS_MAX_COLS));
+                ? gridProperties.path("column_count").asInt(effective.defaultMaxCols())
+                : effective.defaultMaxCols();
+        rows = Math.max(1, Math.min(rows, effective.absMaxRows()));
+        cols = Math.max(1, Math.min(cols, effective.absMaxCols()));
         String endCol = columnIndexToLetter(cols - 1);
         return sheetId + "!A1:" + endCol + rows;
     }

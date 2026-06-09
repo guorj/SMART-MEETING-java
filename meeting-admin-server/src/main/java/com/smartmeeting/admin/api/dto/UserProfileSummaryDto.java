@@ -21,4 +21,9 @@ public class UserProfileSummaryDto {
     private LocalDateTime expiresAt;
     private String expiryStatus;
     private int voiceprintCount;
+
+    /** 是否在 dashboard.user_grants 白名单内且 enabled */
+    private Boolean dashboardGrantEnabled;
+    /** 白名单内是否可建会（列表 badge 用） */
+    private Boolean dashboardCanCreateMeeting;
 }
