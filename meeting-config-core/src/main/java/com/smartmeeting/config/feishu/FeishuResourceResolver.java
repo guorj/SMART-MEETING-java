@@ -14,6 +14,9 @@ public final class FeishuResourceResolver {
     private static final Pattern DOCX_PATH = Pattern.compile("/docx/([^/?#]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern WIKI_PATH = Pattern.compile("/wiki/([^/?#]+)", Pattern.CASE_INSENSITIVE);
     private static final Pattern BASE_PATH = Pattern.compile("/base/([^/?#]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern SHEETS_PATH = Pattern.compile("/sheets/([^/?#]+)", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TASKLIST_APPLINK = Pattern.compile(
+            "applink\\.(?:feishu|larksuite)\\.cn/client/todo/task_list", Pattern.CASE_INSENSITIVE);
 
     private FeishuResourceResolver() {
     }
@@ -102,6 +105,16 @@ public final class FeishuResourceResolver {
             String tableId = queryParam(url, "table");
             String viewId = queryParam(url, "view");
             return new FeishuResourceRef(FeishuResourceKind.BASE, appToken, tableId, viewId, url, null);
+        }
+        Matcher sheets = SHEETS_PATH.matcher(url);
+        if (sheets.find()) {
+            return new FeishuResourceRef(FeishuResourceKind.SHEET, sheets.group(1), null, null, url, null);
+        }
+        if (TASKLIST_APPLINK.matcher(url).find()) {
+            String guid = queryParam(url, "guid");
+            if (guid != null && !guid.isBlank()) {
+                return new FeishuResourceRef(FeishuResourceKind.TASKLIST, guid.trim(), null, null, url, null);
+            }
         }
         return null;
     }

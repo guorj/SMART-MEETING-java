@@ -106,6 +106,8 @@ public final class FeishuDocRefs {
             case WIKI -> "知识库";
             case BASE -> "多维表格";
             case DOCX -> "云文档";
+            case SHEET -> "电子表格";
+            case TASKLIST -> "任务清单";
             default -> "飞书资料";
         };
     }

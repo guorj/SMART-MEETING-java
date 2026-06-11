@@ -1,5 +1,6 @@
-(function () {
+﻿(function () {
   const TOKEN_KEY = 'sm-admin-token';
+  const LAST_ROUTE_KEY = 'sm-admin-last-route';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;
@@ -88,6 +89,12 @@
     }
   };
 
+  function getIconForModule(routeHash, displayName) {
+    if (window.Iconsax && Iconsax.renderModule) {
+      return Iconsax.renderModule(routeHash, displayName);
+    }
+    return '<span class="sidebar-icon-fallback" aria-hidden="true">•</span>';
+  }
   function showLogin() {
     document.getElementById('login-panel').classList.remove('hidden');
     document.getElementById('app').classList.add('hidden');
@@ -108,7 +115,7 @@
       if (!m.uiRouteHash || !String(m.uiRouteHash).trim()) continue;
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.textContent = m.displayName;
+      btn.innerHTML = getIconForModule(m.uiRouteHash, m.displayName) + '<span>' + m.displayName + '</span>';
       btn.dataset.hash = m.uiRouteHash;
       btn.onclick = () => navigate(m.uiRouteHash);
       nav.appendChild(btn);
@@ -129,14 +136,21 @@
 
   async function navigate(hash) {
     const seq = ++navigateSeq;
-    const fullHash = hash || location.hash || '#/presets';
+    const fullHash = hash || location.hash || sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets';
     if (hash) {
       location.hash = hash;
     }
+    try {
+      sessionStorage.setItem(LAST_ROUTE_KEY, fullHash);
+    } catch (_) { /* ignore */ }
     const routePath = (location.hash || '#/presets').replace('#', '').split('?')[0];
     const m = modules.find(x => x.uiRouteHash === '#' + routePath);
     const root = document.getElementById('module-root');
-    root.innerHTML = '<div class="panel"><p class="muted">加载中...</p></div>';
+    if (window.SmMotion && SmMotion.showModuleSkeleton) {
+      SmMotion.showModuleSkeleton(root);
+    } else {
+      root.innerHTML = '<div class="panel"><p class="muted">加载中...</p></div>';
+    }
     if (!m) {
       document.getElementById('route-title').textContent = '模块不可用';
       renderModuleError('当前模块不存在或未启用：' + routePath);
@@ -164,6 +178,7 @@
     try {
       await Promise.resolve(mod.mount(root));
       if (seq !== navigateSeq) return;
+      if (window.SmMotion && SmMotion.initBlurFade) SmMotion.initBlurFade(root);
     } catch (e) {
       if (seq !== navigateSeq) return;
       renderModuleError('模块加载失败：' + (e && e.message ? e.message : 'unknown error'));
@@ -178,7 +193,7 @@
       await AdminApi.fetch('/api/v1/admin/modules');
       showApp();
       await loadManifest();
-      navigate(location.hash || '#/presets');
+      navigate(location.hash || sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets');
     } catch (e) {
       sessionStorage.removeItem(TOKEN_KEY);
       alert(e.message);
@@ -198,7 +213,7 @@
 
   if (AdminApi.token()) {
     showApp();
-    loadManifest().then(() => navigate(location.hash || '#/presets')).catch(showLogin);
+    loadManifest().then(() => navigate(location.hash || sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets')).catch(showLogin);
   } else {
     showLogin();
   }

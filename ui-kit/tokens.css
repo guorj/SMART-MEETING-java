@@ -1,0 +1,74 @@
+/* 智能会议 ui-kit — Design Tokens · Swiss Anchor */
+:root {
+  --color-bg: #F7F7F8;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #F0F1F3;
+  --color-border: #E2E4E8;
+  --color-text: #1A1A1A;
+  --color-text-secondary: #5C5C5C;
+  --color-text-muted: #8A8A8A;
+  --color-primary: #002FA7;
+  --color-primary-hover: #001F75;
+  --color-on-primary: #FFFFFF;
+  --color-signal: var(--color-primary);
+  --color-danger: #D92D20;
+  --color-danger-hover: #B5241A;
+  --color-warning: #B8860B;
+  --color-info: #1565C0;
+  --color-success: #1B7F4B;
+  --color-primary-light: rgba(0, 47, 167, 0.08);
+  --color-success-bg: rgba(27, 127, 75, 0.08);
+  --color-warning-bg: rgba(184, 134, 11, 0.08);
+  --color-danger-bg: rgba(217, 45, 32, 0.08);
+  --color-info-bg: rgba(21, 101, 192, 0.08);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-pill: 999px;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+
+  --font-body: 14px;
+  --font-title: 18px;
+  --font-display: 32px;
+
+  --shadow-card: 0 1px 2px rgba(26, 26, 26, 0.06);
+  --shadow-sm: 0 1px 2px rgba(26, 26, 26, 0.04);
+  --shadow-lg: 0 12px 32px rgba(26, 26, 26, 0.08);
+
+  --touch-min: 44px;
+  --font-family: "Inter", "Helvetica Neue", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
+
+  --rec-pulse-color: var(--color-danger);
+  --signal-glow: 0 0 8px rgba(0, 47, 167, 0.25);
+  --ring: 0 0 0 3px rgba(0, 47, 167, 0.15);
+  --sidebar-w: 220px;
+
+  /* Admin 别名（映射到 --color-*） */
+  --bg: var(--color-bg);
+  --surface: var(--color-surface);
+  --surface-2: var(--color-surface-2);
+  --border: var(--color-border);
+  --border-strong: #CBD0D8;
+  --text: var(--color-text);
+  --text-muted: var(--color-text-muted);
+  --text-soft: var(--color-text-secondary);
+  --primary: var(--color-primary);
+  --primary-hover: var(--color-primary-hover);
+  --primary-soft: var(--color-primary-light);
+  --danger: var(--color-danger);
+  --danger-hover: var(--color-danger-hover);
+  --danger-soft: var(--color-danger-bg);
+  --warn: var(--color-warning);
+  --warn-soft: var(--color-warning-bg);
+  --radius: var(--radius-md);
+  --font: var(--font-family);
+  --mono: var(--font-mono);
+  --shadow: var(--shadow-card);
+}

@@ -167,12 +167,50 @@ AdminModules.register({
       });
     };
 
-    const loadUserOptions = async () => {
+    const USER_CACHE_KEY = 'sm-admin-user-options-v1';
+    const USER_CACHE_TTL_MS = 5 * 60 * 1000;
+
+    const applyUserOptions = (options, map) => {
+      userOptions = (options || []).slice().sort((a, b) => (a.name || a.uid).localeCompare(b.name || b.uid, 'zh-CN'));
+      userNameByFeishuId = map || {};
+    };
+
+    const readUserCache = () => {
+      try {
+        const raw = sessionStorage.getItem(USER_CACHE_KEY);
+        if (!raw) return null;
+        const cached = JSON.parse(raw);
+        if (!cached || !cached.ts || Date.now() - cached.ts > USER_CACHE_TTL_MS) return null;
+        return cached;
+      } catch (_) {
+        return null;
+      }
+    };
+
+    const writeUserCache = () => {
+      try {
+        sessionStorage.setItem(USER_CACHE_KEY, JSON.stringify({
+          ts: Date.now(),
+          options: userOptions,
+          map: userNameByFeishuId
+        }));
+      } catch (_) { /* quota */ }
+    };
+
+    const loadUserOptions = async (maxPages) => {
+      const pageLimit = Math.max(1, Math.min(20, maxPages == null ? 20 : maxPages));
+      if (pageLimit >= 20) {
+        const cached = readUserCache();
+        if (cached && cached.options && cached.map) {
+          applyUserOptions(cached.options, cached.map);
+          return;
+        }
+      }
       const map = {};
       const options = [];
       let page = 1;
       const size = 200;
-      while (page <= 20) {
+      while (page <= pageLimit) {
         const res = await AdminApi.fetch('/api/v1/admin/users?page=' + page + '&size=' + size);
         const rows = (res && res.records) || [];
         rows.forEach(r => {
@@ -187,8 +225,13 @@ AdminModules.register({
         if (!rows.length || fetched >= total) break;
         page += 1;
       }
-      userOptions = options.sort((a, b) => (a.name || a.uid).localeCompare(b.name || b.uid, 'zh-CN'));
-      userNameByFeishuId = map;
+      applyUserOptions(options, map);
+      if (pageLimit >= 20) writeUserCache();
+    };
+
+    const refreshUserPickers = () => {
+      if (tab === 'basic') syncMetaForm();
+      if (tab === 'table') renderAgendaTable();
     };
 
     const autoSaveBundle = () => {
@@ -758,10 +801,20 @@ AdminModules.register({
           }
         };
       });
-      el.querySelectorAll('.doc-local-thumb[data-file-id]').forEach(img => {
-        if (img.src) return;
-        fetchMaterialBlobUrl(img.dataset.fileId).then(url => { img.src = url; }).catch(() => { img.alt = '预览加载失败'; });
-      });
+      const thumbs = Array.from(el.querySelectorAll('.doc-local-thumb[data-file-id]')).filter(img => !img.src);
+      let thumbIdx = 0;
+      let thumbActive = 0;
+      const THUMB_CONCURRENCY = 3;
+      const pumpThumbs = () => {
+        while (thumbActive < THUMB_CONCURRENCY && thumbIdx < thumbs.length) {
+          const img = thumbs[thumbIdx++];
+          thumbActive += 1;
+          fetchMaterialBlobUrl(img.dataset.fileId).then(url => { img.src = url; })
+            .catch(() => { img.alt = '预览加载失败'; })
+            .finally(() => { thumbActive -= 1; pumpThumbs(); });
+        }
+      };
+      pumpThumbs();
     };
 
     const loadBundle = async () => {
@@ -1198,10 +1251,10 @@ AdminModules.register({
       alert('已刷新 ' + r.count + ' 场');
     };
 
-    await loadUserOptions();
-    await loadPresetOptions();
+    await Promise.all([loadPresetOptions(), loadUserOptions(1)]);
     await loadBundle();
     bindMetaEvents();
     render();
+    loadUserOptions(20).then(refreshUserPickers).catch(() => {});
   }
 });

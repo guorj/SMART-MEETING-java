@@ -89,6 +89,99 @@ public final class FeishuSpreadsheetPlainTextFetcher {
         return out.toString().trim();
     }
 
+    /** 单张工作表的原始 values 矩阵（供结构化导出使用）。 */
+    public record SheetValuesSlice(String sheetTitle, JsonNode values, List<MergeRange> mergedRanges) {
+
+        public SheetValuesSlice(String sheetTitle, JsonNode values) {
+            this(sheetTitle, values, List.of());
+        }
+    }
+
+    /** 合并单元格范围（0-based，相对数据行，不含表头行）。 */
+    public record MergeRange(int startRow, int endRow, int startCol, int endCol) {
+    }
+
+    /**
+     * 拉取可读工作表的单元格 values（与 {@link #fetch} 同源 API，输出结构化矩阵而非 Markdown）。
+     */
+    public static List<SheetValuesSlice> fetchSheetValueSlices(
+            RestTemplate restTemplate,
+            String baseUrl,
+            String tenantToken,
+            String spreadsheetToken,
+            SpreadsheetFetchLimits limits) {
+        SpreadsheetFetchLimits effective = limits != null ? limits : SpreadsheetFetchLimits.DEFAULT;
+        if (spreadsheetToken == null || spreadsheetToken.isBlank()) {
+            throw new IllegalArgumentException("spreadsheet_token 为空");
+        }
+        String token = spreadsheetToken.trim();
+        String root = normalizeBaseUrl(baseUrl);
+
+        List<JsonNode> sheets = querySheets(restTemplate, root, tenantToken, token);
+        if (sheets.isEmpty()) {
+            return List.of();
+        }
+        sheets = new ArrayList<>(sheets);
+        sheets.sort(Comparator.comparingInt(s -> s.path("index").asInt(0)));
+
+        List<SheetValuesSlice> out = new ArrayList<>();
+        int count = 0;
+        for (JsonNode sheet : sheets) {
+            if (count >= effective.maxSheets()) {
+                break;
+            }
+            if (sheet.path("hidden").asBoolean(false)) {
+                continue;
+            }
+            if (!isReadableSheetResource(sheet)) {
+                continue;
+            }
+            String sheetId = resolveSheetId(sheet);
+            if (sheetId.isBlank()) {
+                continue;
+            }
+            String title = sheet.path("title").asText("未命名工作表");
+            JsonNode grid = sheet.path("grid_properties");
+            JsonNode values = readSheetValues(restTemplate, root, tenantToken, token, sheetId, grid, effective);
+            if (values == null || !values.isArray() || values.isEmpty()) {
+                continue;
+            }
+            out.add(new SheetValuesSlice(title, values, parseSheetMerges(sheet, 1)));
+            count++;
+        }
+        return out;
+    }
+
+    /**
+     * 解析 sheets v3 query 返回的 merges，转为数据行相对坐标（表头占 {@code headerRowCount} 行）。
+     */
+    static List<MergeRange> parseSheetMerges(JsonNode sheet, int headerRowCount) {
+        if (sheet == null || headerRowCount < 0) {
+            return List.of();
+        }
+        JsonNode merges = sheet.path("merges");
+        if (!merges.isArray() || merges.isEmpty()) {
+            return List.of();
+        }
+        List<MergeRange> out = new ArrayList<>();
+        for (JsonNode m : merges) {
+            int startRow = m.path("start_row_index").asInt(m.path("startRowIndex").asInt(-1));
+            int endRow = m.path("end_row_index").asInt(m.path("endRowIndex").asInt(-1));
+            int startCol = m.path("start_column_index").asInt(m.path("startColumnIndex").asInt(0));
+            int endCol = m.path("end_column_index").asInt(m.path("endColumnIndex").asInt(0));
+            if (startRow < 0 || endRow < 0) {
+                continue;
+            }
+            if (endRow < headerRowCount) {
+                continue;
+            }
+            int dataStart = Math.max(0, startRow - headerRowCount);
+            int dataEnd = endRow - headerRowCount;
+            out.add(new MergeRange(dataStart, dataEnd, startCol, endCol));
+        }
+        return out;
+    }
+
     /** 仅读取普通网格 sheet；跳过 bitable、仪表盘等 resource_type。 */
     static boolean isReadableSheetResource(JsonNode sheet) {
         if (sheet == null || sheet.isNull()) {
@@ -118,22 +211,37 @@ public final class FeishuSpreadsheetPlainTextFetcher {
             String title,
             JsonNode grid,
             SpreadsheetFetchLimits limits) {
-        String range = buildReadRange(sheetId, grid, limits);
+        JsonNode values = readSheetValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, sheetId, grid, limits);
+        if (values == null || !values.isArray() || values.isEmpty()) {
+            return "";
+        }
+        return formatValuesAsMarkdownTable(title, values);
+    }
+
+    private static JsonNode readSheetValues(
+            RestTemplate restTemplate,
+            String baseUrl,
+            String tenantToken,
+            String spreadsheetToken,
+            String sheetId,
+            JsonNode grid,
+            SpreadsheetFetchLimits limits) {
+        SpreadsheetFetchLimits effective = limits != null ? limits : SpreadsheetFetchLimits.DEFAULT;
+        String range = buildReadRange(sheetId, grid, effective);
         try {
-            JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, range);
-            return formatValuesAsMarkdownTable(title, values);
+            return readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, range);
         } catch (RuntimeException first) {
             if (!isSheetIdNotFound(first)) {
                 throw first;
             }
         }
-        String fallbackRange = sheetId + "!A1:" + columnIndexToLetter(limits.defaultMaxCols() - 1) + limits.defaultMaxRows();
+        String fallbackRange = sheetId + "!A1:" + columnIndexToLetter(effective.defaultMaxCols() - 1)
+                + effective.defaultMaxRows();
         try {
-            JsonNode values = readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, fallbackRange);
-            return formatValuesAsMarkdownTable(title, values);
+            return readRangeValues(restTemplate, baseUrl, tenantToken, spreadsheetToken, fallbackRange);
         } catch (RuntimeException second) {
             if (isSheetIdNotFound(second)) {
-                return "";
+                return null;
             }
             throw second;
         }

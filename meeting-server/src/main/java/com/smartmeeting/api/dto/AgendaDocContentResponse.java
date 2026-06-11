@@ -6,9 +6,10 @@ import lombok.Data;
 import java.util.List;
 
 /**
- * 议程资料纯文本响应体（{@code GET /api/v1/meetings/{id}/agenda-doc-content}）。
+ * 议程资料响应体（{@code GET /api/v1/meetings/{id}/agenda-doc-content}）。
  * <p>
  * 按会序返回飞书 Docx/Wiki 等资料的合并正文及分项列表，供主持页只读展示。
+ * 新增结构化内容字段（contentType/structuredContent/images），前端检测后优先使用新渲染。
  */
 @Data
 @Builder

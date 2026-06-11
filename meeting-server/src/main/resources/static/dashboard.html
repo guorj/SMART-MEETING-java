@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -7,8 +7,15 @@
 (function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
 </script>
 <title>智能会议前台</title>
-<link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
-<link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-2">
+<link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-2">
+<link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-2">
+<link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-2">
+<script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
+<script src="ui-kit/motion.js?v=sm-ui-20260610-2"></script>
+<script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
 <body class="dashboard-page">
 <div id="app" class="loading-skeleton-wrap">
@@ -41,6 +48,7 @@ async function api(path, options){
 }
 
 function esc(s){return(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+function ix(name){return window.Iconsax&&Iconsax.render?Iconsax.render(name):'';}
 function fmtDt(s){return s?String(s).replace('T',' ').slice(0,16):'-';}
 
 function statusLabel(st){
@@ -77,6 +85,8 @@ function canEnd(st){
   return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
 }
 
+function initBlurFade(){ if(window.SmMotion) SmMotion.initBlurFade(); }
+
 async function init(){
   try{
     const meResp=await api('/api/v1/dashboard/me');
@@ -92,7 +102,7 @@ async function init(){
     const canVoiceprint=perms.canRegisterVoiceprint;
 
     const presetButtons=canCreate
-      ? presets.map(p=>`<button class="ui-btn ui-btn-primary btn btn-primary" data-code="${p.code}">${esc(p.displayName)}</button>`).join('')
+      ? presets.map(p=>`<button class="ui-btn ui-btn-primary" data-code="${p.code}">${ix('video')}${esc(p.displayName)}</button>`).join('')
       : '<p class="muted">您没有创建会议的权限，请联系管理员。</p>';
     const meetingList=meetings.length===0?'<p class="muted">暂无近期会议</p>':
       meetings.map(m=>`<div class="meeting-item"><span class="meeting-title">${esc(m.title)}</span>${statusBadge(m.status)}<span class="meeting-time">${fmtDt(m.createdAt)}</span>${m.docUrl?'<a class="meeting-link" href="'+esc(m.docUrl)+'" target="_blank">纪要</a>':''}</div>`).join('');
@@ -116,26 +126,26 @@ async function init(){
       : '<p class="muted">未关联 OA 账号</p>';
 
     document.getElementById('app').innerHTML=`
-      <div class="ui-card card">
+      <div class="ui-card card blur-fade">
         <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuUserId)}</span>${vpBadge(vp.expiryStatus)}</div>
         <details class="ui-help"><summary>账号信息</summary>${accountDetails}</details>
       </div>
-      ${canCreate ? `<div class="ui-card card">
+      ${canCreate ? `<div class="ui-card card blur-fade">
         <h2>开始会议</h2>
         <div class="btn-grid">${presetButtons}</div>
         <p id="create-msg" class="msg hidden"></p>
       </div>` : ''}
-      ${activeMeeting ? `<div class="ui-card card">${activeHtml}</div>` : ''}
-      ${canVoiceprint ? `<div class="ui-card card">
+      ${activeMeeting ? `<div class="ui-card card blur-fade">${activeHtml}</div>` : ''}
+      ${canVoiceprint ? `<div class="ui-card card blur-fade">
         <h2>声纹管理</h2>
         <p>${vp.registered?'声纹特征 ID: '+esc(vp.featureId)+'<br/>有效期至: '+fmtDt(vp.expiresAt):'您尚未注册声纹，注册后会议纪要可自动识别您的声音。'}</p>
-        <button class="ui-btn ui-btn-voice btn btn-voice" id="btn-register">${vp.registered?'重新注册声纹':'注册声纹'}</button>
+        <button class="ui-btn ui-btn-voice" id="btn-register">${ix('microphone')}${vp.registered?'重新注册声纹':'注册声纹'}</button>
       </div>` : ''}
-      <div class="ui-card card">
+      <div class="ui-card card blur-fade">
         <h2>近期会议</h2>
         ${meetingList}
       </div>
-      <div class="ui-card card">
+      <div class="ui-card card blur-fade">
         <details class="ui-help"><summary>帮助</summary>
           <p class="muted">令牌有效期 8 小时 · 过期后请重新发送「会议管理」</p>
         </details>
@@ -198,8 +208,10 @@ async function init(){
       };
     }
 
+    initBlurFade();
   }catch(e){
     document.getElementById('app').innerHTML='<div class="ui-card msg msg-err">加载失败: '+esc(e.message)+'</div>';
+    initBlurFade();
   }
 }
 

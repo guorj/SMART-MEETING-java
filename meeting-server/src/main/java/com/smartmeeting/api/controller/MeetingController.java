@@ -9,6 +9,7 @@ import com.smartmeeting.api.dto.MeetingResponse;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.TodoBoardResponse;
 import com.smartmeeting.service.FeishuMeetingStartCoordinator;
+import com.smartmeeting.service.FeishuService;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
@@ -56,6 +57,7 @@ public class MeetingController {
     private final TodoService todoService;
     private final JwtUtil jwtUtil;
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
+    private final FeishuService feishuService;
     private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
     private final PresetAgendaDocService presetAgendaDocService;
     private final MeetingMapper meetingMapper;
@@ -361,4 +363,54 @@ public class MeetingController {
     public ApiResponse<TodoBoardResponse> getTodoBoard(@PathVariable String id) {
         return ApiResponse.ok(todoService.getTodoBoard(id));
     }
+
+    /**
+     * 代理下载飞书图片：主持页通过此接口加载飞书 image_key 对应的图片。
+     */
+    @GetMapping("/{id}/agenda-materials/proxy-image")
+    public ResponseEntity<Resource> proxyImage(
+            @PathVariable String id,
+            @RequestParam String imageKey,
+            @RequestParam(value = "token", required = false) String queryToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        String token = resolveMeetingPageToken(authorization, queryToken);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        try {
+            byte[] imageBytes = feishuService.downloadImage(imageKey);
+            String mime = imageKey.toLowerCase().endsWith(".png") ? "image/png"
+                    : imageKey.toLowerCase().endsWith(".gif") ? "image/gif"
+                    : "image/jpeg";
+            return ResponseEntity.ok()
+                    .contentType(MediaType.parseMediaType(mime))
+                    .cacheControl(org.springframework.http.CacheControl.maxAge(1, java.util.concurrent.TimeUnit.HOURS))
+                    .body(new org.springframework.core.io.ByteArrayResource(imageBytes));
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
+    /**
+     * 代理下载本地资料的页面/幻灯片图片。
+     */
+    @GetMapping("/{id}/agenda-materials/proxy-file-image")
+    public ResponseEntity<Resource> proxyFileImage(
+            @PathVariable String id,
+            @RequestParam String fileId,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(value = "token", required = false) String queryToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        String token = resolveMeetingPageToken(authorization, queryToken);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        try {
+            java.nio.file.Path imagePath = agendaMaterialStorageService.resolveGeneratedImagePath(fileId, page);
+            if (imagePath != null && java.nio.file.Files.exists(imagePath)) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .cacheControl(org.springframework.http.CacheControl.maxAge(1, java.util.concurrent.TimeUnit.HOURS))
+                        .body(new FileSystemResource(imagePath));
+            }
+        } catch (Exception ignored) {}
+        return ResponseEntity.notFound().build();
+    }
+
 }

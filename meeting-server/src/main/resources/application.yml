@@ -217,6 +217,9 @@ meeting:
     max-concurrent-sessions: ${MEETING_ASR_MAX_CONCURRENT_SESSIONS:3}
     # true：跳过真实讯飞调用（本地联调）
     mock-enabled: ${MOCK_ASR:false}
+    # [冷启动] 会中实时转写开关；默认关闭（节省讯飞并发路数，远程参会人音频需走飞书 VC 录制回调）
+    # 开启后浏览器 PCM 将实时送入讯飞 ASR，主持页底部显示实时字幕；关闭后仅录音 + 会后离线转写
+    realtime-enabled: ${MEETING_ASR_REALTIME_ENABLED:false}
     realtime:
       # [冷启动] meeting.asr.realtime.post-open-wait-max-ms
       post-open-wait-max-ms: 60000

@@ -49,6 +49,10 @@
         <mysql-connector.version>8.3.0</mysql-connector.version>
         <kafka-clients.version>3.7.0</kafka-clients.version>
         <spring-data-redis.version>3.2.5</spring-data-redis.version>
+
+        <poi.version>5.2.5</poi.version>
+        <pdfbox.version>3.0.3</pdfbox.version>
+
         <skipTests>true</skipTests>
     </properties>
 
@@ -92,6 +96,25 @@
                 <groupId>com.mysql</groupId>
                 <artifactId>mysql-connector-j</artifactId>
                 <version>${mysql-connector.version}</version>
+            </dependency>
+
+            <!-- Apache POI -->
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>${poi.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-scratchpad</artifactId>
+                <version>${poi.version}</version>
+            </dependency>
+
+            <!-- Apache PDFBox -->
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

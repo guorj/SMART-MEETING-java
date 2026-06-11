@@ -35,8 +35,7 @@ public record FeishuResourceRef(
             return false;
         }
         return switch (kind) {
-            case DOCX, WIKI -> true;
-            case BASE -> tableId != null && !tableId.isBlank();
+            case DOCX, WIKI, BASE, SHEET, TASKLIST -> true;
             case UNKNOWN -> false;
         };
     }
@@ -60,7 +59,16 @@ public record FeishuResourceRef(
         }
         return switch (kind) {
             case DOCX -> "https://bytedance.feishu.cn/docx/" + primaryToken;
-            case WIKI -> "https://bytedance.feishu.cn/wiki/" + primaryToken;
+            case WIKI -> {
+                StringBuilder sb = new StringBuilder("https://bytedance.feishu.cn/wiki/").append(primaryToken);
+                if (tableId != null && !tableId.isBlank()) {
+                    sb.append("?table=").append(tableId);
+                    if (viewId != null && !viewId.isBlank()) {
+                        sb.append("&view=").append(viewId);
+                    }
+                }
+                yield sb.toString();
+            }
             case BASE -> {
                 StringBuilder sb = new StringBuilder("https://bytedance.feishu.cn/base/").append(primaryToken);
                 if (tableId != null && !tableId.isBlank()) {
@@ -71,6 +79,8 @@ public record FeishuResourceRef(
                 }
                 yield sb.toString();
             }
+            case SHEET -> "https://bytedance.feishu.cn/sheets/" + primaryToken;
+            case TASKLIST -> "https://applink.feishu.cn/client/todo/task_list?guid=" + primaryToken;
             default -> null;
         };
     }

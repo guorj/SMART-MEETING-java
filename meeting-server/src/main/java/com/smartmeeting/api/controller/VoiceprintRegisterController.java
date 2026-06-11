@@ -180,9 +180,9 @@ public class VoiceprintRegisterController {
                 .append(" 秒</b>；请在安静环境、距离麦克风 15-30cm、避免中途停顿和环境噪音。超过 ")
                 .append(registerMaxDurationSec()).append(" 秒将自动停止并提交。</div>\n");
         html.append("<div class=\"phrases\">\n");
-        html.append("1. 我是智能会议系统的正式用户，当前正在进行声纹注册验证，请系统准确记录我此刻的自然发音、语速变化与停顿习惯，以便在真实会议场景中稳定完成说话人识别，减少纪要归属错误并提升协作效率。<br/>\n");
+        html.append("1. 我当前正在进行声纹注册，请系统准确记录我此刻的自然发音、语速变化与停顿习惯，以便在真实会议场景中稳定完成说话人识别，减少纪要归属错误并提升协作效率。<br/>\n");
         html.append("2. 在日常会议讨论中，我会围绕项目目标、任务分工、风险评估和时间节点进行连续表达，因此希望本次采集能够覆盖长句、短句与转折句，让模型在不同语境下都能保持一致判断，并在多人交流时快速锁定我的声音特征。<br/>\n");
-        html.append("3. 我承诺在安静环境中完成本次朗读，不遮挡麦克风、不刻意变声，并按照页面提示一次读完三句话，确保样本清晰可用；注册成功后，我也将通过会议管理工作台持续验证识别效果，发现问题及时反馈并配合优化。\n");
+        html.append("3. 我承诺在安静环境中完成本次朗读，不遮挡麦克风、不刻意变声，并按照页面提示一次读完三句话，确保样本清晰可用。\n");
         html.append("</div>\n");
         html.append("<button id=\"recordBtn\" class=\"btn btn-start\">开始录音</button>\n");
         html.append("<div id=\"timer\" class=\"timer\" style=\"display:none;\">00:00</div>\n");

@@ -23,6 +23,13 @@ import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.service.cache.MeetingPresetCacheService;
 import com.smartmeeting.service.cache.PresetBundle;
 import com.smartmeeting.service.feishu.FeishuDocRefs;
+import com.smartmeeting.api.dto.structured.BitableStructuredDto;
+import com.smartmeeting.api.dto.structured.TaskListStructuredDto;
+import com.smartmeeting.api.dto.structured.ExcelWorkbookDto;
+import com.smartmeeting.api.dto.structured.SheetStructuredDto;
+import com.smartmeeting.service.structured.LocalAgendaMaterialPartBuilder;
+import com.smartmeeting.service.structured.StructuredImageCollector;
+
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -44,6 +51,7 @@ public class PresetAgendaDocService {
     private final MeetingTypePresetMapper presetMapper;
     private final MeetingPresetCacheService presetCache;
     private final FeishuService feishuService;
+    private final AgendaMaterialStorageService agendaMaterialStorageService;
     private final ObjectMapper objectMapper;
 
     public PresetBundle refreshPresetBundle(int presetTypeCode) {
@@ -182,18 +190,21 @@ public class PresetAgendaDocService {
                                                           List<FeishuDocRefDto> runtimeDocs) {
         List<FeishuResourceRef> refs = resolveAllResources(meeting, agendaIndex, runtimeDocs);
         AgendaWeeklyReportDto weeklyReport = buildWeeklyReportDto(meeting, agendaIndex).orElse(null);
+        List<AgendaDocPartDto> localParts = LocalAgendaMaterialPartBuilder.buildParts(
+                meeting, agendaIndex, objectMapper, agendaMaterialStorageService);
         if (refs.isEmpty()) {
-            if (weeklyReport == null || weeklyReport.getGeneratedReportUrl() == null
-                    || weeklyReport.getGeneratedReportUrl().isBlank()) {
+            boolean hasWeekly = weeklyReport != null && weeklyReport.getGeneratedReportUrl() != null
+                    && !weeklyReport.getGeneratedReportUrl().isBlank();
+            if (localParts.isEmpty() && !hasWeekly) {
                 throw new BusinessException(404,
                         "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
                                 ? "「" + agendaTitle + "」" : "")
-                                + " 未配置飞书资料");
+                                + " 未配置资料");
             }
             return AgendaDocContentResponse.builder()
                     .agendaIndex(agendaIndex)
                     .agendaTitle(agendaTitle)
-                    .parts(List.of())
+                    .parts(localParts)
                     .weeklyReport(weeklyReport)
                     .build();
         }
@@ -206,13 +217,15 @@ public class PresetAgendaDocService {
                     .feishuDocUrl(openUrl);
             if (ref.canFetchPlainText()) {
                 try {
-                    String text = feishuService.fetchResourcePlainText(ref);
-                    if (text != null && !text.isBlank()) {
-                        partBuilder.plainText(text);
-                        combined.append('【').append(FeishuDocRefs.kindLabel(ref.kind())).append("】\n")
-                                .append(text.trim()).append("\n\n");
-                    } else {
-                        partBuilder.fetchError("资料已读取但正文为空");
+                    if (!applyStructuredFeishuPart(partBuilder, ref, meeting)) {
+                        String text = feishuService.fetchResourcePlainText(ref);
+                        if (text != null && !text.isBlank()) {
+                            partBuilder.plainText(text);
+                            combined.append('【').append(FeishuDocRefs.kindLabel(ref.kind())).append("】\n")
+                                    .append(text.trim()).append("\n\n");
+                        } else {
+                            partBuilder.fetchError("资料已读取但正文为空");
+                        }
                     }
                 } catch (BusinessException e) {
                     partBuilder.fetchError(e.getMessage());
@@ -221,12 +234,14 @@ public class PresetAgendaDocService {
                     partBuilder.fetchError("拉取失败: " + e.getMessage());
                 }
             } else {
-                partBuilder.fetchError("无法内嵌拉取正文（base 须在 URL 带 table=），请使用下方链接在飞书中打开");
+                partBuilder.fetchError("无法内嵌拉取正文，请使用下方链接在飞书中打开");
             }
             parts.add(partBuilder.build());
         }
+        parts.addAll(localParts);
         boolean anyText = parts.stream().anyMatch(p -> p.getPlainText() != null && !p.getPlainText().isBlank());
-        if (!anyText && parts.stream().allMatch(p -> p.getFetchError() != null)) {
+        boolean anyStructured = parts.stream().anyMatch(p -> p.getStructuredContent() != null);
+        if (!anyText && !anyStructured && parts.stream().allMatch(p -> p.getFetchError() != null)) {
             boolean anyUrl = parts.stream().anyMatch(p -> p.getFeishuDocUrl() != null && !p.getFeishuDocUrl().isBlank());
             if (!anyUrl && (weeklyReport == null || weeklyReport.getPlainText() == null
                     || weeklyReport.getPlainText().isBlank())) {
@@ -268,11 +283,18 @@ public class PresetAgendaDocService {
                         return builder.build();
                     }
                     try {
-                        String text = feishuService.fetchResourcePlainText(ref);
-                        if (text != null && !text.isBlank()) {
-                            builder.plainText(text.trim());
+                        AgendaDocPartDto.AgendaDocPartDtoBuilder partScratch = AgendaDocPartDto.builder();
+                        if (applyStructuredFeishuPart(partScratch, ref, meeting)) {
+                            AgendaDocPartDto part = partScratch.build();
+                            builder.contentType(part.getContentType());
+                            builder.structuredContent(part.getStructuredContent());
                         } else {
-                            builder.fetchError("通报 Doc 已读取但正文为空");
+                            String text = feishuService.fetchResourcePlainText(ref);
+                            if (text != null && !text.isBlank()) {
+                                builder.plainText(text.trim());
+                            } else {
+                                builder.fetchError("通报 Doc 已读取但正文为空");
+                            }
                         }
                     } catch (BusinessException e) {
                         builder.fetchError(e.getMessage());
@@ -305,5 +327,72 @@ public class PresetAgendaDocService {
     private String presetHostAgendaJson(int presetTypeCode) {
         MeetingTypePreset preset = getPresetCached(presetTypeCode);
         return preset != null ? preset.getHostAgenda() : null;
+    }
+
+    /**
+     * 优先结构化拉取；成功则跳过 plainText 二次飞书请求。
+     *
+     * @return true 表示已填充 structured，调用方无需再拉 plainText
+     */
+    private boolean applyStructuredFeishuPart(AgendaDocPartDto.AgendaDocPartDtoBuilder partBuilder,
+                                            FeishuResourceRef ref, Meeting meeting) {
+        try {
+            String contentType = feishuService.resolveStructuredContentType(ref);
+            Object structured = feishuService.fetchResourceStructuredContent(ref);
+            if (structured instanceof com.smartmeeting.api.dto.structured.ExcelWorkbookDto) {
+                contentType = "excel_workbook";
+            }
+            if (contentType == null || structured == null) {
+                return false;
+            }
+            if (!isUsefulStructuredContent(structured, contentType)) {
+                log.warn("structured content empty kind={} type={}, fallback plainText", ref.kind(), contentType);
+                return false;
+            }
+            partBuilder.contentType(contentType);
+            partBuilder.structuredContent(structured);
+            if ("docx_blocks".equals(contentType) && meeting != null && meeting.getId() != null) {
+                var images = StructuredImageCollector.collectFromStructuredJson(
+                        objectMapper, structured, contentType, meeting.getId());
+                if (!images.isEmpty()) {
+                    partBuilder.images(images);
+                }
+            }
+            return true;
+        } catch (Exception se) {
+            log.warn("structured export failed kind={}: {}", ref.kind(), se.getMessage());
+            return false;
+        }
+    }
+
+    private static boolean isUsefulStructuredContent(Object structured, String contentType) {
+        if (structured instanceof SheetStructuredDto sheet) {
+            boolean noRows = sheet.getRows() == null || sheet.getRows().isEmpty();
+            boolean noHeaders = sheet.getHeaders() == null || sheet.getHeaders().isEmpty()
+                    || sheet.getHeaders().stream().allMatch(h -> h == null || h.isBlank());
+            if ("无数据".equals(sheet.getSheetName()) && noRows && noHeaders) {
+                return false;
+            }
+            return !(noRows && noHeaders);
+        }
+        if (structured instanceof BitableStructuredDto bitable) {
+            boolean noCols = bitable.getColumns() == null || bitable.getColumns().isEmpty();
+            boolean noRecords = bitable.getTotalRecords() <= 0
+                    && (bitable.getRecords() == null || bitable.getRecords().isEmpty());
+            boolean noTables = bitable.getTables() == null || bitable.getTables().isEmpty();
+            return !(noCols && noRecords && noTables);
+        }
+        if (structured instanceof TaskListStructuredDto taskList) {
+            boolean hasName = taskList.getTasklistName() != null && !taskList.getTasklistName().isBlank();
+            boolean hasItems = taskList.getItems() != null && !taskList.getItems().isEmpty();
+            return hasName || hasItems;
+        }
+        if (structured instanceof ExcelWorkbookDto wb) {
+            return wb.getSheets() != null && !wb.getSheets().isEmpty();
+        }
+        if (structured instanceof List<?> list) {
+            return !list.isEmpty();
+        }
+        return true;
     }
 }

@@ -24,6 +24,21 @@ import com.smartmeeting.config.feishu.FeishuResourceRef;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.*;
+import com.smartmeeting.service.structured.DocxBlockStructuredExporter;
+import com.smartmeeting.service.structured.BitableStructuredExporter;
+import com.smartmeeting.service.structured.SheetStructuredExporter;
+import com.smartmeeting.service.structured.ExcelStructuredExporter;
+import com.smartmeeting.service.structured.TaskListStructuredExporter;
+import com.smartmeeting.service.structured.PptxSlideImageExporter;
+import com.smartmeeting.service.structured.PdfPageImageExporter;
+import com.smartmeeting.service.feishu.BitableTableIdResolver;
+import com.smartmeeting.service.feishu.DocxEmbeddedBitableResolver;
+import com.smartmeeting.service.feishu.DocxEmbeddedBitableResolver.EmbeddedBitableRef;
+import com.smartmeeting.service.feishu.FeishuDriveClient;
+import com.smartmeeting.api.dto.structured.*;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 /**
  * 飞书开放平台 API 封装：Tenant Token 管理、消息发送、云文档读写与资源正文拉取。
@@ -542,8 +557,10 @@ public class FeishuService {
             case DOCX -> fetchDocxPlainText(ref.primaryToken());
             case WIKI -> fetchWikiPlainText(ref);
             case BASE -> fetchBitablePlainText(ref.primaryToken(), ref.tableId(), bitableMode(ref));
+            case SHEET -> fetchSheetPlainText(ref.primaryToken());
+            case TASKLIST -> fetchTaskListPlainText(ref.primaryToken());
             case UNKNOWN -> throw new RuntimeException(
-                    "无法识别飞书链接类型，请使用 /docx/、/wiki/ 或 /base/?table= 的完整 HTTPS 链接");
+                    "无法识别飞书链接类型，请使用 /docx/、/wiki/、/sheets/、/base/ 或任务清单 AppLink 的完整 HTTPS 链接");
         };
     }
 
@@ -584,6 +601,10 @@ public class FeishuService {
             throw new RuntimeException("飞书 wiki 节点无 obj_token");
         }
         if ("docx".equalsIgnoreCase(objType) || objType.isEmpty()) {
+            EmbeddedBitableRef embedded = resolveWikiDocxEmbeddedBitable(objToken, ref);
+            if (embedded != null) {
+                return fetchBitablePlainText(embedded.appToken(), embedded.tableId(), bitableMode(ref));
+            }
             return fetchDocxPlainText(objToken);
         }
         if ("bitable".equalsIgnoreCase(objType)) {
@@ -591,6 +612,18 @@ public class FeishuService {
         }
         if ("sheet".equalsIgnoreCase(objType)) {
             return fetchSheetPlainText(objToken);
+        }
+        if ("file".equalsIgnoreCase(objType)) {
+            return fetchWikiFilePlainText(objToken);
+        }
+        if ("slides".equalsIgnoreCase(objType)) {
+            return fetchWikiSlidesPlainText(objToken);
+        }
+        if ("mindnote".equalsIgnoreCase(objType)) {
+            return fetchWikiMindnotePlainText(node);
+        }
+        if ("doc".equalsIgnoreCase(objType)) {
+            return fetchLegacyDocPlainText(objToken);
         }
         throw new RuntimeException("暂不支持在主持页内嵌展示该 Wiki 节点类型: " + objType
                 + "，请点击主持页「在飞书中打开」查看");
@@ -632,27 +665,7 @@ public class FeishuService {
         if (tableId == null || tableId.isBlank()) {
             return fetchAllBitableTablesPlainText(app, effective);
         }
-        String table = tableId.trim();
-        try {
-            return searchBitableRecords(app, table, null, effective);
-        } catch (RuntimeException first) {
-            if (!isWrongTableIdError(first)) {
-                throw first;
-            }
-            List<BitableTableInfo> availableTables = listBitableTables(app);
-            List<String> available = availableTables.stream().map(BitableTableInfo::tableId).toList();
-            String corrected = resolveTableIdFromListing(table, available);
-            if (corrected != null && !corrected.equals(table)) {
-                log.warn("Bitable WrongTableId: retry app={} table {} -> {}", app, table, corrected);
-                String name = availableTables.stream()
-                        .filter(t -> corrected.equals(t.tableId()))
-                        .map(BitableTableInfo::tableName)
-                        .findFirst()
-                        .orElse(null);
-                return searchBitableRecords(app, corrected, name, effective);
-            }
-            throw new RuntimeException(formatWrongTableIdHint(app, table, available), first);
-        }
+        return searchBitableRecords(app, tableId.trim(), null, effective);
     }
 
     /**
@@ -686,10 +699,53 @@ public class FeishuService {
 
     private String searchBitableRecords(String appToken, String tableId, String tableName,
             BitableDisplayMode mode) {
-        List<JsonNode> items = searchBitableRecordItems(appToken, tableId);
-        String label = tableName != null && !tableName.isBlank() ? tableName.trim() : tableId;
-        String title = "【多维表格·" + label + "，共 " + items.size() + " 条】";
-        return BitablePlainTextExporter.export(items, title, mode);
+        ResolvedBitableTable resolved = fetchBitableTableData(appToken, tableId);
+        String label = tableName != null && !tableName.isBlank()
+                ? tableName.trim()
+                : resolved.tableName();
+        String title = "【多维表格·" + label + "，共 " + resolved.items().size() + " 条】";
+        return BitablePlainTextExporter.export(resolved.items(), title, mode);
+    }
+
+    private record ResolvedBitableTable(String tableId, String tableName, List<JsonNode> items) {
+    }
+
+    private ResolvedBitableTable fetchBitableTableData(String appToken, String configuredTableId) {
+        String table = configuredTableId.trim();
+        try {
+            List<JsonNode> items = searchBitableRecordItems(appToken, table);
+            return new ResolvedBitableTable(table, lookupBitableTableName(appToken, table), items);
+        } catch (RuntimeException first) {
+            if (!BitableTableIdResolver.isWrongTableIdError(first)) {
+                throw first;
+            }
+            List<BitableTableInfo> availableTables = listBitableTables(appToken);
+            List<String> available = availableTables.stream().map(BitableTableInfo::tableId).toList();
+            String corrected = BitableTableIdResolver.resolveFromListing(table, available);
+            if (corrected != null && !corrected.equals(table)) {
+                log.warn("Bitable WrongTableId: retry app={} table {} -> {}", appToken, table, corrected);
+                String name = availableTables.stream()
+                        .filter(t -> corrected.equals(t.tableId()))
+                        .map(BitableTableInfo::tableName)
+                        .findFirst()
+                        .orElse(corrected);
+                return new ResolvedBitableTable(
+                        corrected, name, searchBitableRecordItems(appToken, corrected));
+            }
+            throw new RuntimeException(formatWrongTableIdHint(appToken, table, available), first);
+        }
+    }
+
+    private String lookupBitableTableName(String appToken, String tableId) {
+        try {
+            for (BitableTableInfo t : listBitableTables(appToken)) {
+                if (tableId.equals(t.tableId())) {
+                    return t.tableName();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return tableId;
     }
 
     private List<JsonNode> searchBitableRecordItems(String appToken, String tableId) {
@@ -787,32 +843,6 @@ public class FeishuService {
     /** @deprecated 请用 {@link #listBitableTables} */
     List<String> listBitableTableIds(String appToken) {
         return listBitableTables(appToken).stream().map(BitableTableInfo::tableId).toList();
-    }
-
-    private static boolean isWrongTableIdError(Throwable e) {
-        String msg = e != null ? e.getMessage() : null;
-        return msg != null && msg.contains("1254004") && msg.contains("WrongTableId");
-    }
-
-    /** 配置 table 与 API 列表仅大小写不一致时自动纠正（飞书 table_id 区分大小写）。 */
-    private static String resolveTableIdFromListing(String configured, List<String> available) {
-        if (configured == null || configured.isBlank() || available == null || available.isEmpty()) {
-            return null;
-        }
-        if (available.contains(configured)) {
-            return configured;
-        }
-        String want = configured.toLowerCase(Locale.ROOT);
-        String match = null;
-        for (String id : available) {
-            if (id != null && id.toLowerCase(Locale.ROOT).equals(want)) {
-                if (match != null) {
-                    return null;
-                }
-                match = id;
-            }
-        }
-        return match;
     }
 
     private static String formatWrongTableIdHint(String appToken, String tableId, List<String> available) {
@@ -992,4 +1022,592 @@ public class FeishuService {
                    .replace("\r", "\\r")
                    .replace("\t", "\\t");
     }
+
+    /**
+     * 按资源类型返回主持页结构化 contentType（无结构化能力时返回 null）。
+     */
+    public String resolveStructuredContentType(FeishuResourceRef ref) {
+        if (ref == null) {
+            return null;
+        }
+        return switch (ref.kind()) {
+            case DOCX -> "docx_blocks";
+            case BASE -> "bitable_records";
+            case SHEET -> "sheet_cells";
+            case TASKLIST -> "task_list";
+            case WIKI -> resolveWikiStructuredContentType(ref);
+            case UNKNOWN -> null;
+        };
+    }
+
+    /**
+     * 按资源类型拉取结构化 JSON（供主持页内嵌渲染；失败时由调用方回退 plainText）。
+     */
+    public Object fetchResourceStructuredContent(FeishuResourceRef ref) {
+        if (ref == null) {
+            return null;
+        }
+        return switch (ref.kind()) {
+            case DOCX -> fetchDocxBlocks(ref.primaryToken());
+            case BASE -> fetchBitableStructured(ref.primaryToken(), ref.tableId(), bitableMode(ref));
+            case SHEET -> fetchSheetStructuredContent(ref.primaryToken());
+            case TASKLIST -> fetchTaskListStructured(ref.primaryToken(), ref.defaultOpenUrl());
+            case WIKI -> fetchWikiStructuredContent(ref);
+            case UNKNOWN -> null;
+        };
+    }
+
+    private String resolveWikiStructuredContentType(FeishuResourceRef ref) {
+        JsonNode node = fetchWikiNode(ref);
+        if (node == null) {
+            return null;
+        }
+        String objType = node.path("obj_type").asText("");
+        if ("docx".equalsIgnoreCase(objType) || objType.isEmpty()) {
+            String objToken = node.path("obj_token").asText("");
+            if (!objToken.isBlank() && resolveWikiDocxEmbeddedBitable(objToken, ref) != null) {
+                return "bitable_records";
+            }
+            return "docx_blocks";
+        }
+        if ("bitable".equalsIgnoreCase(objType)) {
+            return "bitable_records";
+        }
+        if ("sheet".equalsIgnoreCase(objType)) {
+            return "sheet_cells";
+        }
+        if ("file".equalsIgnoreCase(objType)) {
+            return resolveWikiFileStructuredContentType(node.path("obj_token").asText(""));
+        }
+        if ("slides".equalsIgnoreCase(objType)) {
+            return "pdf_pages";
+        }
+        if ("mindnote".equalsIgnoreCase(objType)) {
+            return "docx_blocks";
+        }
+        if ("doc".equalsIgnoreCase(objType)) {
+            return "docx_blocks";
+        }
+        return null;
+    }
+
+    private Object fetchWikiStructuredContent(FeishuResourceRef ref) {
+        JsonNode node = fetchWikiNode(ref);
+        if (node == null) {
+            return null;
+        }
+        String objType = node.path("obj_type").asText("");
+        String objToken = node.path("obj_token").asText("");
+        if (objToken.isBlank()) {
+            return null;
+        }
+        if ("docx".equalsIgnoreCase(objType) || objType.isEmpty()) {
+            EmbeddedBitableRef embedded = resolveWikiDocxEmbeddedBitable(objToken, ref);
+            if (embedded != null) {
+                return fetchBitableStructured(embedded.appToken(), embedded.tableId(), bitableMode(ref));
+            }
+            return fetchDocxBlocks(objToken);
+        }
+        if ("bitable".equalsIgnoreCase(objType)) {
+            return fetchBitableStructured(objToken, ref.tableId(), bitableMode(ref));
+        }
+        if ("sheet".equalsIgnoreCase(objType)) {
+            return fetchSheetStructuredContent(objToken);
+        }
+        if ("file".equalsIgnoreCase(objType)) {
+            return fetchWikiFileStructured(objToken);
+        }
+        if ("slides".equalsIgnoreCase(objType)) {
+            return fetchWikiSlidesStructured(objToken);
+        }
+        if ("mindnote".equalsIgnoreCase(objType)) {
+            return fetchWikiMindnoteBlocks(node);
+        }
+        if ("doc".equalsIgnoreCase(objType)) {
+            EmbeddedBitableRef embedded = resolveWikiDocxEmbeddedBitable(objToken, ref);
+            if (embedded != null) {
+                return fetchBitableStructured(embedded.appToken(), embedded.tableId(), bitableMode(ref));
+            }
+            return fetchDocxBlocks(objToken);
+        }
+        return null;
+    }
+
+    private EmbeddedBitableRef resolveWikiDocxEmbeddedBitable(String documentId, FeishuResourceRef ref) {
+        if (documentId == null || documentId.isBlank()) {
+            return null;
+        }
+        String configuredTable = ref != null ? ref.tableId() : null;
+        boolean hasTable = configuredTable != null && !configuredTable.isBlank();
+        JsonNode items = fetchDocxBlockItems(documentId);
+        EmbeddedBitableRef found = DocxEmbeddedBitableResolver.findEmbeddedBitable(items, configuredTable);
+        if (found != null) {
+            return found;
+        }
+        List<EmbeddedBitableRef> all = DocxEmbeddedBitableResolver.listEmbeddedBitables(items);
+        if (all.size() == 1) {
+            EmbeddedBitableRef only = all.get(0);
+            if (hasTable && !configuredTable.trim().equals(only.tableId())) {
+                log.warn("wiki docx embedded bitable table mismatch: configured={} actual={}, using sole embed",
+                        configuredTable, only.tableId());
+            }
+            return only;
+        }
+        if (hasTable && !all.isEmpty()) {
+            log.warn("wiki docx ?table={} not matched among {} embedded bitable blocks, docId={}",
+                    configuredTable, all.size(), documentId);
+            return null;
+        }
+        if (!all.isEmpty()) {
+            log.warn("wiki docx has {} embedded bitable blocks without ?table=, using first embed docId={}",
+                    all.size(), documentId);
+            return all.get(0);
+        }
+        return null;
+    }
+
+    private JsonNode fetchWikiNode(FeishuResourceRef ref) {
+        if (ref == null || ref.primaryToken() == null || ref.primaryToken().isBlank()) {
+            throw new IllegalArgumentException("wiki node_token 为空");
+        }
+        String wikiNodeToken = ref.primaryToken().trim();
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/wiki/v2/spaces/get_node?token=" + wikiNodeToken;
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        HttpEntity<Void> request = new HttpEntity<>(headers);
+
+        ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
+        JsonNode json = response.getBody();
+        if (json == null) {
+            throw new RuntimeException("飞书 wiki get_node 响应为空");
+        }
+        int code = json.path("code").asInt(-1);
+        if (code != 0) {
+            throw new RuntimeException("飞书 wiki get_node code=" + code + " msg=" + json.path("msg").asText(""));
+        }
+        return json.path("data").path("node");
+    }
+
+    /**
+     * 飞书 Docx 结构化拉取：返回 block 列表（保留富文本 runs、image key 等结构信息）。
+     */
+    public java.util.List<DocxBlockDto> fetchDocxBlocks(String documentId) {
+        return DocxBlockStructuredExporter.exportBlocks(fetchDocxBlockItems(documentId));
+    }
+
+    JsonNode fetchDocxBlockItems(String documentId) {
+        if (documentId == null || documentId.isBlank()) {
+            throw new IllegalArgumentException("document_id 为空");
+        }
+        String tenantToken = getTenantToken();
+        String pageToken = null;
+        var allItems = objectMapper.createArrayNode();
+        do {
+            org.springframework.web.util.UriComponentsBuilder ub = org.springframework.web.util.UriComponentsBuilder
+                    .fromUriString(baseUrl + "/open-apis/docx/v1/documents/" + documentId + "/blocks")
+                    .queryParam("page_size", 500)
+                    .queryParam("document_revision_id", -1);
+            if (pageToken != null && !pageToken.isBlank()) {
+                ub.queryParam("page_token", pageToken);
+            }
+            String url = ub.toUriString();
+            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+            headers.setBearerAuth(tenantToken);
+            org.springframework.http.HttpEntity<Void> request = new org.springframework.http.HttpEntity<>(headers);
+            try {
+                org.springframework.http.ResponseEntity<com.fasterxml.jackson.databind.JsonNode> response = restTemplate.exchange(
+                        url, org.springframework.http.HttpMethod.GET, request, com.fasterxml.jackson.databind.JsonNode.class);
+                com.fasterxml.jackson.databind.JsonNode json = response.getBody();
+                if (json == null) {
+                    break;
+                }
+                com.fasterxml.jackson.databind.JsonNode items = json.path("data").path("items");
+                if (items.isArray()) {
+                    for (com.fasterxml.jackson.databind.JsonNode item : items) {
+                        allItems.add(item);
+                    }
+                }
+                pageToken = json.path("data").path("page_token").asText(null);
+                if (pageToken == null || pageToken.isBlank()) {
+                    break;
+                }
+            } catch (Exception e) {
+                log.warn("fetchDocxBlocks page failed docId={}: {}", documentId, e.getMessage());
+                break;
+            }
+        } while (true);
+        return allItems;
+    }
+
+    /**
+     * 飞书 Bitable 结构化拉取：返回含字段类型和记录的结构化数据。
+     */
+    public BitableStructuredDto fetchBitableStructured(String appToken, String tableId) {
+        return fetchBitableStructured(appToken, tableId, BitableDisplayMode.GROUPED);
+    }
+
+    public BitableStructuredDto fetchBitableStructured(String appToken, String tableId, BitableDisplayMode mode) {
+        if (appToken == null || appToken.isBlank()) {
+            throw new IllegalArgumentException("base app_token 为空");
+        }
+        String app = appToken.trim();
+        BitableDisplayMode effective = mode != null ? mode : BitableDisplayMode.GROUPED;
+        if (tableId == null || tableId.isBlank()) {
+            return fetchAllBitableTablesStructured(app, effective);
+        }
+        ResolvedBitableTable resolved = fetchBitableTableData(app, tableId);
+        return BitableStructuredExporter.export(
+                resolved.items(), resolved.tableName(), effective);
+    }
+
+    private BitableStructuredDto fetchAllBitableTablesStructured(String appToken, BitableDisplayMode mode) {
+        List<BitableTableInfo> tables = listBitableTables(appToken);
+        if (tables.isEmpty()) {
+            return BitableStructuredDto.builder().tableName("无数据表").columns(List.of())
+                    .records(List.of()).groups(List.of()).tables(List.of()).totalRecords(0).build();
+        }
+        List<BitablePlainTextExporter.BitableTableSlice> slices = new ArrayList<>();
+        for (BitableTableInfo table : tables) {
+            List<JsonNode> items = searchBitableRecordItems(appToken, table.tableId());
+            slices.add(new BitablePlainTextExporter.BitableTableSlice(table.tableId(), table.tableName(), items));
+        }
+        return BitableStructuredExporter.exportMultiTable(slices, mode);
+    }
+
+    /**
+     * 飞书任务清单：拉取清单详情与全部任务（Task v2 API，需 {@code task:tasklist:read} 权限）。
+     */
+    public TaskListStructuredDto fetchTaskListStructured(String tasklistGuid) {
+        return fetchTaskListStructured(tasklistGuid, null);
+    }
+
+    public TaskListStructuredDto fetchTaskListStructured(String tasklistGuid, String openUrl) {
+        if (tasklistGuid == null || tasklistGuid.isBlank()) {
+            throw new IllegalArgumentException("tasklist guid 为空");
+        }
+        String guid = tasklistGuid.trim();
+        JsonNode tasklist = fetchTaskListDetail(guid);
+        List<JsonNode> tasks = fetchTaskListTaskItems(guid);
+        String link = openUrl != null && !openUrl.isBlank() ? openUrl.trim() : tasklist.path("url").asText("");
+        if (link.isBlank()) {
+            link = "https://applink.feishu.cn/client/todo/task_list?guid=" + guid;
+        }
+        return TaskListStructuredExporter.export(tasklist, tasks, link);
+    }
+
+    public String fetchTaskListPlainText(String tasklistGuid) {
+        return TaskListStructuredExporter.exportPlainText(fetchTaskListStructured(tasklistGuid));
+    }
+
+    private JsonNode fetchTaskListDetail(String tasklistGuid) {
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/task/v2/tasklists/" + tasklistGuid;
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        ResponseEntity<JsonNode> response = restTemplate.exchange(
+                url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        JsonNode json = response.getBody();
+        if (json == null) {
+            throw new RuntimeException("飞书 tasklist get 响应为空");
+        }
+        int code = json.path("code").asInt(-1);
+        if (code != 0) {
+            throw new RuntimeException("飞书 tasklist get code=" + code + " msg=" + json.path("msg").asText("")
+                    + "（请确认应用已开通 task:tasklist:read 且已加入清单协作成员）");
+        }
+        JsonNode tasklist = json.path("data").path("tasklist");
+        if (tasklist.isMissingNode() || tasklist.isNull()) {
+            throw new RuntimeException("飞书 tasklist get 无 tasklist 数据");
+        }
+        return tasklist;
+    }
+
+    private List<JsonNode> fetchTaskListTaskItems(String tasklistGuid) {
+        String tenantToken = getTenantToken();
+        int pageSize = 50;
+        String pageToken = null;
+        boolean hasMore = true;
+        List<JsonNode> all = new ArrayList<>();
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        while (hasMore) {
+            UriComponentsBuilder ub = UriComponentsBuilder
+                    .fromUriString(baseUrl + "/open-apis/task/v2/tasklists/" + tasklistGuid + "/tasks")
+                    .queryParam("page_size", pageSize);
+            if (pageToken != null && !pageToken.isBlank()) {
+                ub.queryParam("page_token", pageToken);
+            }
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    ub.toUriString(), HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            JsonNode json = response.getBody();
+            if (json == null) {
+                throw new RuntimeException("飞书 tasklist tasks 响应为空");
+            }
+            int code = json.path("code").asInt(-1);
+            if (code != 0) {
+                throw new RuntimeException("飞书 tasklist tasks code=" + code + " msg=" + json.path("msg").asText(""));
+            }
+            JsonNode data = json.path("data");
+            JsonNode items = data.path("items");
+            if (items.isArray()) {
+                for (JsonNode item : items) {
+                    all.add(item);
+                }
+            }
+            hasMore = data.path("has_more").asBoolean(false);
+            pageToken = data.path("page_token").asText(null);
+            if (hasMore && (pageToken == null || pageToken.isBlank())) {
+                break;
+            }
+        }
+        return all;
+    }
+
+    /**
+     * 飞书电子表格结构化拉取：返回含合并范围的结构化数据。
+     */
+    public SheetStructuredDto fetchSheetStructured(String spreadsheetToken) {
+        Object content = fetchSheetStructuredContent(spreadsheetToken);
+        if (content instanceof SheetStructuredDto dto) {
+            return dto;
+        }
+        if (content instanceof ExcelWorkbookDto wb && wb.getSheets() != null && !wb.getSheets().isEmpty()) {
+            ExcelSheetDto first = wb.getSheets().get(0);
+            return SheetStructuredDto.builder()
+                    .sheetName(first.getSheetName())
+                    .headers(first.getHeaders())
+                    .rows(first.getRows())
+                    .mergedRanges(first.getMergedRanges())
+                    .columnWidths(first.getColumnWidths())
+                    .headerRowCount(first.getHeaderRowCount())
+                    .build();
+        }
+        return emptySheetStructured();
+    }
+
+    /**
+     * 飞书电子表格结构化：单表返回 {@link SheetStructuredDto}，多表返回 {@link ExcelWorkbookDto}。
+     */
+    public Object fetchSheetStructuredContent(String spreadsheetToken) {
+        if (spreadsheetToken == null || spreadsheetToken.isBlank()) {
+            throw new IllegalArgumentException("spreadsheet_token 为空");
+        }
+        List<FeishuSpreadsheetPlainTextFetcher.SheetValuesSlice> slices =
+                FeishuSpreadsheetPlainTextFetcher.fetchSheetValueSlices(
+                        restTemplate,
+                        baseUrl,
+                        getTenantToken(),
+                        spreadsheetToken.trim(),
+                        matterProgressFetchProperties.toLimits());
+        if (slices.isEmpty()) {
+            return emptySheetStructured();
+        }
+        if (slices.size() == 1) {
+            FeishuSpreadsheetPlainTextFetcher.SheetValuesSlice slice = slices.get(0);
+            return SheetStructuredExporter.export(slice.sheetTitle(), slice.values(), slice.mergedRanges());
+        }
+        List<ExcelSheetDto> sheets = new ArrayList<>();
+        for (int i = 0; i < slices.size(); i++) {
+            FeishuSpreadsheetPlainTextFetcher.SheetValuesSlice slice = slices.get(i);
+            SheetStructuredDto one = SheetStructuredExporter.export(
+                    slice.sheetTitle(), slice.values(), slice.mergedRanges());
+            sheets.add(ExcelSheetDto.builder()
+                    .sheetName(one.getSheetName())
+                    .sheetIndex(i)
+                    .headers(one.getHeaders())
+                    .rows(one.getRows())
+                    .mergedRanges(one.getMergedRanges())
+                    .columnWidths(one.getColumnWidths())
+                    .headerRowCount(one.getHeaderRowCount())
+                    .build());
+        }
+        return ExcelWorkbookDto.builder().sheets(sheets).build();
+    }
+
+    private static SheetStructuredDto emptySheetStructured() {
+        return SheetStructuredDto.builder()
+                .sheetName("无数据")
+                .headers(List.of())
+                .rows(List.of())
+                .mergedRanges(List.of())
+                .columnWidths(List.of())
+                .headerRowCount(1)
+                .build();
+    }
+
+    /**
+     * 代理下载飞书图片：返回图片二进制数据。
+     */
+    public byte[] downloadImage(String imageKey) {
+        if (imageKey == null || imageKey.isBlank()) {
+            throw new IllegalArgumentException("image_key 为空");
+        }
+        String token = getTenantToken();
+        String url = baseUrl + "/open-apis/im/v1/images/" + imageKey;
+        org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
+        headers.setBearerAuth(token);
+        org.springframework.http.HttpEntity<Void> request = new org.springframework.http.HttpEntity<>(headers);
+        try {
+            org.springframework.http.ResponseEntity<byte[]> response = restTemplate.exchange(
+                    url, org.springframework.http.HttpMethod.GET, request, byte[].class);
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                return response.getBody();
+            }
+            throw new RuntimeException("飞书图片下载失败: HTTP " + response.getStatusCode());
+        } catch (Exception e) {
+            throw new RuntimeException("飞书图片下载失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String fetchWikiMindnotePlainText(JsonNode node) {
+        String title = node.path("title").asText("思维导图");
+        return "【思维导图】" + title + "\n\n飞书 Open API 暂不支持导出思维导图正文，请点击下方链接在飞书中查看。";
+    }
+
+    private List<DocxBlockDto> fetchWikiMindnoteBlocks(JsonNode node) {
+        String title = node.path("title").asText("思维导图");
+        return List.of(DocxBlockDto.builder()
+                .type("heading2")
+                .text(title)
+                .build(),
+                DocxBlockDto.builder()
+                        .type("paragraph")
+                        .text("飞书 Open API 暂不支持导出思维导图正文，请点击下方链接在飞书中查看。")
+                        .build());
+    }
+
+    private String fetchWikiFilePlainText(String fileToken) {
+        try {
+            byte[] data = FeishuDriveClient.downloadFile(restTemplate, baseUrl, getTenantToken(), fileToken);
+            return describeCloudFilePlainText(data, ".bin");
+        } catch (Exception e) {
+            throw new RuntimeException("飞书附件拉取失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String fetchWikiSlidesPlainText(String slidesToken) {
+        try {
+            Object structured = fetchWikiSlidesStructured(slidesToken);
+            if (structured instanceof PdfDocumentDto doc) {
+                return "【飞书幻灯片】共 " + doc.getTotalPages() + " 页（主持页可翻页预览）";
+            }
+            return "【飞书幻灯片】请在飞书中打开查看";
+        } catch (Exception e) {
+            throw new RuntimeException("飞书幻灯片拉取失败: " + e.getMessage(), e);
+        }
+    }
+
+    private String fetchLegacyDocPlainText(String docToken) {
+        try {
+            return fetchDocxPlainText(docToken);
+        } catch (Exception first) {
+            log.warn("legacy doc as docx failed, try export: {}", first.getMessage());
+            try {
+                byte[] pdf = FeishuDriveClient.exportDocument(
+                        restTemplate, baseUrl, getTenantToken(), docToken, "doc", "pdf", 20_000);
+                Path temp = FeishuDriveClient.writeTempFile(pdf, ".pdf");
+                PdfDocumentDto doc = PdfPageImageExporter.export(temp, temp.getParent());
+                Files.deleteIfExists(temp);
+                return "【旧版飞书文档】共 " + doc.getTotalPages() + " 页（PDF 预览）";
+            } catch (Exception second) {
+                throw new RuntimeException("旧版飞书文档拉取失败: " + second.getMessage(), second);
+            }
+        }
+    }
+
+    private String resolveWikiFileStructuredContentType(String fileToken) {
+        try {
+            byte[] head = FeishuDriveClient.downloadFile(restTemplate, baseUrl, getTenantToken(), fileToken);
+            if (isPdfBytes(head)) {
+                return "pdf_pages";
+            }
+            if (isPptBytes(head)) {
+                return "ppt_slides";
+            }
+            if (isExcelBytes(head)) {
+                return "excel_workbook";
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private Object fetchWikiFileStructured(String fileToken) {
+        try {
+            byte[] data = FeishuDriveClient.downloadFile(restTemplate, baseUrl, getTenantToken(), fileToken);
+            Path temp = FeishuDriveClient.writeTempFile(data, guessSuffix(data));
+            Path genDir = temp.getParent().resolve("feishu-file-" + fileToken);
+            Files.createDirectories(genDir);
+            try {
+                if (isPdfBytes(data)) {
+                    return PdfPageImageExporter.export(temp, genDir);
+                }
+                try {
+                    return ExcelStructuredExporter.export(temp);
+                } catch (Exception excelMiss) {
+                    return PptxSlideImageExporter.export(temp, genDir);
+                }
+            } finally {
+                Files.deleteIfExists(temp);
+            }
+        } catch (Exception e) {
+            log.warn("wiki file structured export failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private Object fetchWikiSlidesStructured(String slidesToken) {
+        try {
+            byte[] pdf = FeishuDriveClient.exportDocument(
+                    restTemplate, baseUrl, getTenantToken(), slidesToken, "slides", "pdf", 25_000);
+            Path temp = FeishuDriveClient.writeTempFile(pdf, ".pdf");
+            Path genDir = temp.getParent().resolve("feishu-slides-" + slidesToken);
+            Files.createDirectories(genDir);
+            try {
+                return PdfPageImageExporter.export(temp, genDir);
+            } finally {
+                Files.deleteIfExists(temp);
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("飞书幻灯片结构化导出失败: " + e.getMessage(), e);
+        }
+    }
+
+    private static String describeCloudFilePlainText(byte[] data, String suffix) {
+        if (isPdfBytes(data)) {
+            return "【飞书附件 PDF】请在主持页查看分页预览";
+        }
+        if (isPptBytes(data)) {
+            return "【飞书附件幻灯片】请在主持页查看翻页预览";
+        }
+        if (isExcelBytes(data)) {
+            return "【飞书附件表格】请在主持页查看表格预览";
+        }
+        return "【飞书附件】" + suffix + "（" + data.length + " 字节）请点击下方链接在飞书中打开";
+    }
+
+    private static boolean isPdfBytes(byte[] data) {
+        return data != null && data.length >= 4 && data[0] == '%' && data[1] == 'P' && data[2] == 'D' && data[3] == 'F';
+    }
+
+    private static boolean isPptBytes(byte[] data) {
+        return data != null && data.length >= 2 && data[0] == 'P' && data[1] == 'K';
+    }
+
+    private static boolean isExcelBytes(byte[] data) {
+        return isPptBytes(data);
+    }
+
+    private static String guessSuffix(byte[] data) {
+        if (isPdfBytes(data)) {
+            return ".pdf";
+        }
+        if (isPptBytes(data)) {
+            return ".pptx";
+        }
+        return ".bin";
+    }
+
 }

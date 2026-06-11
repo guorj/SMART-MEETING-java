@@ -1,0 +1,38 @@
+/* ui-kit — Magic UI 克制动效 */
+.ui-skeleton {
+  background: linear-gradient(90deg, var(--color-surface-2) 25%, var(--color-border) 50%, var(--color-surface-2) 75%);
+  background-size: 200% 100%;
+  animation: ui-skeleton-shimmer 1.2s ease-in-out infinite;
+  border-radius: var(--radius-sm);
+}
+.ui-skeleton-line { height: 14px; margin-bottom: 10px; }
+.ui-skeleton-line.short { width: 60%; }
+.ui-skeleton-block { height: 80px; margin-bottom: var(--space-4); }
+@keyframes ui-skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+.loading-skeleton-wrap { max-width: 480px; width: 100%; }
+.module-skeleton { padding: var(--space-4); }
+.module-skeleton .ui-skeleton-line { max-width: 100%; }
+
+.blur-fade {
+  opacity: 0;
+  filter: blur(6px);
+  transition: filter 0.4s ease, opacity 0.4s ease;
+}
+.blur-fade.visible { opacity: 1; filter: blur(0); }
+
+.status-pulse { animation: status-pulse 1.5s ease-in-out infinite; }
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 0 0 var(--rec-pulse-color); }
+  50% { opacity: 0.85; box-shadow: 0 0 0 6px transparent; }
+}
+
+.ui-toast-fade { opacity: 0; transition: opacity 0.35s ease; }
+
+@media (prefers-reduced-motion: reduce) {
+  .blur-fade { filter: none; transition: opacity 0.2s ease; }
+  .ui-skeleton { animation: none; background: var(--color-surface-2); }
+  .status-pulse { animation: none; }
+}

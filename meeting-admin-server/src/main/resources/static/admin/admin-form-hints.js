@@ -1,145 +1,121 @@
-/**
- * 管理后台表单字段说明（各模块共用）。
- * 用法：AdminForm.field('标签', '<input .../>', AdminHints.pushBot.taskName)
- */
-window.AdminForm = {
-  hint: function (text) {
-    return text ? '<p class="form-hint">' + text + '</p>' : '';
-  },
-  field: function (label, controlHtml, hintText) {
-    return '<div class="form-field"><label>' + label + '</label>' + controlHtml + this.hint(hintText) + '</div>';
-  },
-  /** select 变更时同步更新 hint 段落 */
-  bindSelectHint: function (selectId, hintId, hintMap, fallback) {
-    var sel = document.getElementById(selectId);
-    var hintEl = document.getElementById(hintId);
-    if (!sel || !hintEl) return;
-    var sync = function () {
-      var v = sel.value;
-      hintEl.textContent = hintMap[v] || fallback || '';
-    };
-    sel.addEventListener('change', sync);
-    sync();
-  }
-};
+(function () {
+  'use strict';
 
-window.AdminHints = {
-  pushBot: {
-    moduleIntro: '管理 feishu-scheduled-bot 的飞书推送任务：Cron 定时或外部触发，向用户/群发送消息。保存后点「同步 Quartz」使 INTERNAL 任务的 Cron 生效。',
-    syncQuartz: '向 bot 发送 reload-schedule，重新加载所有 enabled 且 scheduleMode=INTERNAL 且有 Cron 的任务到 Quartz。',
-    taskName: '任务显示名，列表与日志中展示；必填。',
-    cron: 'Quartz Cron（5 或 6 段，如 0 30 9 * * MON-FRI = 工作日 9:30）。INTERNAL 模式且任务启用时用于自动触发；EXTERNAL 可留空。点「预览」查看下次触发时间。',
-    scheduleMode: {
-      INTERNAL: 'INTERNAL — bot 内 Quartz 按 Cron 自动推送。任务须「启用」且填写 Cron 才会注册定时器。管理台「执行」：全局 feishu.schedule.mode=both 且 bot 配置 allow-internal-manual-execute=false 时会被拒绝(409)；默认允许手动试发。',
-      EXTERNAL: 'EXTERNAL — 不注册 Quartz Cron，仅由外部系统或本页「执行」、POST /api/tasks/{id}/execute 触发。每次手动执行都会真实推送（无 DUPLICATE 去重）。'
-    },
-    targetType: {
-      USER: 'USER — 推送给单个飞书用户，目标 ID 填飞书 user_id（企业内用户 ID）。',
-      GROUP: 'GROUP — 推送到群聊，目标 ID 填 chat_id（oc_…）。'
-    },
-    targetId: '飞书 user_id（单聊）或 chat_id（群聊），须与「目标类型」一致。',
-    message: '推送正文（纯文本或卡片 JSON，依 bot 配置）；必填。',
-    skipHolidays: '启用后，法定节假日当天 Cron 触发会跳过（仍可通过「执行」手动试发，受日期过滤规则约束）。',
-    enabled: '关闭后任务不参与 Quartz 调度，也不会被 Cron 自动触发；EXTERNAL 任务仍可手动「执行」。',
-    logMeetingId: '按会议 ID 筛选推送日志（meeting-server 触发的推送会带上 meetingId）。',
-    logTaskId: '按 push_task 主键筛选。',
-    logStatus: 'SUCCESS=成功；FAILED=失败；SKIPPED=跳过（如假日、去重等）。',
-    skipReasonDuplicate: 'DUPLICATE — 旧版 bot 对 /execute 有当日去重；升级并重启 feishu-scheduled-bot 后，手动「执行」不再 DUPLICATE。若仍出现，说明 bot 未部署新代码。'
-  },
-  weeklyJobs: {
-    moduleIntro: '周报/事项对比定时任务：按 Cron 拉取纪要、对比源资料、写入 OUTPUT 飞书文档。保存后会自动请求同步 Quartz；也可手动点「同步 Quartz」。',
-    jobName: '任务唯一标识名，日志与 Quartz JobKey 使用；必填。',
-    enabled: '关闭后不注册 Cron，也不会被定时触发；仍可「执行」立即跑一轮。',
-    cron: 'Quartz Cron，默认每周一 10:00（0 10 * * MON）。时区沿用任务 scheduleTimezone（默认 Asia/Shanghai）。',
-    minuteQueryType: {
-      PRESET_LAST_7_DAYS: 'PRESET_LAST_7_DAYS — 按会务类型 presetTypeCode 查询最近 N 天已结束会议的纪要作为对比输入。',
-      MEETING_IDS: 'MEETING_IDS — 仅使用 minute_query_params 中指定的 meetingId 列表。'
-    },
-    minuteQueryParams: 'JSON 参数。PRESET_LAST_7_DAYS 示例：{"presetTypeCode":1,"days":7}。MEETING_IDS 示例：{"meetingIds":["uuid1","uuid2"]}。',
-    sourceConfigNames: '源资料 configName，逗号分隔；须与会务预设 host_agenda 中 SOURCE/BOTH 绑定名一致，用于读取对比基准文档。',
-    outputConfigName: '产出 configName；须为 host_agenda 中 OUTPUT/BOTH 的绑定名，对比结果写入对应飞书文档/文件夹。'
-  },
-  presets: {
-    presetCode: '会务类型编号 1–5，对应 int_meeting_type_preset；切换后加载该类型的会序与资料绑定。',
-    agendaTitle: '会序项标题，主持页与议程展示用；修改后自动保存。',
-    agendaMinutes: '预计时长（分钟），用于会序计时与汇总。',
-    agendaOwners: '会序负责人（飞书 user_id），支持多个，逗号分隔；流水线会据此自动分发回填任务。',
-    configName: '资料配置名，weekly-jobs 的 source/output 引用此名称；建议 preset{N}- 前缀便于识别。',
-    configRole: {
-      SOURCE: 'SOURCE — 只读源资料，供事项对比、AI 读取输入。',
-      OUTPUT: 'OUTPUT — 对比/生成结果的写入目标。',
-      BOTH: 'BOTH — 同时作为源与产出（读写同一文档时使用）。'
-    },
-    resourceSlot: '同一议题下多份资料的排序槽位，从 0 递增；保存时自动去重。',
-    bitableDisplayMode: {
-      '': '默认 — 按 bot/meeting-server 内置规则解析多维表。',
-      RAW: 'RAW — 扁平行列表，不做分组。',
-      GROUPED: 'GROUPED — 按业务字段分组展示（适合周报类表格）。'
-    },
-    feishuUrl: '飞书文档或多维表完整 URL；保存后 meeting-server 可 enrich 快照。',
-    localUpload: '本地上传：支持 doc/docx 与 jpg/png/gif/webp，可多选；每个文件生成一条资料绑定，上传后在卡片内预览，主持页会中可查看图片或下载文档。',
-    hostAgendaJson: 'host_agenda v2 原始 JSON；直接编辑不会自动维护 bindings 索引，仅适合高级运维。'
-  },
-  meetings: {
-    moduleIntro: '查询与运维进行中的会议实例；可强制结束异常会议，并从详情跳转该会议的推送日志。',
-    status: '按生命周期筛选：ISSUE_COLLECTING/INVITED/STARTED/RECORDING/PROCESSING/COMPLETED/PAUSED/CANCELLED。',
-    preset: '按会务类型 presetTypeCode（1–5）筛选。',
-    forceEnd: '强制结束会议并清理进行中状态；操作不可撤销，请确认后再点。'
-  },
-  settings: {
-    moduleIntro: '三层配置：① 可热加载（绿标）— 写入 int_meeting_system_config，保存后点「热加载」；② 冷启动（灰标）— 仅 mirror YAML 当前值，改 application.yml / env 后须重启；③ 部署/密钥 — 不在本页（见 meeting-server application.yml）。全页为一棵配置树，子项按 parentKey 级联。「恢复默认」删除 DB 覆盖并回退 Java 出厂默认。',
-    reloadRuntime: '通知 meeting-server 重新加载 int_meeting_system_config，无需重启进程。',
-    audit: '查看最近配置变更记录（谁改了什么、旧值/新值）。',
-    'meeting.host.enabled': '总开关：关闭后主持 Agent 不参与会议流程。',
-    'meeting.host.agenda-enabled': '是否允许 AI 推进会序（下一议题、跳过等）；关闭后会序仍展示但不自动推进。',
-    'meeting.host.roll-call-enabled': '是否启用混合检点流程（点名确认参会）。',
-    'meeting.host.auto-roll-call-after-opening': '开场白结束后自动进入检点；需会序含检点关键词且 roll-call-enabled=true。',
-    'meeting.host.tts-enabled': '主持语音 TTS 播报；关闭后仅文字提示。',
-    'meeting.voiceprint.offline-min-slice-ms': 'ISV 代表切片最小时长（毫秒）；范围见系统参数 min/max。',
-    'meeting.voiceprint.offline-max-speakers': '单场 IST 簇数上限；默认 8，与 prod seed 一致。',
-    'meeting.isv.search-top-k-max': 'ISV 1:N topK 硬顶（讯飞上限 10）；运行时 clamp。',
-    'meeting.isv.search-top-k-min': '离线标注每簇 ISV 投票 topK 下限（默认 3）。',
-    'meeting.asr.offline-ist-max-role-num': '离线 IST roleNum 上限（0–10，讯飞文档）。',
-    'meeting.asr.offline-poll-interval-ms': '离线转写轮询间隔（毫秒）。'
-  },
-  integrations: {
-    moduleIntro: '三进程部署入口与健康探测；推送/对比任务请在对应模块配置。',
-    health: '探测 feishu-scheduled-bot 是否可达（MEETING_NOTIFY_BOT_URL + SCHEDULED_BOT_APIKEY）。',
-    reverseProxy: '生产环境经 Nginx 反代时，bot context-path 通常为 /scheduled-bot，meeting-server 为 /meeting-server。'
-  },
-  observability: {
-    moduleIntro: '按会议 ID 只读查看已生成纪要与 ASR 转写片段，用于排障与内容抽检。',
-    meetingId: '会议 UUID，可从「会议列表」详情 JSON 中复制 id 字段。'
-  },
-  dashboardGrants: {
-    moduleIntro: '管理会议前台（Dashboard）用户授权白名单。配置存储在 int_meeting_system_config 表 config_key=dashboard.user_grants，保存后自动通知 meeting-server 热刷新。',
-    defaultDeny: '开启后，未在白名单中的飞书用户将被拒绝访问会议管理前台。建议保持开启。',
-    feishuUserId: '飞书企业内 user_id（open_id 体系），从飞书管理后台或用户表获取；必填，不可重复。',
-    userName: '用户姓名，仅用于管理后台展示与辨识；不影响权限判断。',
-    enabled: '启用授权：关闭后该用户等同于不在白名单中，无法访问会议前台。',
-    canCreateMeeting: '允许该用户从 Dashboard 创建新会议、恢复会议。',
-    canEndMeeting: '允许该用户从 Dashboard 结束正在进行的会议。',
-    canRegisterVoiceprint: '允许该用户注册声纹；白名单内用户默认开启。',
-    remark: '备注信息，仅管理员可见，不影响功能。'
-  },
-  apiReference: {
-    moduleIntro: '数据更新与运维 API 目录（Admin Token 鉴权）；可筛选分类、搜索路径，复制 cURL 做联调。'
-  },
-  users: {
-    moduleIntro: '按 OA userId 统一管理用户档案：一行聚合 int_user_mapping_feishu（飞书映射）、int_voiceprint（声纹）与 dashboard.user_grants（前台授权）。',
-    editorIntro: '保存时同时写入映射表、声纹表与前台白名单；列表一行即该用户的完整运维视图。',
-    userId: 'OA 系统用户 ID（主键）；与参会人、待办责任人等业务侧 user_id 一致。新建后不可修改。',
-    userName: '用户姓名，列表展示与纪要人名匹配用；必填。',
-    feishuUserId: '飞书企业内 user_id（唯一身份）；推送个人消息、待办 @、声纹注册、前台授权均使用此字段。',
-    dashboardGrantHint: '勾选「启用前台授权」默认同时开启建会/结束/声纹；也可点「一键：前台+声纹」或「一键：含建会」。',
-    dashboardGrantNeedFeishu: '请先填写 feishu_user_id，再配置前台授权。',
-    quickGrantBasic: '列表「一键授权」：仅开放工作台访问与声纹注册，不含建会。',
-    quickGrantFull: '「含建会」/「补建会权」：在授权基础上开放建会与结束会。',
-    featureIdOptional: '讯飞声纹 featureId；留空则只维护映射、不创建/更新声纹。',
-    groupId: '讯飞声纹组 ID；可留空。',
-    registeredAt: '声纹注册时间；留空则默认当前时间。',
-    expiresAt: '声纹过期时间；留空则默认注册时间 + 10 年。',
-    expiryFilter: '按主声纹（同 userId 最新一条）的过期状态筛选列表。',
-    clearVoiceprint: '勾选后保存将删除该用户全部声纹记录（映射保留）。'
+  function settingsProxy(base) {
+    return new Proxy(base, {
+      get: function (target, prop) {
+        if (prop in target) return target[prop];
+        if (typeof prop === 'string') return '';
+        return undefined;
+      }
+    });
   }
-};
+
+  window.AdminHints = {
+    users: {
+      moduleIntro: '飞书用户映射、前台授权与声纹关联。',
+      editorIntro: '编辑 OA 用户与飞书映射；声纹字段可选，留空表示不绑定。',
+      userId: 'OA 系统 userId，须为正整数且全局唯一。',
+      userName: '显示姓名，用于后台列表与会议参会展示。',
+      feishuUserId: '飞书 open_id / user_id，用于机器人推送与前台令牌映射。',
+      featureId: '声纹特征 ID（讯飞），与 groupId 配套。',
+      featureIdOptional: '可选；填写后须同时维护 groupId 与有效期。',
+      groupId: '声纹库分组 ID。',
+      registeredAt: '声纹注册时间（本地时区）。',
+      expiresAt: '声纹过期时间；过期后纪要说话人识别可能降级。',
+      clearVoiceprint: '勾选后保存将清空该用户声纹绑定。',
+      expiryFilter: '按声纹有效期筛选列表。',
+      dashboardGrantHint: '为飞书用户配置前台权限：是否可创建/结束会议、注册声纹等。',
+      dashboardGrantNeedFeishu: '需先填写 feishu_user_id 后才能授权前台能力。'
+    },
+    dashboardGrants: {
+      defaultDeny: '开启后，未显式授权的用户默认无法使用前台能力。',
+      enabled: '启用前台授权后，用户可从飞书「会议管理」进入工作台。',
+      canCreateMeeting: '允许创建会议并进入主持/录音页。',
+      canEndMeeting: '允许结束进行中的会议并触发纪要流程。',
+      canRegisterVoiceprint: '允许打开声纹注册页。',
+      remark: '备注仅管理员可见。'
+    },
+    presets: {
+      moduleIntro: '维护会务类型预设、会序与资料绑定；资料角色影响 weekly-jobs 引用。',
+      presetCode: '会务类型编号，对应 int_meeting_type_preset.preset_type_code。',
+      agendaTitle: '会序标题，支持拖拽排序；修改后自动保存。',
+      agendaMinutes: '单项会序预计时长（分钟）。',
+      agendaOwners: '负责人飞书 user_id，多个用英文逗号分隔。',
+      hostAgendaJson: 'host_agenda_json 原始 JSON；仅在高级模式手工编辑。',
+      configName: '资料 config_name，须与会务预设内唯一；weekly-jobs 按此引用。',
+      resourceSlot: '资料槽位序号，同会序内从 0 递增。',
+      feishuUrl: '飞书 docx / bitable / sheet 链接；保存后用于会中拉取与对比任务。',
+      localUpload: '支持 doc/docx 与常见图片，可多选；上传后可页内预览。',
+      configRole: {
+        SOURCE: 'SOURCE：可作为周报对比源资料。',
+        OUTPUT: 'OUTPUT：可作为对比产出文档。',
+        BOTH: 'BOTH：同时可作为源与产出。'
+      },
+      bitableDisplayMode: {
+        '': '默认：按字段类型自动排版。',
+        RAW: 'RAW：表格原始行列。',
+        GROUPED: 'GROUPED：按分组字段聚合展示。'
+      }
+    },
+    weeklyJobs: {
+      moduleIntro: '配置事项进度周报对比任务，按 Cron 定时执行。',
+      jobName: '任务显示名，便于运维识别。',
+      enabled: '关闭后不参与 Quartz 调度。',
+      cron: 'Quartz Cron 表达式，例如 0 10 * * MON 表示每周一 10:00。',
+      minuteQueryType: {
+        PRESET_LAST_7_DAYS: '按会务类型查询最近 N 天已结束会议的纪要。',
+        MEETING_IDS: '按指定会议 ID 列表查询纪要。'
+      },
+      minuteQueryParams: 'JSON 参数：PRESET_LAST_7_DAYS 用 {"presetTypeCode":1,"days":7}；MEETING_IDS 用 {"meetingIds":["id1"]}。',
+      sourceConfigNames: '源资料 config_name，多个用英文逗号分隔，须已在会序资料中标记 SOURCE/BOTH。',
+      outputConfigName: '产出 config_name，须已标记 OUTPUT/BOTH。'
+    },
+    pushBot: {
+      moduleIntro: '管理 INTERNAL/EXTERNAL 推送任务与发送日志。',
+      taskName: '任务显示名。',
+      cron: 'INTERNAL 模式下的 Quartz Cron；EXTERNAL 可留空。',
+      scheduleMode: {
+        INTERNAL: '服务端按 Cron 自动触发推送。',
+        EXTERNAL: '仅外部系统或「执行」按钮手动触发。'
+      },
+      targetType: {
+        USER: '单聊用户：targetId 填飞书 user_id。',
+        GROUP: '群聊：targetId 填 chat_id。'
+      },
+      targetId: '飞书 user_id 或 chat_id。',
+      message: '推送正文，支持飞书卡片占位符（若模板需要）。',
+      skipHolidays: '开启后节假日跳过 INTERNAL 调度。',
+      enabled: '关闭后任务不参与 Cron。',
+      syncQuartz: '将数据库任务同步到 Quartz 调度器。',
+      logTaskId: '按推送任务 ID 筛选日志。',
+      logMeetingId: '按关联会议 ID 筛选日志。'
+    },
+    meetings: {
+      moduleIntro: '会议运维：列表筛选、强制结束；数据查看聚合纪要/转写/推送/流水线。',
+      status: '按会议生命周期状态筛选。',
+      preset: '按会务类型 presetTypeCode 筛选。',
+      forceEnd: '强制结束进行中的会议并进入纪要流程（慎用）。'
+    },
+    observability: {
+      moduleIntro: '按会议 ID 查看纪要、转写与关联数据。',
+      meetingId: '会议 UUID 或业务 ID。'
+    },
+    integrations: {
+      moduleIntro: '三进程入口、健康探测与运维快捷链接。',
+      health: '探测 feishu-scheduled-bot 可达性与 meeting-server 桥接配置。',
+      reverseProxy: '生产环境通常经 Nginx 反代；链接以实际部署域名为准。'
+    },
+    settings: settingsProxy({
+      moduleIntro: '系统参数热更新；可热加载项保存后需点「通知 meeting-server 热加载」。',
+      reloadRuntime: '通知 meeting-server 从 DB 重载可热更配置。',
+      audit: '查看最近配置变更审计记录。'
+    }),
+    apiReference: {
+      moduleIntro: '管理端 Open API 目录，可复制路径用于联调。'
+    },
+    pipeline: {
+      moduleIntro: '按 PRE/MID/POST 配置流水线模板与步骤。'
+    }
+  };
+})();

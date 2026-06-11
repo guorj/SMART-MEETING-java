@@ -46,7 +46,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
         svc.enrichHostAgendaItems(1, items);
         assertEquals("https://x.feishu.cn/docx/doxExisting", items.get(1).getFeishuDocUrl());
     }
@@ -64,7 +64,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
         svc.enrichHostAgendaItems(1, items);
         assertEquals(1, items.get(0).getFeishuDocs().size());
         assertEquals("https://x.feishu.cn/docx/doxFromJson", items.get(0).getFeishuDocUrl());
@@ -82,7 +82,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
         Meeting meeting = new Meeting();
         meeting.setPresetTypeCode(1);
         var refs = svc.resolveAllResources(meeting, 1, null);
@@ -98,7 +98,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
         Meeting meeting = new Meeting();
         meeting.setPresetTypeCode(1);
         meeting.setHostAgenda("""
@@ -122,14 +122,14 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
         svc.enrichHostAgendaItems(1, items);
         assertEquals("https://x.feishu.cn/docx/doxFromPreset", items.get(0).getFeishuDocUrl());
     }
 
     @Test
     void resolveDocumentId_prefersRuntimeUrl() {
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, presetCache, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(null, presetCache, null, null, JSON);
         String id = svc.resolveDocumentId(null, 0, "https://x.feishu.cn/docx/doxRuntime");
         assertEquals("doxRuntime", id);
         assertNull(svc.resolveDocumentId(null, 0, ""));

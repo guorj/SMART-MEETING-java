@@ -81,14 +81,14 @@ class FeishuResourceResolverTest {
         assertTrue(ref.canFetchPlainText());
     }
 
-    /** 无 table 参数的 base URL 不可拉取纯文本但可在主持页展示。 */
+    /** 无 table 参数的 base URL 可拉取全库 plainText/structured。 */
     @Test
-    void baseWithoutTableCannotFetchPlainText() {
+    void baseWithoutTableCanFetchPlainText() {
         FeishuResourceRef ref = FeishuResourceResolver.resolve("https://a.feishu.cn/base/bascnApp");
         assertNotNull(ref);
         assertEquals(FeishuResourceKind.BASE, ref.kind());
         assertTrue(ref.showOnHostPage());
-        assertTrue(!ref.canFetchPlainText());
+        assertTrue(ref.canFetchPlainText());
     }
 
     /** legacy docId 应转换为 docx URL 并正确解析。 */
@@ -144,10 +144,69 @@ class FeishuResourceResolverTest {
                 "https://39.97.61.212/host/meeting-id"));
     }
 
+    /** 解析 /sheets/ 直链应返回 SHEET 类型。 */
+    @Test
+    void parsesSheetsUrl() {
+        FeishuResourceRef ref = FeishuResourceResolver.resolve("https://a.feishu.cn/sheets/shtcnSheet01");
+        assertNotNull(ref);
+        assertEquals(FeishuResourceKind.SHEET, ref.kind());
+        assertEquals("shtcnSheet01", ref.primaryToken());
+        assertTrue(ref.canFetchPlainText());
+    }
+
     /** isRecognizedFeishuDocUrl 应与解析结果类型一致。 */
     @Test
     void isRecognizedFeishuDocUrl_matchesParsedTypes() {
         assertTrue(FeishuResourceResolver.isRecognizedFeishuDocUrl(
                 "https://ovjde0k7vc1.feishu.cn/base/SnsXbyQ1Qa57fCsI8mrcRAIbnve?table=tbl7viO4AJ4ebD0B&view=vew3qfhSyY"));
+    }
+
+    /** 会序问题链接：wiki + table 参数应完整解析 node_token 与 tableId。 */
+    @Test
+    void parsesUserReportedWikiBitableUrl() {
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(
+                "https://ovjde0k7vc1.feishu.cn/wiki/HK6vwomEni9TpRkgQXncmbMQngf?table=tblOHTtHGNpyzKAY1");
+        assertNotNull(ref);
+        assertEquals(FeishuResourceKind.WIKI, ref.kind());
+        assertEquals("HK6vwomEni9TpRkgQXncmbMQngf", ref.primaryToken());
+        assertEquals("tblOHTtHGNpyzKAY1", ref.tableId());
+        assertTrue(ref.canFetchPlainText());
+    }
+
+    @Test
+    void parsesUserReportedWikiBitableUrlWithoutTrailingDigit() {
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(
+                "https://ovjde0k7vc1.feishu.cn/wiki/HK6vwomEni9TpRkgQXncmbMQngf?table=tblOHTtHGNpyzKAY");
+        assertNotNull(ref);
+        assertEquals("tblOHTtHGNpyzKAY", ref.tableId());
+    }
+
+    /** 任务清单 AppLink 应解析为 TASKLIST 且 primaryToken 为 guid。 */
+    @Test
+    void parsesApplinkTaskListUrl() {
+        String url = "https://applink.feishu.cn/client/todo/task_list?guid=3debd4f2-1f74-4e8c-89a1-e43be74b0dc4";
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
+        assertNotNull(ref);
+        assertEquals(FeishuResourceKind.TASKLIST, ref.kind());
+        assertEquals("3debd4f2-1f74-4e8c-89a1-e43be74b0dc4", ref.primaryToken());
+        assertTrue(ref.canFetchPlainText());
+        assertTrue(ref.showOnHostPage());
+        assertTrue(FeishuResourceResolver.isRecognizedFeishuDocUrl(url));
+        assertEquals(url, ref.defaultOpenUrl());
+    }
+
+    /** 无 guid 的 task_list AppLink 无法解析。 */
+    @Test
+    void rejectsApplinkTaskListWithoutGuid() {
+        assertNull(FeishuResourceResolver.resolve(
+                "https://applink.feishu.cn/client/todo/task_list"));
+    }
+
+    /** 无 sourceUrl 时 wiki defaultOpenUrl 应保留 table 锚点。 */
+    @Test
+    void wikiDefaultOpenUrlPreservesTableParam() {
+        FeishuResourceRef ref = new FeishuResourceRef(
+                FeishuResourceKind.WIKI, "wikiNode01", "tbl01", "vew02", null, null);
+        assertEquals("https://bytedance.feishu.cn/wiki/wikiNode01?table=tbl01&view=vew02", ref.defaultOpenUrl());
     }
 }

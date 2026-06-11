@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -13,46 +13,55 @@
     })();
   </script>
   <title>智能会议</title>
-  <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
-  <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
-  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-20260608-2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-21">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-21">
+  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-21">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-21">
+  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260610-21">
+  <script src="ui-kit/icons.js?v=sm-ui-20260610-21"></script>
+  <script src="ui-kit/motion.js?v=sm-ui-20260610-21"></script>
+  <script src="ui-kit/image-lightbox.js?v=sm-ui-20260610-21"></script>
+  <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
 <body class="host-page">
   <header class="host-header">
     <div class="host-header-main">
-      <h1 id="meetingTitleH1">加载中…</h1>
+      <h1 id="meetingTitleH1"><svg class="icon-sm" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.913 2.659C5.694 2.224 6.557 2 7.43 2c.656 0 1.306.13 1.915.384M4.913 2.659C4.087 3.089 3.5 3.9 3.5 4.857v.308c0 .784-.266 1.544-.752 2.15L2.25 8.078a1.117 1.117 0 0 0 .215 1.636l.44.293a1.117 1.117 0 0 0 1.312-.067l.218-.178A1.117 1.117 0 0 1 6 9.43V20.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V9.43c0-.444.198-.864.565-1.137l.218.178c.37.303.9.33 1.312.067l.44-.293a1.117 1.117 0 0 0 .215-1.636l-.498-.713A3.474 3.474 0 0 1 20.5 5.165v-.308c0-.957-.587-1.768-1.413-2.198"/><path d="M16.5 2.659C15.718 2.224 14.855 2 13.983 2c-.657 0-1.307.13-1.916.384"/></svg> 加载中…</h1>
       <span class="ui-badge ui-badge-neutral" id="meetingStatusBadge">未开始</span>
     </div>
     <p class="sub" id="titleLine">加载中…</p>
     <p class="ios-banner ui-banner-warn" id="iosNoticeHost" style="display:none">iOS：请保持屏幕常亮，勿切换到其他应用</p>
   </header>
   <div class="err ui-banner-err" id="err" style="display:none"></div>
-  <p class="ios-banner ui-banner-info" id="viewerNotice" style="display:none;background:#e6f4ff;color:#1677ff;border:1px solid #91caff">
+  <p class="ios-banner ui-banner-info" id="viewerNotice" style="display:none">
     旁观模式：会序与资料同步更新，操作按钮已隐藏。如需主控请使用操作员链接。
   </p>
 
-  <div class="host-workspace">
+  <div class="host-workspace blur-fade">
     <div class="host-col-left">
       <div id="currentAgendaPanel" class="current-agenda-panel" style="display:none" aria-live="polite">
-        <h3>当前议程</h3>
+        <h3><svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 当前议程</h3>
         <p id="currentAgendaTitle" class="current-agenda-title"></p>
         <p id="currentAgendaMeta" class="current-agenda-meta"></p>
         <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
       </div>
-      <section class="card-light card-agenda-progress" aria-label="主持模块">
-        <h2 class="panel-title">会议控制</h2>
+      <section class="card-light card-agenda-progress blur-fade" aria-label="主持模块">
+        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/></svg> 会议控制</h2>
         <div class="control-primary-sticky">
           <div class="control-primary">
-            <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting">开始会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting" disabled>暂停会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none">继续会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink" style="display:none">复制旁观链接</button>
+            <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 开始会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暂停会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 继续会议</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.544 10.456a4.368 4.368 0 0 0-6.176 0l-2.912 2.912a4.368 4.368 0 0 0 6.176 6.176l.813-.813"/><path d="M10.456 13.544a4.368 4.368 0 0 0 6.176 0l2.912-2.912a4.368 4.368 0 0 0-6.176-6.176l-.813.813"/></svg> 复制旁观链接</button>
           </div>
           <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
             <div class="host-recording-chip">
               <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
                 <div class="rec-status-row">
-                  <span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
+                  <svg class="icon-rec" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg><span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
                   <span class="rec-status-main" id="recStatusMain">未开始</span>
                   <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
                 </div>
@@ -70,8 +79,8 @@
           </div>
         </div>
         <div class="control-secondary row">
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext">下一议题</button>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip">跳过议题</button>
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> 下一议题</button>
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过议题</button>
         </div>
         <div class="control-secondary row row-extend">
           <span class="extend-label" id="extendTopicLabel">议题加时</span>
@@ -81,14 +90,14 @@
             <option value="5">5 分钟</option>
             <option value="10">10 分钟</option>
           </select>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled>确认加时</button>
+          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
         </div>
         <div class="timers timers-display">
           <div class="timer ui-timer" id="topicTimer">议题剩余 —:—</div>
           <div class="timer ui-timer" id="meetTimer">会议剩余 —:—</div>
         </div>
         <div class="control-danger-zone">
-          <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd">结束会议</button>
+          <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
         </div>
         <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
           <h3>会议检点</h3>
@@ -97,24 +106,33 @@
             <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
           </details>
           <div class="row" style="margin-top:0">
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart" disabled>开始检点</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled>跳过当前</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg> 开始检点</button>
+            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过当前</button>
           </div>
           <div class="rc-countdown" id="rollCallCountdown"></div>
           <div class="rc-list" id="rollCallList"></div>
         </div>
       </section>
-      <section class="card-light card-matter" id="agendaDocCard" style="display:none" aria-label="会序模块">
-        <h2 class="panel-title" id="agendaDocPanelTitle">当前议题资料</h2>
+      <section class="card-light card-matter blur-fade" id="agendaDocCard" style="display:none" aria-label="会序模块">
+        <div class="agenda-doc-panel-head">
+          <h2 class="panel-title" id="agendaDocPanelTitle"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8l6 6z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg> 当前议题资料</h2>
+          <div class="agenda-doc-panel-actions">
+            <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreen" aria-pressed="false" title="进入全屏" aria-label="进入全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg></button>
+          </div>
+        </div>
         <div id="progressErr" style="margin-bottom:8px"></div>
         <p id="agendaDocExternalLink" class="muted" style="font-size:12px;margin-bottom:8px;display:none"></p>
         <div class="transcript-box md-body-host host-main-doc-body" id="progressReportBody"><p class="muted" style="padding:4px 0">当前会序若已配置飞书资料，将在此提供文档链接。</p></div>
+        <div class="agenda-doc-fs-fab" id="agendaDocFsFab" style="display:none" aria-hidden="true">
+          <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreenFab" title="退出全屏" aria-label="退出全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg></button>
+          <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-next-fab" id="btnAgendaDocNextTopicFab" title="下一议题" aria-label="下一议题"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+        </div>
       </section>
     </div>
     <aside class="host-col-right">
-      <section class="card-light card-avatar" aria-label="主持模块">
+      <section class="card-light card-avatar blur-fade" aria-label="主持模块">
         <div class="avatar-card-top">
-          <h2 class="panel-title">AI 主持</h2>
+          <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> AI 主持</h2>
           <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
         </div>
         <div class="avatar-stage" id="avatarStage" data-state="idle">
@@ -126,8 +144,8 @@
           <p class="avatar-caption" id="avatarCaption">等待中</p>
         </div>
       </section>
-      <section class="card-light card-agenda-detail" aria-label="会序模块">
-        <h2 class="panel-title">议程列表</h2>
+      <section class="card-light card-agenda-detail blur-fade" aria-label="会序模块">
+        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> 议程列表</h2>
         <div id="topics" class="agenda-detail-body"></div>
       </section>
     </aside>
@@ -169,7 +187,7 @@
         if (notice) notice.style.display = 'block';
         ['btnStartMeeting', 'btnPauseMeeting', 'btnResumeMeeting', 'btnEnd',
           'btnNext', 'btnSkip', 'btnExtendTopic', 'btnRollCallStart', 'btnRollCallSkip',
-          'btnCopyViewerLink'].forEach(function (id) {
+          'btnCopyViewerLink', 'btnAgendaDocFullscreenFab', 'btnAgendaDocNextTopicFab'].forEach(function (id) {
           var el = document.getElementById(id);
           if (el) { el.style.display = 'none'; el.disabled = true; }
         });
@@ -480,7 +498,8 @@
       function isFeishuDocUrl(url) {
         var u = url != null ? String(url).trim() : '';
         if (!u) return false;
-        return /\/(docx|wiki|base)\/[^/?#]+/i.test(u);
+        return /\/(docx|wiki|base|sheets)\/[^/?#]+/i.test(u)
+            || /applink\.(?:feishu|larksuite)\.cn\/client\/todo\/task_list/i.test(u);
       }
 
       function topicHasFeishuDoc(topic) {
@@ -499,6 +518,9 @@
         if (k === 'WIKI') return '知识库';
         if (k === 'BASE') return '多维表格';
         if (k === 'DOCX') return '云文档';
+        if (k === 'SHEET') return '电子表格';
+        if (k === 'TASKLIST') return '任务清单';
+        if (k === 'LOCAL') return '本地资料';
         return '飞书资料';
       }
 
@@ -513,7 +535,11 @@
       function feishuDocDedupeKey(url) {
         var u = url != null ? String(url).trim() : '';
         if (!u) return '';
-        var m = u.match(/\/(docx|wiki|base)\/([^/?#]+)/i);
+        if (/applink\.(?:feishu|larksuite)\.cn\/client\/todo\/task_list/i.test(u)) {
+          var guid = (u.match(/[?&]guid=([^&]+)/i) || [])[1] || '';
+          return 'tasklist|' + guid;
+        }
+        var m = u.match(/\/(docx|wiki|base|sheets)\/([^/?#]+)/i);
         if (!m) return u;
         var table = (u.match(/[?&]table=([^&]+)/i) || [])[1] || '';
         var view = (u.match(/[?&]view=([^&]+)/i) || [])[1] || '';
@@ -552,8 +578,11 @@
         if (!m) return false;
         var mime = String(m.mimeType || '').toLowerCase();
         if (mime.indexOf('word') >= 0 || mime === 'application/msword') return true;
+        if (mime.indexOf('presentation') >= 0 || mime.indexOf('powerpoint') >= 0) return true;
+        if (mime.indexOf('spreadsheet') >= 0 || mime.indexOf('excel') >= 0) return true;
+        if (mime === 'application/pdf') return true;
         var name = String(m.originalFilename || m.fileId || '').toLowerCase();
-        return /\.(docx?)$/.test(name);
+        return /\.(docx?|pptx?|xlsx?|pdf)$/.test(name);
       }
 
       function agendaMaterialUrl(fileId) {
@@ -566,6 +595,21 @@
         return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
             + '/agenda-materials/' + encodeURIComponent(fileId) + '/preview'
             + '?token=' + encodeURIComponent(token || ''));
+      }
+
+      function proxyFileImageUrl(fileId, page) {
+        if (!fileId || !meetingId) return '';
+        return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
+            + '/agenda-materials/proxy-file-image?fileId=' + encodeURIComponent(fileId)
+            + '&page=' + encodeURIComponent(page)
+            + '&token=' + encodeURIComponent(token || ''));
+      }
+
+      function proxyFeishuImageUrl(imageKey) {
+        if (!imageKey || !meetingId) return '';
+        return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
+            + '/agenda-materials/proxy-image?imageKey=' + encodeURIComponent(imageKey)
+            + '&token=' + encodeURIComponent(token || ''));
       }
 
       function fetchAgendaMaterialBlob(fileId) {
@@ -628,6 +672,14 @@
         container.className = 'local-material-preview local-material-loading';
         fetchAgendaMaterialPreviewText(fileId).then(function (data) {
           container.className = 'local-material-preview local-doc-preview';
+          if (data && data.contentType && data.structuredContent) {
+            if (renderStructuredContent(container, {
+              contentType: data.contentType,
+              structuredContent: data.structuredContent
+            }, { useMainPanel: false, fileId: fileId })) {
+              return;
+            }
+          }
           if (data && data.html) {
             container.innerHTML = sanitizeLocalDocHtml(data.html);
           } else if (data && data.plainText) {
@@ -753,7 +805,19 @@
             at.textContent = '生成时间：' + reportAt;
             reportBlock.appendChild(at);
           }
-          if (apiReport && apiReport.plainText) {
+          if (apiReport && apiReport.contentType && apiReport.structuredContent) {
+            var body = document.createElement('div');
+            body.className = 'feishu-doc-body';
+            if (renderStructuredContent(body, {
+              contentType: apiReport.contentType,
+              structuredContent: apiReport.structuredContent
+            }, { useMainPanel: false })) {
+              reportBlock.appendChild(body);
+            } else if (apiReport.plainText) {
+              appendFeishuDocBodyContent(body, apiReport.plainText, 'DOCX');
+              reportBlock.appendChild(body);
+            }
+          } else if (apiReport && apiReport.plainText) {
             var body = document.createElement('div');
             body.className = 'feishu-doc-body';
             appendFeishuDocBodyContent(body, apiReport.plainText, 'DOCX');
@@ -785,10 +849,11 @@
        * 会序主区完整渲染（无正文 API）：SOURCE 外链列表 + 会前对比/OUTPUT 外链。
        * 正文场景由 loadAgendaDocContent 先 renderAgendaDocParts 再 appendWeeklyReportBlocks。
        */
-      function renderLocalMaterials(panel, topic) {
+      function renderLocalMaterials(panel, topic, opts) {
+        opts = opts || {};
         if (!panel || !topicHasLocalMaterial(topic)) return;
         var materials = (topic.localMaterials || []).filter(function (m) { return m && m.fileId; });
-        var imageMaterials = materials.filter(isImageMaterial);
+        var imageMaterials = opts.skipImages ? [] : materials.filter(isImageMaterial);
         var otherMaterials = materials.filter(function (m) { return !isImageMaterial(m); });
 
         if (imageMaterials.length) {
@@ -815,7 +880,7 @@
               figure.appendChild(cap);
             }
             var img = document.createElement('img');
-            img.className = 'local-material-img';
+            img.className = 'local-material-img sm-zoomable-img';
             img.alt = m.originalFilename || m.fileId || '本地图片';
             figure.appendChild(img);
             gallery.appendChild(figure);
@@ -1590,6 +1655,8 @@
         if (k === 'base') return 'feishu-kind-base';
         if (k === 'docx') return 'feishu-kind-docx';
         if (k === 'wiki') return 'feishu-kind-wiki';
+        if (k === 'sheet') return 'feishu-kind-sheet';
+        if (k === 'tasklist') return 'feishu-kind-tasklist';
         return 'feishu-kind-unknown';
       }
 
@@ -1655,6 +1722,838 @@
         appendFeishuDocBodyContent(body, plainText, docKind);
         panel.appendChild(body);
         el.appendChild(panel);
+      }
+
+      /* ========== Structured Content Renderers ========== */
+      function applyFeishuPartBodyStyles(el) {
+        if (!el) return;
+        el.className = 'feishu-doc-body md-body-host';
+        el.style.overflowY = '';
+        el.style.maxHeight = '';
+        el.style.flex = '';
+        el.style.minHeight = '';
+      }
+
+      function renderStructuredContent(el, part, opts) {
+        opts = opts || {};
+        var sc = part.structuredContent;
+        var ct = part.contentType;
+        if (!sc || !ct) return false;
+        var mount = el;
+        if (el && el.id === 'progressReportBody') {
+          applyAgendaDocContainerStyles(el, !!opts.useMainPanel);
+          el.innerHTML = '';
+        } else if (el && el.classList && el.classList.contains('local-material-preview')) {
+          el.innerHTML = '';
+          el.className = 'local-material-preview local-doc-preview';
+          el.style.maxHeight = '';
+          mount = document.createElement('div');
+          mount.className = 'feishu-doc-body md-body-host';
+          el.appendChild(mount);
+        } else {
+          applyFeishuPartBodyStyles(el);
+          el.innerHTML = '';
+        }
+        switch (ct) {
+          case 'docx_blocks':
+            opts.imageLookup = buildImageProxyLookup(part.images);
+            renderDocxBlocks(mount, sc, part.images, opts);
+            break;
+          case 'bitable_records': renderBitableStructured(mount, sc, opts); break;
+          case 'task_list': renderTaskListStructured(mount, sc, opts); break;
+          case 'sheet_cells': renderSheetStructured(mount, sc, opts); break;
+          case 'excel_workbook': renderExcelWorkbook(mount, sc, opts); break;
+          case 'ppt_slides': renderPptSlides(mount, sc, opts); break;
+          case 'pdf_pages': renderPdfPages(mount, sc, opts); break;
+          case 'image_gallery': renderImageGallery(mount, sc, opts); break;
+          case 'html': renderHtmlStructured(mount, sc); break;
+          default: return false;
+        }
+        return true;
+      }
+
+      function isNumericCell(text) {
+        if (text == null || text === '') return false;
+        return /^-?\d+(\.\d+)?%?$/.test(String(text).trim());
+      }
+
+      function buildMergeLookup(mergedRanges, headerRowCount) {
+        var skip = {};
+        var span = {};
+        var offset = headerRowCount || 1;
+        (mergedRanges || []).forEach(function (m) {
+          if (!m) return;
+          var rs = (m.startRow || 0) + offset;
+          var re = (m.endRow || 0) + offset;
+          var cs = m.startCol || 0;
+          var ce = m.endCol || 0;
+          var key = rs + ':' + cs;
+          span[key] = { rowspan: re - rs + 1, colspan: ce - cs + 1 };
+          for (var r = rs; r <= re; r++) {
+            for (var c = cs; c <= ce; c++) {
+              if (r === rs && c === cs) continue;
+              skip[r + ':' + c] = true;
+            }
+          }
+        });
+        return { skip: skip, span: span };
+      }
+
+      function isSheetRowEmpty(row) {
+        if (!row || !row.length) return true;
+        for (var i = 0; i < row.length; i++) {
+          var c = row[i];
+          if (c != null && String(c).trim() !== '') return false;
+        }
+        return true;
+      }
+
+      function filterSheetDataRows(rows) {
+        var out = [];
+        (rows || []).forEach(function (row) {
+          if (!isSheetRowEmpty(row)) out.push(row);
+        });
+        while (out.length && isSheetRowEmpty(out[out.length - 1])) out.pop();
+        return out;
+      }
+
+      function trimSheetTrailingEmptyColumns(headers, rows) {
+        var matrix = [];
+        if (headers && headers.length) matrix.push(headers);
+        (rows || []).forEach(function (row) { matrix.push(row || []); });
+        var lastCol = -1;
+        matrix.forEach(function (row) {
+          (row || []).forEach(function (cell, idx) {
+            if (cell != null && String(cell).trim() !== '') lastCol = Math.max(lastCol, idx);
+          });
+        });
+        if (lastCol < 0) return { headers: [], rows: [] };
+        function sliceRow(row) {
+          var out = [];
+          for (var c = 0; c <= lastCol; c++) {
+            out.push(row && c < row.length ? row[c] : '');
+          }
+          return out;
+        }
+        if (!headers || !headers.length) {
+          return { headers: [], rows: matrix.map(sliceRow) };
+        }
+        return { headers: sliceRow(headers), rows: (rows || []).map(sliceRow) };
+      }
+
+      function renderSheetTable(el, title, headers, rows, tableOpts) {
+        tableOpts = tableOpts || {};
+        rows = filterSheetDataRows(rows);
+        var trimmed = trimSheetTrailingEmptyColumns(headers, rows);
+        headers = trimmed.headers;
+        rows = trimmed.rows;
+        if (title === '无数据' && !headers.length && !rows.length) return;
+        var section = document.createElement('div');
+        section.className = 'structured-sheet';
+        if (title) {
+          var heading = document.createElement('h4');
+          heading.textContent = title;
+          section.appendChild(heading);
+        }
+        var scroll = document.createElement('div');
+        scroll.className = 'structured-table-scroll';
+        var table = document.createElement('table');
+        table.className = 'structured-data-table structured-data-table-sticky';
+        var headerRowCount = tableOpts.headerRowCount != null ? tableOpts.headerRowCount : 1;
+        var mergeInfo = buildMergeLookup(tableOpts.mergedRanges, headerRowCount);
+        if (headers && headers.length) {
+          var thead = document.createElement('thead');
+          var headRow = document.createElement('tr');
+          headers.forEach(function (h) {
+            var th = document.createElement('th');
+            th.textContent = h || '';
+            headRow.appendChild(th);
+          });
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+        }
+        var tbody = document.createElement('tbody');
+        (rows || []).forEach(function (row, rowIdx) {
+          var tr = document.createElement('tr');
+          var tableRow = rowIdx + headerRowCount;
+          (row || []).forEach(function (cell, colIdx) {
+            var posKey = tableRow + ':' + colIdx;
+            if (mergeInfo.skip[posKey]) return;
+            var td = document.createElement('td');
+            var cellText = cell != null ? String(cell) : '';
+            td.textContent = cellText;
+            if (isNumericCell(cellText)) td.className = 'cell-numeric';
+            var sp = mergeInfo.span[posKey];
+            if (sp) {
+              if (sp.rowspan > 1) td.rowSpan = sp.rowspan;
+              if (sp.colspan > 1) td.colSpan = sp.colspan;
+            }
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scroll.appendChild(table);
+        section.appendChild(scroll);
+        el.appendChild(section);
+      }
+
+      function appendDocxRuns(node, block) {
+        if (block.runs && block.runs.length) {
+          block.runs.forEach(function (run) {
+            if (!run || run.text == null) return;
+            if (run.link) {
+              var a = document.createElement('a');
+              a.href = run.link;
+              a.target = '_blank';
+              a.rel = 'noopener';
+              if (run.bold) a.style.fontWeight = '700';
+              if (run.italic) a.style.fontStyle = 'italic';
+              a.textContent = run.text;
+              node.appendChild(a);
+            } else if (run.bold || run.italic || run.underline || run.strikethrough) {
+              var span = document.createElement('span');
+              if (run.bold) span.style.fontWeight = '700';
+              if (run.italic) span.style.fontStyle = 'italic';
+              var deco = [];
+              if (run.strikethrough) deco.push('line-through');
+              if (run.underline) deco.push('underline');
+              if (deco.length) span.style.textDecoration = deco.join(' ');
+              span.textContent = run.text;
+              node.appendChild(span);
+            } else {
+              node.appendChild(document.createTextNode(run.text));
+            }
+          });
+        } else {
+          node.textContent = block.text || '';
+        }
+      }
+
+      function renderDocxBlockNode(block, parentEl, imageLookup) {
+        if (!block || !parentEl) return;
+        imageLookup = imageLookup || {};
+        if (block.type === 'divider') {
+          parentEl.appendChild(document.createElement('hr'));
+          return;
+        }
+        if (block.type === 'code') {
+          var pre = document.createElement('pre');
+          pre.className = 'structured-docx-code';
+          var codeEl = document.createElement('code');
+          codeEl.textContent = block.text || '';
+          pre.appendChild(codeEl);
+          parentEl.appendChild(pre);
+          return;
+        }
+        if (block.type === 'table' && block.tableRows && block.tableRows.length) {
+          var trimmedDocx = trimSheetTrailingEmptyColumns(null, block.tableRows);
+          var docxRows = trimmedDocx.rows;
+          if (!docxRows.length) return;
+          var tbl = document.createElement('table');
+          tbl.className = 'structured-data-table';
+          var tb = document.createElement('tbody');
+          docxRows.forEach(function (row) {
+            var tr = document.createElement('tr');
+            (row || []).forEach(function (cell) {
+              var td = document.createElement('td');
+              td.textContent = cell != null ? String(cell) : '';
+              tr.appendChild(td);
+            });
+            tb.appendChild(tr);
+          });
+          tbl.appendChild(tb);
+          parentEl.appendChild(tbl);
+          return;
+        }
+        if (block.type === 'callout') {
+          var callout = document.createElement('div');
+          callout.className = 'structured-docx-callout';
+          appendDocxRuns(callout, block);
+          parentEl.appendChild(callout);
+          if (children.length) {
+            var cwrap = document.createElement('div');
+            children.forEach(function (ch) { renderDocxBlockNode(ch, cwrap, imageLookup); });
+            callout.appendChild(cwrap);
+          }
+          return;
+        }
+        if (block.type === 'image' && block.imageKey) {
+          var img = document.createElement('img');
+          img.className = 'structured-doc-image sm-zoomable-img';
+          img.alt = '文档图片';
+          img.loading = 'lazy';
+          img.src = imageLookup[block.imageKey] || proxyFeishuImageUrl(block.imageKey);
+          parentEl.appendChild(img);
+          return;
+        }
+        var children = block.children || [];
+        if (block.type === 'bullet' || block.type === 'ordered') {
+          var list = document.createElement(block.type === 'ordered' ? 'ol' : 'ul');
+          list.className = 'structured-docx-list';
+          var li = document.createElement('li');
+          appendDocxRuns(li, block);
+          if (children.length) {
+            var sub = document.createElement(block.type === 'ordered' ? 'ol' : 'ul');
+            children.forEach(function (ch) { renderDocxBlockNode(ch, sub, imageLookup); });
+            li.appendChild(sub);
+          }
+          list.appendChild(li);
+          parentEl.appendChild(list);
+          return;
+        }
+        var tag = 'p';
+        if (block.type && block.type.indexOf('heading') === 0) {
+          var level = parseInt(String(block.type).replace('heading', ''), 10);
+          tag = 'h' + Math.min(Math.max(level || 1, 1), 6);
+        } else if (block.type === 'quote') {
+          tag = 'blockquote';
+        }
+        var node = document.createElement(tag);
+        appendDocxRuns(node, block);
+        if (block.type === 'todo') {
+          node.className = 'structured-todo' + (block.checked ? ' checked' : '');
+        }
+        parentEl.appendChild(node);
+        if (children.length) {
+          var wrap = document.createElement('div');
+          wrap.className = 'structured-docx-children';
+          children.forEach(function (ch) { renderDocxBlockNode(ch, wrap, imageLookup); });
+          parentEl.appendChild(wrap);
+        }
+      }
+
+      function buildImageProxyLookup(images) {
+        var map = {};
+        (images || []).forEach(function (ref) {
+          if (!ref || !ref.id) return;
+          map[ref.id] = ref.proxyUrl || '';
+        });
+        return map;
+      }
+
+      var PREFETCH_IMAGE_LIMIT = 8;
+
+      function prefetchAgendaImages(images) {
+        (images || []).slice(0, PREFETCH_IMAGE_LIMIT).forEach(function (ref) {
+          if (!ref || !ref.proxyUrl) return;
+          var img = new Image();
+          img.decoding = 'async';
+          img.loading = 'lazy';
+          img.src = ref.proxyUrl;
+        });
+      }
+
+      function renderImageGallery(el, gallery, opts) {
+        if (!gallery || !gallery.items || !gallery.items.length) return;
+        var section = document.createElement('div');
+        section.className = 'local-material-gallery structured-image-gallery';
+        gallery.items.forEach(function (item) {
+          if (!item || !item.fileId) return;
+          var figure = document.createElement('figure');
+          figure.className = 'local-material-figure';
+          if (item.caption) {
+            var cap = document.createElement('figcaption');
+            cap.textContent = item.caption;
+            figure.appendChild(cap);
+          }
+          var img = document.createElement('img');
+          img.className = 'local-material-img sm-zoomable-img';
+          img.alt = item.alt || item.caption || '本地图片';
+          figure.appendChild(img);
+          section.appendChild(figure);
+          bindLocalMaterialImage(img, item.fileId);
+        });
+        el.appendChild(section);
+      }
+
+      function renderHtmlStructured(el, html) {
+        if (!html) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'feishu-doc-body md-body-host local-material-html-preview';
+        if (window.DOMPurify) {
+          wrap.innerHTML = DOMPurify.sanitize(String(html));
+        } else {
+          wrap.textContent = String(html);
+        }
+        el.appendChild(wrap);
+      }
+
+      function renderDocxBlocks(el, blocks, images, opts) {
+        if (!blocks || !blocks.length) return;
+        opts = opts || {};
+        var imageLookup = opts.imageLookup || buildImageProxyLookup(images);
+        var root = document.createElement('div');
+        root.className = 'structured-docx-blocks';
+        blocks.forEach(function (block) {
+          renderDocxBlockNode(block, root, imageLookup);
+        });
+        el.appendChild(root);
+      }
+
+      function bitableColumnTypeMap(columns) {
+        var map = {};
+        (columns || []).forEach(function (c) {
+          if (c && c.name) map[c.name] = c.type || 'text';
+        });
+        return map;
+      }
+
+      function normalizeBitableGroupLabel(value) {
+        return String(value || '')
+            .replace(/^===\s*/, '')
+            .replace(/\s*===$/, '')
+            .replace(/^§/, '')
+            .trim();
+      }
+
+      function bitableStatusGroupId(title) {
+        if (title === '延期') return 'delayed';
+        if (title === '已完成') return 'completed';
+        if (title === '进行中') return 'in_progress';
+        return String(title || 'group').replace(/\s+/g, '_');
+      }
+
+      function structuredRecordToPlain(rec, idx) {
+        var fields = [];
+        var map = rec && rec.fields ? rec.fields : {};
+        Object.keys(map).forEach(function (name) {
+          fields.push({ name: name, value: parseFeishuFieldValue(map[name], name) });
+        });
+        return { index: idx + 1, fields: fields };
+      }
+
+      function structuredGroupsToSections(groups) {
+        var sections = [];
+        var pendingStatus = [];
+        var current = null;
+
+        function flushCurrent() {
+          if (!current) return;
+          if (pendingStatus.length) {
+            current.statusGroups = pendingStatus.slice();
+            current.records = pendingStatus.reduce(function (acc, g) {
+              return acc.concat(g.records || []);
+            }, []);
+            pendingStatus = [];
+          }
+          sections.push(current);
+          current = null;
+        }
+
+        (groups || []).forEach(function (g) {
+          if (!g) return;
+          var label = normalizeBitableGroupLabel(g.value);
+          var plainRecords = (g.records || []).map(function (r, i) {
+            return structuredRecordToPlain(r, i);
+          });
+          if (isBitableTimeSectionLabel(label)) {
+            flushCurrent();
+            var isRecent = label.indexOf('近三个月') >= 0;
+            current = {
+              id: isRecent ? 'recent' : 'older',
+              title: label,
+              records: isRecent ? [] : plainRecords,
+              statusGroups: null
+            };
+            if (!isRecent) {
+              flushCurrent();
+            }
+          } else if (isBitableStatusSectionLabel(label)) {
+            pendingStatus.push({
+              id: bitableStatusGroupId(label),
+              title: label,
+              records: plainRecords
+            });
+          } else if (plainRecords.length) {
+            flushCurrent();
+            current = { id: 'all', title: label, records: plainRecords, statusGroups: null };
+            flushCurrent();
+          }
+        });
+        flushCurrent();
+        if (!sections.length && groups && groups.length) {
+          var allRecords = [];
+          groups.forEach(function (g) {
+            (g.records || []).forEach(function (r, i) {
+              allRecords.push(structuredRecordToPlain(r, allRecords.length));
+            });
+          });
+          if (allRecords.length) {
+            sections.push({ id: 'all', title: '', records: allRecords, statusGroups: null });
+          }
+        }
+        return sections;
+      }
+
+      function renderBitableCell(td, value, colType, fieldName) {
+        fieldName = fieldName == null ? '' : String(fieldName);
+        if (value == null || value === '') {
+          td.textContent = '';
+          return;
+        }
+        if (colType === 'date' || colType === 'datetime' || colType === 'createdTime'
+            || fieldName.indexOf('日期') >= 0 || fieldName.indexOf('时间') >= 0) {
+          var epoch = typeof value === 'number' ? value : parseInt(String(value).trim(), 10);
+          if (!isNaN(epoch) && looksLikeEpochMs(epoch)) {
+            td.textContent = formatEpochMs(epoch, fieldName);
+            return;
+          }
+        }
+        if (colType === 'progress') {
+          var num = typeof value === 'number' ? value : parseFloat(String(value).replace('%', ''));
+          if (!isNaN(num)) {
+            var pct = num <= 1 ? Math.round(num * 100) : Math.round(num);
+            pct = Math.max(0, Math.min(100, pct));
+            var bar = document.createElement('div');
+            bar.className = 'bitable-progress-bar';
+            bar.innerHTML = '<span style="width:' + pct + '%"></span>';
+            var label = document.createElement('span');
+            label.className = 'bitable-progress-label';
+            label.textContent = pct + '%';
+            td.appendChild(bar);
+            td.appendChild(label);
+            return;
+          }
+        }
+        if (colType === 'url') {
+          var url = String(value);
+          if (url.indexOf('http') === 0) {
+            var a = document.createElement('a');
+            a.href = url;
+            a.target = '_blank';
+            a.rel = 'noopener';
+            a.textContent = url;
+            td.appendChild(a);
+            return;
+          }
+        }
+        var text = String(value);
+        if (isLongTextBitableField(fieldName) || text.length > 100 || text.indexOf('\n') >= 0) {
+          td.className = 'cell-long-text';
+          var box = document.createElement('div');
+          box.className = 'feishu-field-value-long';
+          box.textContent = text;
+          td.appendChild(box);
+          return;
+        }
+        if (text.length > 160) {
+          td.className = 'cell-long-text';
+          var shortEl = document.createElement('span');
+          shortEl.textContent = text.slice(0, 160) + '…';
+          var more = document.createElement('button');
+          more.type = 'button';
+          more.className = 'ui-btn ui-btn-secondary bitable-expand-btn';
+          more.textContent = '展开';
+          more.addEventListener('click', function () {
+            td.textContent = text;
+          });
+          td.appendChild(shortEl);
+          td.appendChild(more);
+          return;
+        }
+        td.textContent = text;
+      }
+
+      function renderBitableRecordsTable(parentEl, columns, records, title) {
+        var headers = (columns || []).map(function (c) { return c && c.name ? c.name : ''; });
+        var typeMap = bitableColumnTypeMap(columns);
+        var section = document.createElement('div');
+        section.className = 'structured-bitable-table-wrap';
+        if (title) {
+          var heading = document.createElement('h4');
+          heading.textContent = title;
+          section.appendChild(heading);
+        }
+        var scroll = document.createElement('div');
+        scroll.className = 'structured-table-scroll';
+        var table = document.createElement('table');
+        table.className = 'structured-data-table structured-data-table-sticky feishu-bitable-table';
+        if (headers.length) {
+          var thead = document.createElement('thead');
+          var headRow = document.createElement('tr');
+          headers.forEach(function (h) {
+            var th = document.createElement('th');
+            th.textContent = h || '';
+            headRow.appendChild(th);
+          });
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+        }
+        var tbody = document.createElement('tbody');
+        (records || []).forEach(function (rec) {
+          var tr = document.createElement('tr');
+          headers.forEach(function (h) {
+            var td = document.createElement('td');
+            var v = rec && rec.fields ? rec.fields[h] : '';
+            renderBitableCell(td, v, typeMap[h] || 'text', h);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scroll.appendChild(table);
+        section.appendChild(scroll);
+        parentEl.appendChild(section);
+      }
+
+      function renderBitableTableBlock(el, data) {
+        if (!data) return;
+        if (data.groups && data.groups.length) {
+          var sections = structuredGroupsToSections(data.groups);
+          if (sections.length) {
+            var groupWrap = document.createElement('div');
+            groupWrap.className = 'feishu-bitable-table-group structured-bitable-grouped';
+            if (data.tableName) {
+              var tblTitle = document.createElement('h3');
+              tblTitle.className = 'feishu-bitable-table-group-title';
+              tblTitle.textContent = '数据表：' + data.tableName;
+              groupWrap.appendChild(tblTitle);
+            }
+            appendBitableTimeSectionsView(groupWrap, sections);
+            el.appendChild(groupWrap);
+            return;
+          }
+        }
+        renderBitableRecordsTable(el, data.columns, data.records || [], data.tableName || '多维表格');
+      }
+
+      function renderBitableStructured(el, data, opts) {
+        if (!data) return;
+        var root = document.createElement('div');
+        root.className = 'structured-bitable-root';
+        if (data.tables && data.tables.length > 1) {
+          data.tables.forEach(function (t) { renderBitableTableBlock(root, t); });
+        } else {
+          renderBitableTableBlock(root, data);
+        }
+        el.appendChild(root);
+      }
+
+      function renderTaskListStructured(el, data, opts) {
+        if (!data) return;
+        var wrap = document.createElement('div');
+        wrap.className = 'structured-task-list';
+        var title = document.createElement('h3');
+        title.className = 'structured-task-list-title';
+        var name = data.tasklistName || '任务清单';
+        var total = data.totalTasks != null ? data.totalTasks : (data.items ? data.items.length : 0);
+        title.textContent = name + '（' + total + ' 项）';
+        wrap.appendChild(title);
+        var items = data.items || [];
+        if (!items.length) {
+          var empty = document.createElement('p');
+          empty.className = 'structured-task-list-empty';
+          empty.textContent = '无任务';
+          wrap.appendChild(empty);
+        } else {
+          var table = document.createElement('table');
+          table.className = 'structured-data-table structured-task-table';
+          var thead = document.createElement('thead');
+          var hr = document.createElement('tr');
+          ['任务', '状态', '截止时间', '负责人'].forEach(function (h) {
+            var th = document.createElement('th');
+            th.textContent = h;
+            hr.appendChild(th);
+          });
+          thead.appendChild(hr);
+          table.appendChild(thead);
+          var tbody = document.createElement('tbody');
+          items.forEach(function (item) {
+            var tr = document.createElement('tr');
+            var tdSummary = document.createElement('td');
+            tdSummary.textContent = item.summary || '（无标题）';
+            tr.appendChild(tdSummary);
+            var tdStatus = document.createElement('td');
+            var badge = document.createElement('span');
+            var done = item.status === 'completed';
+            badge.className = 'task-status-badge ' + (done ? 'task-status-done' : 'task-status-open');
+            badge.textContent = done ? '已完成' : '进行中';
+            tdStatus.appendChild(badge);
+            tr.appendChild(tdStatus);
+            var tdDue = document.createElement('td');
+            tdDue.textContent = item.dueAt || '—';
+            tr.appendChild(tdDue);
+            var tdAssignee = document.createElement('td');
+            tdAssignee.textContent = item.assignees || '—';
+            tr.appendChild(tdAssignee);
+            tbody.appendChild(tr);
+          });
+          table.appendChild(tbody);
+          wrap.appendChild(table);
+        }
+        el.appendChild(wrap);
+      }
+
+      function renderSheetStructured(el, data, opts) {
+        if (!data) return;
+        renderSheetTable(el, data.sheetName || '工作表', data.headers || [], data.rows || [], {
+          mergedRanges: data.mergedRanges,
+          columnWidths: data.columnWidths,
+          headerRowCount: data.headerRowCount
+        });
+      }
+
+      function renderExcelWorkbook(el, wb, opts) {
+        if (!wb || !wb.sheets || !wb.sheets.length) return;
+        wb.sheets.forEach(function (sheet) {
+          renderSheetTable(el, sheet.sheetName || ('工作表 ' + ((sheet.sheetIndex || 0) + 1)),
+              sheet.headers || [], sheet.rows || [], {
+                mergedRanges: sheet.mergedRanges,
+                columnWidths: sheet.columnWidths,
+                headerRowCount: sheet.headerRowCount
+              });
+        });
+      }
+
+      function resolveSlideImageSrc(item, idx, fileId) {
+        var page = item && item.index != null ? item.index : idx;
+        if (item && item.imageUrl && String(item.imageUrl).indexOf('/agenda-materials/') >= 0) {
+          return item.imageUrl;
+        }
+        if (fileId) return proxyFileImageUrl(fileId, page);
+        if (item && item.imageUrl) return item.imageUrl;
+        return '';
+      }
+
+      function renderSlideLikeDeck(el, items, opts, label) {
+        if (!items || !items.length) return;
+        var fileId = opts && opts.fileId ? opts.fileId : '';
+        var isPdf = label === 'PDF 页面';
+        var wrap = document.createElement('div');
+        wrap.className = 'structured-slide-deck' + (isPdf ? ' structured-pdf-deck' : '');
+        var singleView = document.createElement('div');
+        singleView.className = 'structured-slide-single-view';
+        var img = document.createElement('img');
+        img.className = 'structured-slide-image sm-zoomable-img';
+        img.alt = label || '幻灯片';
+        var nav = document.createElement('div');
+        nav.className = 'structured-slide-nav';
+        var prevBtn = document.createElement('button');
+        prevBtn.type = 'button';
+        prevBtn.className = 'ui-btn ui-btn-secondary';
+        prevBtn.textContent = '上一页';
+        var nextBtn = document.createElement('button');
+        nextBtn.type = 'button';
+        nextBtn.className = 'ui-btn ui-btn-secondary';
+        nextBtn.textContent = '下一页';
+        var counter = document.createElement('span');
+        counter.className = 'structured-slide-counter';
+        var notesEl = document.createElement('div');
+        notesEl.className = 'structured-slide-notes muted';
+        var thumbBar = document.createElement('div');
+        thumbBar.className = 'structured-slide-thumbs';
+        var scrollView = document.createElement('div');
+        scrollView.className = 'structured-pdf-scroll-view';
+        scrollView.style.display = 'none';
+        var idx = 0;
+        var pdfScrollMode = false;
+        var thumbEls = [];
+        var scrollPageEls = [];
+        var slideSrcs = items.map(function (item, i) {
+          return resolveSlideImageSrc(item, i, fileId);
+        });
+
+        function ensureSlideImageLoaded(targetImg, src) {
+          if (!targetImg || !src || targetImg.dataset.loaded === '1') return;
+          targetImg.src = src;
+          targetImg.dataset.loaded = '1';
+        }
+
+        function preloadSlideWindow(center) {
+          var from = Math.max(0, center - 2);
+          var to = Math.min(items.length - 1, center + 2);
+          for (var ti = from; ti <= to; ti++) {
+            ensureSlideImageLoaded(thumbEls[ti], slideSrcs[ti]);
+          }
+        }
+
+        function loadPdfScrollImages() {
+          scrollPageEls.forEach(function (pageImg, pi) {
+            ensureSlideImageLoaded(pageImg, slideSrcs[pi]);
+          });
+        }
+
+        function show(i) {
+          idx = Math.max(0, Math.min(i, items.length - 1));
+          if (pdfScrollMode) return;
+          var item = items[idx] || {};
+          ensureSlideImageLoaded(img, slideSrcs[idx]);
+          preloadSlideWindow(idx);
+          counter.textContent = (idx + 1) + ' / ' + items.length;
+          notesEl.textContent = item.notes ? String(item.notes) : '';
+          notesEl.style.display = item.notes ? 'block' : 'none';
+          prevBtn.disabled = idx <= 0;
+          nextBtn.disabled = idx >= items.length - 1;
+          thumbEls.forEach(function (t, ti) {
+            t.classList.toggle('active', ti === idx);
+          });
+        }
+
+        items.forEach(function (item, i) {
+          var thumb = document.createElement('img');
+          thumb.className = 'structured-slide-thumb sm-zoomable-img';
+          thumb.alt = (label || '页') + ' ' + (i + 1);
+          thumb.addEventListener('click', function () { show(i); });
+          thumbBar.appendChild(thumb);
+          thumbEls.push(thumb);
+          if (isPdf) {
+            var pageImg = document.createElement('img');
+            pageImg.className = 'structured-pdf-scroll-page sm-zoomable-img';
+            pageImg.alt = 'PDF 第 ' + (i + 1) + ' 页';
+            scrollView.appendChild(pageImg);
+            scrollPageEls.push(pageImg);
+          }
+        });
+
+        prevBtn.addEventListener('click', function () { show(idx - 1); });
+        nextBtn.addEventListener('click', function () { show(idx + 1); });
+
+        if (isPdf) {
+          var modeBtn = document.createElement('button');
+          modeBtn.type = 'button';
+          modeBtn.className = 'ui-btn ui-btn-secondary structured-pdf-mode-toggle';
+          modeBtn.textContent = '连续滚动';
+          modeBtn.addEventListener('click', function () {
+            pdfScrollMode = !pdfScrollMode;
+            if (pdfScrollMode) {
+              loadPdfScrollImages();
+              singleView.style.display = 'none';
+              thumbBar.style.display = 'none';
+              scrollView.style.display = 'block';
+              modeBtn.textContent = '单页翻页';
+            } else {
+              singleView.style.display = 'block';
+              thumbBar.style.display = 'flex';
+              scrollView.style.display = 'none';
+              modeBtn.textContent = '连续滚动';
+              show(idx);
+            }
+          });
+          nav.appendChild(modeBtn);
+        }
+
+        singleView.appendChild(img);
+        wrap.appendChild(singleView);
+        nav.appendChild(prevBtn);
+        nav.appendChild(counter);
+        nav.appendChild(nextBtn);
+        wrap.appendChild(nav);
+        wrap.appendChild(notesEl);
+        wrap.appendChild(thumbBar);
+        if (isPdf) wrap.appendChild(scrollView);
+        show(0);
+        el.appendChild(wrap);
+      }
+
+      function renderPptSlides(el, deck, opts) {
+        if (!deck) return;
+        renderSlideLikeDeck(el, deck.slides || [], opts, '幻灯片');
+      }
+
+      function renderPdfPages(el, doc, opts) {
+        if (!doc) return;
+        renderSlideLikeDeck(el, doc.pages || [], opts, 'PDF 页面');
       }
 
       function renderAgendaDocPlainText(el, plainText, docKind, opts) {
@@ -1732,10 +2631,20 @@
           badge.className = 'feishu-kind-badge ' + feishuKindCssClass(p.docKind);
           badge.textContent = feishuKindLabel(p.docKind);
           block.appendChild(badge);
-          if (p.plainText) {
-            var body = document.createElement('div');
-            body.className = 'feishu-doc-body';
+          var body = document.createElement('div');
+          body.className = 'feishu-doc-body';
+          var rendered = false;
+          if (p.images && p.images.length) {
+            prefetchAgendaImages(p.images);
+          }
+          if (p.structuredContent && p.contentType) {
+            rendered = renderStructuredContent(body, p, opts);
+          }
+          if (!rendered && p.plainText) {
             appendFeishuDocBodyContent(body, p.plainText, p.docKind);
+            rendered = true;
+          }
+          if (rendered) {
             block.appendChild(body);
           } else if (p.fetchError) {
             var err = document.createElement('div');
@@ -1790,7 +2699,16 @@
       }
 
       function topicNeedsAgendaDocFetch(topic) {
-        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic);
+        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasLocalMaterial(topic);
+      }
+
+      function partsIncludeImageGallery(parts) {
+        return (parts || []).some(function (p) { return p && p.contentType === 'image_gallery'; });
+      }
+
+      /** API 已并入 LOCAL parts 时跳过 renderLocalMaterials，避免二次 preview/栅格化。 */
+      function partsIncludeLocalMaterials(parts) {
+        return (parts || []).some(function (p) { return p && p.docKind === 'LOCAL'; });
       }
 
       function ensureFeishuDocPanel(containerEl) {
@@ -1808,7 +2726,9 @@
         if (res.ok && res.data && res.data.parts && res.data.parts.length) {
           renderAgendaDocParts(targets.body, res.data.parts, opts);
           var partsPanel = targets.body.querySelector('.feishu-doc-panel');
-          renderLocalMaterials(partsPanel, topic);
+          if (!partsIncludeLocalMaterials(res.data.parts)) {
+            renderLocalMaterials(partsPanel, topic, { skipImages: partsIncludeImageGallery(res.data.parts) });
+          }
           appendWeeklyReportBlocks(partsPanel, topic, weeklyReport);
           var firstUrl = res.data.feishuDocUrl;
           var firstKind = res.data.docKind;
@@ -1860,7 +2780,7 @@
         if (!topic) return;
         var targets = agendaDocDisplayTargets();
         if (!targets.body) return;
-        var opts = { useMainPanel: targets.useMainPanel };
+        var opts = { useMainPanel: targets.useMainPanel, meetingId: meetingId };
         showProgressErr('');
         if (targets.linkEl) {
           targets.linkEl.style.display = 'none';
@@ -1872,6 +2792,8 @@
           agendaDocLastStateKey = agendaDocStateKey(topic, agendaIndex);
           agendaDocFetchingIndex = -1;
           syncAgendaDetailSidebarHint(targets, agendaIndex, topic);
+          var panel = targets.body && targets.body.querySelector('.feishu-doc-panel');
+          finalizeAgendaDocPanel(panel);
         }
 
         if (!topicNeedsAgendaDocFetch(topic)) {
@@ -1890,6 +2812,311 @@
         });
       }
 
+      var agendaDocFullscreen = false;
+
+      var agendaDocMaterialBlockSelectors = '.feishu-part-block, .local-material-block, .weekly-report-block';
+      var agendaDocFsFillSelectors = [
+        '.feishu-doc-panel', '.feishu-part-block', '.feishu-doc-body',
+        '.structured-bitable-root', '.structured-bitable-table-wrap', '.structured-sheet',
+        '.feishu-bitable-wrap', '.feishu-bitable-table-group', '.structured-slide-deck',
+        '.structured-docx-blocks', '.structured-image-gallery', '.local-material-gallery',
+        '.local-material-html-preview', '.local-material-block', '.local-material-preview',
+        '.weekly-report-block', '.feishu-record-cards'
+      ];
+      var agendaDocFsScrollSelectors = [
+        '.structured-table-scroll', '.feishu-bitable-scroll', '.structured-pdf-scroll-view',
+        '.structured-docx-blocks', '.structured-image-gallery', '.local-material-gallery',
+        '.local-material-preview', '.feishu-record-cards'
+      ];
+
+      function clearAgendaDocFullscreenLayout() {
+        var card = document.getElementById('agendaDocCard');
+        if (!card) return;
+        card.querySelectorAll('.agenda-doc-fs-fill, .agenda-doc-fs-scroll').forEach(function (node) {
+          node.classList.remove('agenda-doc-fs-fill', 'agenda-doc-fs-scroll');
+        });
+        var panel = card.querySelector('.feishu-doc-panel');
+        if (panel) panel.classList.remove('agenda-doc-fs-stack');
+        var reportBody = document.getElementById('progressReportBody');
+        if (reportBody) reportBody.classList.remove('agenda-doc-fs-stack-scroll');
+      }
+
+      function countAgendaDocMaterialBlocks(card) {
+        if (!card) return 0;
+        return card.querySelectorAll(agendaDocMaterialBlockSelectors).length;
+      }
+
+      function scrollAgendaDocFullscreenToTop() {
+        if (!agendaDocFullscreen) return;
+        var reportBody = document.getElementById('progressReportBody');
+        if (reportBody) reportBody.scrollTop = 0;
+        var panel = reportBody && reportBody.querySelector('.feishu-doc-panel.agenda-doc-fs-stack');
+        if (panel) panel.scrollTop = 0;
+      }
+
+      function stripAgendaPartIndexSuffix(text) {
+        return String(text == null ? '' : text).replace(/（\d+\/\d+）$/, '');
+      }
+
+      function stampAgendaDocPartIndices(panel) {
+        if (!panel) return;
+        var blocks = panel.querySelectorAll(agendaDocMaterialBlockSelectors);
+        var total = blocks.length;
+        if (total <= 1) return;
+        blocks.forEach(function (block, i) {
+          var badge = block.querySelector('.feishu-kind-badge');
+          if (badge) {
+            badge.textContent = stripAgendaPartIndexSuffix(badge.textContent) + '（' + (i + 1) + '/' + total + '）';
+            return;
+          }
+          Array.prototype.forEach.call(block.children, function (child) {
+            if (!child || child.tagName !== 'H4') return;
+            child.textContent = stripAgendaPartIndexSuffix(child.textContent) + '（' + (i + 1) + '/' + total + '）';
+          });
+        });
+      }
+
+      var agendaDocScrollFabRoots = [];
+      var agendaDocNextFabRevealed = false;
+
+      function ensureAgendaDocScrollSentinel(panel) {
+        if (!panel) return;
+        var oldFoot = panel.querySelector('.agenda-doc-next-topic-foot');
+        if (oldFoot) oldFoot.remove();
+        var oldSentinel = document.getElementById('agendaDocScrollEndSentinel');
+        if (oldSentinel) oldSentinel.remove();
+        var sentinel = document.createElement('div');
+        sentinel.id = 'agendaDocScrollEndSentinel';
+        sentinel.className = 'agenda-doc-scroll-end-sentinel';
+        sentinel.setAttribute('aria-hidden', 'true');
+        panel.appendChild(sentinel);
+      }
+
+      function collectAgendaDocScrollRoots() {
+        var reportBody = document.getElementById('progressReportBody');
+        if (!reportBody) return [];
+        if (reportBody.classList.contains('agenda-doc-fs-stack-scroll')) {
+          return [reportBody];
+        }
+        var roots = [];
+        reportBody.querySelectorAll(
+            '.structured-table-scroll.agenda-doc-fs-scroll, .feishu-bitable-scroll.agenda-doc-fs-scroll, '
+            + '.feishu-doc-body.agenda-doc-fs-scroll, .structured-bitable-root.agenda-doc-fs-scroll').forEach(function (el) {
+          roots.push(el);
+        });
+        if (!roots.length) roots.push(reportBody);
+        return roots;
+      }
+
+      function agendaDocIsScrolledToBottom() {
+        var roots = collectAgendaDocScrollRoots();
+        for (var i = 0; i < roots.length; i++) {
+          var root = roots[i];
+          if (root.scrollHeight > root.clientHeight + 6) {
+            if (root.scrollTop + root.clientHeight < root.scrollHeight - 10) {
+              return false;
+            }
+          }
+        }
+        return true;
+      }
+
+      function resetAgendaDocNextFabRevealed() {
+        agendaDocNextFabRevealed = false;
+        var btn = document.getElementById('btnAgendaDocNextTopicFab');
+        if (btn) btn.classList.remove('is-visible');
+      }
+
+      function setAgendaDocNextFabVisible(show) {
+        if (show) agendaDocNextFabRevealed = true;
+        var btn = document.getElementById('btnAgendaDocNextTopicFab');
+        if (!btn) return;
+        btn.classList.toggle('is-visible', agendaDocNextFabRevealed);
+      }
+
+      function onAgendaDocScrollFabCheck() {
+        if (agendaDocIsScrolledToBottom()) {
+          agendaDocNextFabRevealed = true;
+        }
+        setAgendaDocNextFabVisible(agendaDocNextFabRevealed);
+      }
+
+      function unbindAgendaDocScrollFab() {
+        agendaDocScrollFabRoots.forEach(function (pair) {
+          if (pair && pair.root && pair.handler) {
+            pair.root.removeEventListener('scroll', pair.handler);
+          }
+        });
+        agendaDocScrollFabRoots = [];
+      }
+
+      function bindAgendaDocScrollFab() {
+        unbindAgendaDocScrollFab();
+        if (!agendaDocFullscreen || !meetingLive || !canOperate) {
+          resetAgendaDocNextFabRevealed();
+          return;
+        }
+        var roots = collectAgendaDocScrollRoots();
+        roots.forEach(function (root) {
+          var handler = onAgendaDocScrollFabCheck;
+          root.addEventListener('scroll', handler, { passive: true });
+          agendaDocScrollFabRoots.push({ root: root, handler: handler });
+        });
+        onAgendaDocScrollFabCheck();
+      }
+
+      function syncAgendaDocFullscreenControls() {
+        var showFab = agendaDocFullscreen && meetingLive && canOperate;
+        var fab = document.getElementById('agendaDocFsFab');
+        var headFs = document.getElementById('btnAgendaDocFullscreen');
+        if (fab) {
+          fab.style.display = showFab ? 'flex' : 'none';
+          fab.setAttribute('aria-hidden', showFab ? 'false' : 'true');
+        }
+        if (headFs) {
+          headFs.style.display = agendaDocFullscreen ? 'none' : '';
+        }
+        if (!showFab) {
+          resetAgendaDocNextFabRevealed();
+        } else {
+          bindAgendaDocScrollFab();
+        }
+      }
+
+      function finalizeAgendaDocPanel(panel) {
+        resetAgendaDocNextFabRevealed();
+        stampAgendaDocPartIndices(panel);
+        syncAgendaDocFullscreenLayout();
+        ensureAgendaDocScrollSentinel(panel);
+        syncAgendaDocFullscreenControls();
+        scrollAgendaDocFullscreenToTop();
+      }
+
+      function syncAgendaDocFullscreenLayout() {
+        var card = document.getElementById('agendaDocCard');
+        if (!card || !card.classList.contains('agenda-doc-fullscreen')) return;
+        clearAgendaDocFullscreenLayout();
+        var reportBody = document.getElementById('progressReportBody');
+        var panel = card.querySelector('.feishu-doc-panel');
+        var materialCount = countAgendaDocMaterialBlocks(card);
+        var stackMode = materialCount > 1;
+        if (panel) panel.classList.toggle('agenda-doc-fs-stack', stackMode);
+        if (reportBody) {
+          reportBody.classList.toggle('agenda-doc-fs-stack-scroll', stackMode);
+          reportBody.style.minHeight = '0';
+          reportBody.style.flex = '1';
+          reportBody.style.maxHeight = 'none';
+          reportBody.style.overflowY = stackMode ? 'auto' : 'hidden';
+        }
+        if (stackMode) {
+          bindAgendaDocScrollFab();
+          return;
+        }
+        agendaDocFsFillSelectors.forEach(function (sel) {
+          card.querySelectorAll(sel).forEach(function (node) {
+            node.classList.add('agenda-doc-fs-fill');
+          });
+        });
+        agendaDocFsScrollSelectors.forEach(function (sel) {
+          card.querySelectorAll(sel).forEach(function (node) {
+            node.classList.add('agenda-doc-fs-scroll');
+          });
+        });
+        card.querySelectorAll('.feishu-doc-body').forEach(function (body) {
+          var sheetCount = 0;
+          var wrapCount = 0;
+          Array.prototype.forEach.call(body.children, function (child) {
+            if (!child || !child.classList) return;
+            if (child.classList.contains('structured-sheet')) sheetCount++;
+            if (child.classList.contains('structured-bitable-table-wrap')) wrapCount++;
+          });
+          if (sheetCount > 1 || wrapCount > 1) {
+            body.classList.add('agenda-doc-fs-scroll');
+            body.classList.remove('agenda-doc-fs-fill');
+          }
+        });
+        card.querySelectorAll('.structured-bitable-root').forEach(function (root) {
+          var wrapCount = root.querySelectorAll('.structured-bitable-table-wrap').length;
+          var hasSections = root.querySelectorAll(
+              '.structured-bitable-section, .feishu-bitable-section, .structured-bitable-grouped').length > 0;
+          if (wrapCount > 1 || hasSections) {
+            root.classList.add('agenda-doc-fs-scroll');
+            root.classList.remove('agenda-doc-fs-fill');
+            root.querySelectorAll('.structured-bitable-table-wrap, .feishu-bitable-table-group').forEach(function (node) {
+              node.classList.remove('agenda-doc-fs-fill');
+            });
+          }
+        });
+        card.querySelectorAll('.feishu-doc-body').forEach(function (body) {
+          var nestedSheetCount = body.querySelectorAll('.structured-sheet').length;
+          if (nestedSheetCount > 1) {
+            body.classList.add('agenda-doc-fs-scroll');
+            body.classList.remove('agenda-doc-fs-fill');
+            body.querySelectorAll('.structured-sheet').forEach(function (sheet) {
+              sheet.classList.remove('agenda-doc-fs-fill');
+            });
+          }
+        });
+        bindAgendaDocScrollFab();
+      }
+
+      async function hostGoNextTopic() {
+        if (!meetingLive || !canOperate) return;
+        showErr('');
+        try {
+          renderHostState(await hostApi('/next-topic', { method: 'POST' }));
+        } catch (e) {
+          showErr(e.message || String(e));
+        }
+      }
+
+      function setAgendaDocFullscreen(on) {
+        var card = document.getElementById('agendaDocCard');
+        var btn = document.getElementById('btnAgendaDocFullscreen');
+        if (!card) return;
+        agendaDocFullscreen = !!on;
+        if (agendaDocFullscreen) {
+          if (!card.__fsAnchor) {
+            var anchor = document.createComment('agendaDocCard-fs-anchor');
+            card.parentNode.insertBefore(anchor, card);
+            card.__fsAnchor = anchor;
+          }
+          document.body.appendChild(card);
+        } else if (card.__fsAnchor && card.__fsAnchor.parentNode) {
+          card.__fsAnchor.parentNode.insertBefore(card, card.__fsAnchor);
+          card.__fsAnchor.remove();
+          card.__fsAnchor = null;
+        }
+        card.classList.toggle('agenda-doc-fullscreen', agendaDocFullscreen);
+        document.body.classList.toggle('agenda-doc-fullscreen-lock', agendaDocFullscreen);
+        var reportBody = document.getElementById('progressReportBody');
+        if (reportBody) {
+          if (agendaDocFullscreen) {
+            reportBody.dataset.fsPrevOverflow = reportBody.style.overflowY || '';
+            reportBody.style.overflowY = 'hidden';
+            reportBody.style.minHeight = '0';
+            reportBody.style.maxHeight = 'none';
+            reportBody.style.flex = '1';
+          } else {
+            reportBody.style.overflowY = reportBody.dataset.fsPrevOverflow || 'auto';
+            reportBody.style.minHeight = '';
+            reportBody.style.maxHeight = '';
+            reportBody.style.flex = '';
+            delete reportBody.dataset.fsPrevOverflow;
+            clearAgendaDocFullscreenLayout();
+          }
+        }
+        if (agendaDocFullscreen) {
+          syncAgendaDocFullscreenLayout();
+        }
+        syncAgendaDocFullscreenControls();
+        if (btn) {
+          btn.setAttribute('aria-pressed', agendaDocFullscreen ? 'true' : 'false');
+          btn.title = agendaDocFullscreen ? '退出全屏' : '进入全屏';
+          btn.setAttribute('aria-label', btn.title);
+        }
+      }
+
       function syncAgendaDocPanel(topics, curTopicIdx) {
         var card = document.getElementById('agendaDocCard');
         var titleEl = document.getElementById('agendaDocPanelTitle');
@@ -1897,6 +3124,7 @@
         var curTopic = topics && curTopicIdx >= 0 && curTopicIdx < topics.length ? topics[curTopicIdx] : null;
         if (!meetingLive || !curTopic || !topicHasReportOrFeishu(curTopic)) {
           card.style.display = 'none';
+          setAgendaDocFullscreen(false);
           agendaDocRenderedIndex = -1;
           agendaDocFetchingIndex = -1;
           agendaDocLastStateKey = '';
@@ -2197,6 +3425,7 @@
           btnRk.disabled = !meetingLive || (phase !== 'OFFLINE_ROLL_CALL' && phase !== 'ACTIVE');
         }
         updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length && canOperate);
+        syncAgendaDocFullscreenControls();
         syncReadOnlyFromState(obj);
       }
 
@@ -2326,7 +3555,7 @@
         sp.className = 'speaker';
         sp.textContent = speaker;
         const tm = document.createElement('span');
-        tm.style.color = '#757575';
+        tm.style.color = 'var(--color-text-muted)';
         tm.textContent = ' (' + new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) + ')';
         head.appendChild(sp);
         head.appendChild(tm);
@@ -2487,6 +3716,22 @@
         return;
       }
       applyReadOnlyUi();
+      var btnAgendaFs = document.getElementById('btnAgendaDocFullscreen');
+      if (btnAgendaFs) {
+        btnAgendaFs.onclick = function () { setAgendaDocFullscreen(!agendaDocFullscreen); };
+      }
+      var btnAgendaFsFab = document.getElementById('btnAgendaDocFullscreenFab');
+      if (btnAgendaFsFab) {
+        btnAgendaFsFab.onclick = function () { setAgendaDocFullscreen(false); };
+      }
+      var btnAgendaNextFab = document.getElementById('btnAgendaDocNextTopicFab');
+      if (btnAgendaNextFab) {
+        btnAgendaNextFab.onclick = function () { hostGoNextTopic(); };
+      }
+      document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape' && agendaDocFullscreen) setAgendaDocFullscreen(false);
+      });
+
       var btnStartInit = document.getElementById('btnStartMeeting');
       if (canOperate) {
         btnStartInit.disabled = true;
@@ -2652,10 +3897,7 @@
           showErr(e.message || String(e));
         }
       };
-      document.getElementById('btnNext').onclick = async function () {
-        showErr('');
-        try { renderHostState(await hostApi('/next-topic', { method: 'POST' })); } catch (e) { showErr(e.message); }
-      };
+      document.getElementById('btnNext').onclick = function () { hostGoNextTopic(); };
       document.getElementById('btnSkip').onclick = async function () {
         showErr('');
         try { renderHostState(await hostApi('/skip-topic', { method: 'POST' })); } catch (e) { showErr(e.message); }
@@ -2750,5 +3992,9 @@
       };
     })();
   </script>
+<script>
+if (window.SmMotion) SmMotion.initBlurFade();
+if (window.ImageLightbox) ImageLightbox.bind('.feishu-doc-panel');
+</script>
 </body>
 </html>

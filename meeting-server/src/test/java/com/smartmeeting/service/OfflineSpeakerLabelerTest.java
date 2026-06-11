@@ -71,6 +71,8 @@ class OfflineSpeakerLabelerTest {
     @Test
     @DisplayName("ISV topK 使用 search-top-k-max 配置")
     void identifySegment_usesConfiguredTopK() throws Exception {
+        props.setOfflineSegmentRelabelEnabled(false);
+        props.setOfflineSplitClusterEnabled(false);
         Path pcm = tempDir.resolve("topk.pcm");
         Files.write(pcm, new byte[32000 * 10]);
         TranscriptSegment seg = segment("speaker_1", 0, 5000, "hello");

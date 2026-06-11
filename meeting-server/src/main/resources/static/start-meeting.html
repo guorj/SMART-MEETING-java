@@ -7,15 +7,20 @@
     (function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
     </script>
     <title>创建会议 - 吉青会务类型</title>
-    <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
-    <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-2">
+    <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-2">
+    <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-2">
+    <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-2">
+    <script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
     <style>
         body { max-width: 560px; margin: 0 auto; padding: 20px; }
-        h1 { font-size: 1.25rem; margin-bottom: 8px; }
+        h1 { font-size: 1.25rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
         .sub { color: var(--color-text-secondary); font-size: 13px; margin-bottom: 20px; }
         label { display: block; font-weight: 600; margin: 12px 0 6px; }
         select, input { width: 100%; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); font-size: 15px; min-height: var(--touch-min); }
-        .preview { background: var(--color-surface); border-radius: 10px; padding: 14px; margin-top: 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; box-shadow: var(--shadow-sm); }
+        .preview { background: var(--color-surface); border-radius: var(--radius-md); padding: 14px; margin-top: 16px; font-size: 14px; line-height: 1.6; white-space: pre-wrap; box-shadow: var(--shadow-card); border: 1px solid var(--color-border); }
         #btn { margin-top: 18px; width: 100%; }
         .ok { color: var(--color-success); margin-top: 12px; font-size: 14px; }
         .err { color: var(--color-danger); margin-top: 12px; font-size: 14px; }
@@ -46,6 +51,14 @@
 
     <button type="button" class="ui-btn ui-btn-primary" id="btn" onclick="submitCreate()">创建并返回会议 ID</button>
     <div id="msg"></div>
+    <script>
+    if(window.Iconsax){
+      var h1=document.querySelector('h1');
+      if(h1) h1.insertAdjacentHTML('afterbegin', Iconsax.render('add'));
+      var btn=document.getElementById('btn');
+      if(btn) btn.insertAdjacentHTML('afterbegin', Iconsax.render('video')+' ');
+    }
+    </script>
     <p class="sub" style="margin-top:24px">飞书入口提交后将打开录音页 <code>/rec/会议ID?token=…</code>（不自动开始拾音）；群内推送「会议已开始」通知。</p>
 
     <script src="static/meeting-context.js?v=sm-20260525-1"></script>

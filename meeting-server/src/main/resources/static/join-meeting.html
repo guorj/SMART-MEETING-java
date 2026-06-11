@@ -7,11 +7,16 @@
     (function(){var p=location.pathname||'';var c=(p==='/meeting-server'||p.startsWith('/meeting-server/'))?'/meeting-server':'';var b=document.createElement('base');b.href=c?c+'/':'/';document.head.appendChild(b);})();
   </script>
   <title>线上到会确认</title>
-  <link rel="stylesheet" href="static/styles/tokens.css?v=sm-20260608-2">
-  <link rel="stylesheet" href="static/styles/meeting-ui.css?v=sm-20260608-2">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-2">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-2">
+  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-2">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-2">
+  <script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
   <style>
     body { max-width: 480px; margin: 48px auto; padding: 0 16px; }
-    h1 { font-size: 1.25rem; margin-bottom: 8px; }
+    h1 { font-size: 1.25rem; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
     #status { margin-top: 24px; }
     .ok { color: var(--color-success); font-weight: 600; }
     .err { color: var(--color-danger); font-weight: 600; }
@@ -22,6 +27,7 @@
   <p class="muted">打开本页即向会议系统登记到场，无需麦克风、不采集音频。</p>
   <div id="status" class="ui-card">正在登记…</div>
   <script src="static/meeting-context.js?v=sm-20260525-1"></script>
+  <script>if(window.Iconsax){var h=document.querySelector('h1');if(h)h.insertAdjacentHTML('afterbegin',Iconsax.render('tick-circle'));}</script>
   <script>
     (function () {
       var statusEl = document.getElementById('status');

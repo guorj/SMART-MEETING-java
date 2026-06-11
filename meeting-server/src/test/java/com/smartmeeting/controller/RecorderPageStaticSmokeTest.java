@@ -28,7 +28,7 @@ class RecorderPageStaticSmokeTest extends BaseTest {
                 .andExpect(content().string(containsString("离线录音")))
                 .andExpect(content().string(containsString("transcript-panel-hidden")))
                 .andExpect(content().string(containsString("tokens.css")))
-                .andExpect(content().string(containsString("meeting-ui.css")))
+                .andExpect(content().string(containsString("host-meeting.css")))
                 .andExpect(header().string("Cache-Control", containsString("no-store")));
     }
 

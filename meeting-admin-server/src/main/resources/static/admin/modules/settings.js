@@ -91,7 +91,7 @@ function ensureSettingsStyles() {
   const link = document.createElement('link');
   link.id = 'settings-config-css';
   link.rel = 'stylesheet';
-  link.href = '/admin/settings-config.css';
+  link.href = '/static/admin/settings-config.css';
   document.head.appendChild(link);
 }
 

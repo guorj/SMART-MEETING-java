@@ -17,4 +17,11 @@ public class AgendaDocPartDto {
     private String plainText;
     /** 无法内嵌拉取时的说明（仍可有 feishuDocUrl 外链） */
     private String fetchError;
+
+    /** 结构化内容类型: docx_blocks / bitable_records / sheet_cells / ppt_slides / pdf_pages / html / excel_sheets */
+    private String contentType;
+    /** 结构化内容 JSON 对象，按 contentType 分派不同 schema */
+    private Object structuredContent;
+    /** 图片代理引用列表 */
+    private java.util.List<com.smartmeeting.api.dto.structured.ImageRefDto> images;
 }

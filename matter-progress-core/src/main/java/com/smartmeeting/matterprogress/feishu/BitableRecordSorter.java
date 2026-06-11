@@ -163,7 +163,7 @@ public final class BitableRecordSorter {
     /**
      * 近三个月区块内的展示分类（语义 ID，非展示顺序）。
      */
-    static int displayCategory(JsonNode record) {
+    public static int displayCategory(JsonNode record) {
         if (isCompleted(record)) {
             return CATEGORY_COMPLETED;
         }
@@ -266,7 +266,7 @@ public final class BitableRecordSorter {
      * @return 0=近三个月内，1=更早或无业务「创建日期/创建时间」
      * <p>仅按字段创建日期判断，不使用飞书 API {@code created_time}，避免与表内「开始日期」等混淆。</p>
      */
-    static int recentBucket(JsonNode record) {
+    public static int recentBucket(JsonNode record) {
         Long fromField = extractCreationDateMs(record);
         if (fromField == null || fromField <= 0) {
             return 1;

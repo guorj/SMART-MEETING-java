@@ -17,4 +17,8 @@ public class AgendaWeeklyReportDto {
   private String plainText;
   /** 拉取失败时的说明（仍可有 generatedReportUrl 外链） */
   private String fetchError;
+  /** 结构化内容类型，如 docx_blocks */
+  private String contentType;
+  /** 结构化 JSON，按 contentType 分派 */
+  private Object structuredContent;
 }

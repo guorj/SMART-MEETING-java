@@ -12,4 +12,6 @@ import lombok.NoArgsConstructor;
 public class AgendaMaterialPreviewDto {
     private String html;
     private String plainText;
+    private Object structuredContent;
+    private String contentType;
 }

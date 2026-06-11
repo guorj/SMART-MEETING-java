@@ -15,27 +15,45 @@ public final class AgendaMaterialFileSupport {
             "image/gif",
             "image/webp",
             "application/msword",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/pdf",
+            "text/csv"
     );
 
-    private static final Map<String, String> MIME_TO_EXT = Map.of(
-            "image/jpeg", ".jpg",
-            "image/png", ".png",
-            "image/gif", ".gif",
-            "image/webp", ".webp",
-            "application/msword", ".doc",
-            "application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"
-    );
+    private static final Map<String, String> MIME_TO_EXT = Map.ofEntries(
+Map.entry("image/jpeg", ".jpg"),
+Map.entry("image/png", ".png"),
+Map.entry("image/gif", ".gif"),
+Map.entry("image/webp", ".webp"),
+Map.entry("application/msword", ".doc"),
+Map.entry("application/vnd.openxmlformats-officedocument.wordprocessingml.document", ".docx"),
+Map.entry("application/vnd.ms-powerpoint", ".ppt"),
+Map.entry("application/vnd.openxmlformats-officedocument.presentationml.presentation", ".pptx"),
+Map.entry("application/vnd.ms-excel", ".xls"),
+Map.entry("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx"),
+Map.entry("application/pdf", ".pdf"),
+Map.entry("text/csv", ".csv")
+);
 
-    private static final Map<String, String> EXT_TO_MIME = Map.of(
-            ".jpg", "image/jpeg",
-            ".jpeg", "image/jpeg",
-            ".png", "image/png",
-            ".gif", "image/gif",
-            ".webp", "image/webp",
-            ".doc", "application/msword",
-            ".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-    );
+    private static final Map<String, String> EXT_TO_MIME = Map.ofEntries(
+Map.entry(".jpg", "image/jpeg"),
+Map.entry(".jpeg", "image/jpeg"),
+Map.entry(".png", "image/png"),
+Map.entry(".gif", "image/gif"),
+Map.entry(".webp", "image/webp"),
+Map.entry(".doc", "application/msword"),
+Map.entry(".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
+Map.entry(".ppt", "application/vnd.ms-powerpoint"),
+Map.entry(".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"),
+Map.entry(".xls", "application/vnd.ms-excel"),
+Map.entry(".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+Map.entry(".pdf", "application/pdf"),
+Map.entry(".csv", "text/csv")
+);
 
     private AgendaMaterialFileSupport() {
     }
@@ -57,7 +75,13 @@ public final class AgendaMaterialFileSupport {
         }
         String m = mimeType.toLowerCase(Locale.ROOT);
         return "application/msword".equals(m)
-                || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(m);
+                || "application/vnd.openxmlformats-officedocument.wordprocessingml.document".equals(m)
+                || "application/vnd.ms-powerpoint".equals(m)
+                || "application/vnd.openxmlformats-officedocument.presentationml.presentation".equals(m)
+                || "application/vnd.ms-excel".equals(m)
+                || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet".equals(m)
+                || "application/pdf".equals(m)
+                || "text/csv".equals(m);
     }
 
     public static String extensionForMime(String mimeType) {
@@ -80,7 +104,15 @@ public final class AgendaMaterialFileSupport {
     }
 
     public static long maxBytesForMime(String mimeType, long maxImageBytes, long maxDocBytes) {
-        return isImageMime(mimeType) ? maxImageBytes : maxDocBytes;
+        if (isImageMime(mimeType)) return maxImageBytes;
+        String m = mimeType != null ? mimeType.toLowerCase(Locale.ROOT) : "";
+        if (m.contains("presentation") || m.contains("powerpoint") || m.contains("pdf")) {
+            return Math.max(maxDocBytes, 50L * 1024 * 1024);
+        }
+        if (m.contains("excel") || m.contains("spreadsheet")) {
+            return Math.max(maxDocBytes, 20L * 1024 * 1024);
+        }
+        return maxDocBytes;
     }
 
     /**

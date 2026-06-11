@@ -18,7 +18,107 @@ AdminModules.register({
       el.className = isErr ? 'msg msg-err' : 'msg msg-ok';
       el.textContent = text;
     };
+    let obsPanelReady = false;
+
+    const ensureObsPanel = () => {
+      if (obsPanelReady) return;
+      const host = document.getElementById('m-obs-panel');
+      if (!host) return;
+      host.innerHTML = `
+        <div class="panel">
+          <div class="form-field" style="max-width:36rem">
+            <label>会议 ID</label>
+            <div style="display:flex;gap:0.5rem;align-items:center">
+              <input id="obs-meeting-id" type="text" style="flex:1"/>
+              <button class="primary" id="obs-load">加载</button>
+            </div>
+            ${AdminForm.hint(AdminHints.observability.meetingId + ' 输入后将一次聚合加载：会议详情、纪要、转写、推送日志、流水线执行。')}
+          </div>
+        </div>
+        <div class="panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;">会议详情</h3>
+            <div class="btn-group">
+              <button type="button" class="secondary" id="obs-meeting-view-readable">可读视图</button>
+              <button type="button" class="secondary" id="obs-meeting-view-raw">原始JSON</button>
+            </div>
+          </div>
+          <div id="obs-meeting-detail-readable"></div>
+          <pre id="obs-meeting-detail-raw" class="hidden"></pre>
+        </div>
+        <div class="panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;">纪要</h3>
+            <div class="btn-group">
+              <button type="button" class="secondary" id="obs-minute-view-readable">可读视图</button>
+              <button type="button" class="secondary" id="obs-minute-view-raw">原始JSON</button>
+            </div>
+          </div>
+          <p class="form-hint">已生成的 Markdown 纪要正文及 generationStatus（GENERATING / READY / FAILED 等）。</p>
+          <pre id="obs-minute-readable"></pre>
+          <pre id="obs-minute-raw" class="hidden"></pre>
+        </div>
+        <div class="panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;">转写（final）</h3>
+            <div class="btn-group">
+              <button type="button" class="secondary" id="obs-transcript-view-readable">可读视图</button>
+              <button type="button" class="secondary" id="obs-transcript-view-raw">原始JSON</button>
+            </div>
+          </div>
+          <p class="form-hint">ASR 最终片段，按 startTimeMs 排序；最多加载 300 条。</p>
+          <pre id="obs-transcript-readable" style="max-height:400px;overflow:auto"></pre>
+          <pre id="obs-transcript-raw" class="hidden" style="max-height:400px;overflow:auto"></pre>
+        </div>
+        <div class="panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;">推送日志（meetingId）</h3>
+            <div class="btn-group">
+              <button type="button" class="secondary" id="obs-push-view-readable">可读视图</button>
+              <button type="button" class="secondary" id="obs-push-view-raw">原始JSON</button>
+            </div>
+          </div>
+          <pre id="obs-push-readable" style="max-height:280px;overflow:auto"></pre>
+          <pre id="obs-push-raw" class="hidden" style="max-height:280px;overflow:auto"></pre>
+        </div>
+        <div class="panel">
+          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
+            <h3 style="margin:0;">流水线执行（meetingId）</h3>
+            <div class="btn-group">
+              <button type="button" class="secondary" id="obs-pipeline-view-readable">可读视图</button>
+              <button type="button" class="secondary" id="obs-pipeline-view-raw">原始JSON</button>
+            </div>
+          </div>
+          <pre id="obs-pipeline-readable" style="max-height:280px;overflow:auto"></pre>
+          <pre id="obs-pipeline-raw" class="hidden" style="max-height:280px;overflow:auto"></pre>
+        </div>`;
+      document.getElementById('obs-load').onclick = loadObservability;
+      document.getElementById('obs-meeting-view-readable').onclick = () => {
+        meetingDetailMode = 'readable';
+        applyMeetingDetailView();
+      };
+      document.getElementById('obs-meeting-view-raw').onclick = () => {
+        meetingDetailMode = 'raw';
+        applyMeetingDetailView();
+      };
+      document.getElementById('obs-minute-view-readable').onclick = () => { sectionMode.minute = 'readable'; applySectionView('minute'); };
+      document.getElementById('obs-minute-view-raw').onclick = () => { sectionMode.minute = 'raw'; applySectionView('minute'); };
+      document.getElementById('obs-transcript-view-readable').onclick = () => { sectionMode.transcript = 'readable'; applySectionView('transcript'); };
+      document.getElementById('obs-transcript-view-raw').onclick = () => { sectionMode.transcript = 'raw'; applySectionView('transcript'); };
+      document.getElementById('obs-push-view-readable').onclick = () => { sectionMode.push = 'readable'; applySectionView('push'); };
+      document.getElementById('obs-push-view-raw').onclick = () => { sectionMode.push = 'raw'; applySectionView('push'); };
+      document.getElementById('obs-pipeline-view-readable').onclick = () => { sectionMode.pipeline = 'readable'; applySectionView('pipeline'); };
+      document.getElementById('obs-pipeline-view-raw').onclick = () => { sectionMode.pipeline = 'raw'; applySectionView('pipeline'); };
+      renderMeetingDetail(meetingDetailRaw);
+      applySectionView('minute');
+      applySectionView('transcript');
+      applySectionView('push');
+      applySectionView('pipeline');
+      obsPanelReady = true;
+    };
+
     const setTab = (name) => {
+      if (name === 'obs') ensureObsPanel();
       const ops = document.getElementById('m-ops-panel');
       const obs = document.getElementById('m-obs-panel');
       const tabOps = document.getElementById('m-tab-ops');
@@ -120,75 +220,7 @@ AdminModules.register({
       </tr></thead><tbody></tbody></table></div>
       </div>
 
-      <div id="m-obs-panel" class="hidden">
-        <div class="panel">
-          <div class="form-field" style="max-width:36rem">
-            <label>会议 ID</label>
-            <div style="display:flex;gap:0.5rem;align-items:center">
-              <input id="obs-meeting-id" type="text" style="flex:1"/>
-              <button class="primary" id="obs-load">加载</button>
-            </div>
-            ${AdminForm.hint(AdminHints.observability.meetingId + ' 输入后将一次聚合加载：会议详情、纪要、转写、推送日志、流水线执行。')}
-          </div>
-        </div>
-        <div class="panel">
-          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
-            <h3 style="margin:0;">会议详情</h3>
-            <div class="btn-group">
-              <button type="button" class="secondary" id="obs-meeting-view-readable">可读视图</button>
-              <button type="button" class="secondary" id="obs-meeting-view-raw">原始JSON</button>
-            </div>
-          </div>
-          <div id="obs-meeting-detail-readable"></div>
-          <pre id="obs-meeting-detail-raw" class="hidden"></pre>
-        </div>
-        <div class="panel">
-          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
-            <h3 style="margin:0;">纪要</h3>
-            <div class="btn-group">
-              <button type="button" class="secondary" id="obs-minute-view-readable">可读视图</button>
-              <button type="button" class="secondary" id="obs-minute-view-raw">原始JSON</button>
-            </div>
-          </div>
-          <p class="form-hint">已生成的 Markdown 纪要正文及 generationStatus（GENERATING / READY / FAILED 等）。</p>
-          <pre id="obs-minute-readable"></pre>
-          <pre id="obs-minute-raw" class="hidden"></pre>
-        </div>
-        <div class="panel">
-          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
-            <h3 style="margin:0;">转写（final）</h3>
-            <div class="btn-group">
-              <button type="button" class="secondary" id="obs-transcript-view-readable">可读视图</button>
-              <button type="button" class="secondary" id="obs-transcript-view-raw">原始JSON</button>
-            </div>
-          </div>
-          <p class="form-hint">ASR 最终片段，按 startTimeMs 排序；最多加载 300 条。</p>
-          <pre id="obs-transcript-readable" style="max-height:400px;overflow:auto"></pre>
-          <pre id="obs-transcript-raw" class="hidden" style="max-height:400px;overflow:auto"></pre>
-        </div>
-        <div class="panel">
-          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
-            <h3 style="margin:0;">推送日志（meetingId）</h3>
-            <div class="btn-group">
-              <button type="button" class="secondary" id="obs-push-view-readable">可读视图</button>
-              <button type="button" class="secondary" id="obs-push-view-raw">原始JSON</button>
-            </div>
-          </div>
-          <pre id="obs-push-readable" style="max-height:280px;overflow:auto"></pre>
-          <pre id="obs-push-raw" class="hidden" style="max-height:280px;overflow:auto"></pre>
-        </div>
-        <div class="panel">
-          <div class="toolbar" style="justify-content:space-between;margin-bottom:0.5rem;">
-            <h3 style="margin:0;">流水线执行（meetingId）</h3>
-            <div class="btn-group">
-              <button type="button" class="secondary" id="obs-pipeline-view-readable">可读视图</button>
-              <button type="button" class="secondary" id="obs-pipeline-view-raw">原始JSON</button>
-            </div>
-          </div>
-          <pre id="obs-pipeline-readable" style="max-height:280px;overflow:auto"></pre>
-          <pre id="obs-pipeline-raw" class="hidden" style="max-height:280px;overflow:auto"></pre>
-        </div>
-      </div>
+      <div id="m-obs-panel" class="hidden"></div>
 
       `;
 
@@ -210,8 +242,9 @@ AdminModules.register({
         a.onclick = async e => {
           e.preventDefault();
           const meetingId = a.dataset.id;
-          document.getElementById('obs-meeting-id').value = meetingId;
           setTab('obs');
+          const obsInput = document.getElementById('obs-meeting-id');
+          if (obsInput) obsInput.value = meetingId;
           await loadObservability(meetingId);
         };
       });
@@ -231,30 +264,34 @@ AdminModules.register({
     };
 
     const loadObservability = async (idArg) => {
-      const id = (idArg || document.getElementById('obs-meeting-id').value || '').trim();
+      ensureObsPanel();
+      const id = (idArg || (document.getElementById('obs-meeting-id') || {}).value || '').trim();
       if (!id) return showMsg('请输入会议 ID', true);
       try {
-        const detail = await AdminApi.fetch('/api/v1/admin/meetings/' + encodeURIComponent(id));
+        const enc = encodeURIComponent(id);
+        const [detail, minute, lines, pushPage, execRows] = await Promise.all([
+          AdminApi.fetch('/api/v1/admin/meetings/' + enc),
+          AdminApi.fetch('/api/v1/admin/observability/meetings/' + enc + '/minute'),
+          AdminApi.fetch('/api/v1/admin/observability/meetings/' + enc + '/transcripts?limit=300'),
+          AdminApi.fetch('/api/v1/admin/push-logs?page=0&size=50&meetingId=' + enc),
+          AdminApi.fetch('/api/v1/admin/pipeline/executions?meetingId=' + enc)
+        ]);
         renderMeetingDetail(detail);
 
-        const minute = await AdminApi.fetch('/api/v1/admin/observability/meetings/' + encodeURIComponent(id) + '/minute');
         document.getElementById('obs-minute-readable').textContent = minute.found
           ? (minute.contentMarkdown || '(无正文)') + '\n\nstatus=' + minute.generationStatus
           : '暂无纪要';
         document.getElementById('obs-minute-raw').textContent = JSON.stringify(minute || {}, null, 2);
-        const lines = await AdminApi.fetch('/api/v1/admin/observability/meetings/' + encodeURIComponent(id) + '/transcripts?limit=300');
         document.getElementById('obs-transcript-readable').textContent = (lines || []).map(l =>
           '[' + (l.startTimeMs || 0) + 'ms] ' + (l.speakerName || '') + ': ' + l.text).join('\n');
         document.getElementById('obs-transcript-raw').textContent = JSON.stringify(lines || [], null, 2);
 
-        const pushPage = await AdminApi.fetch('/api/v1/admin/push-logs?page=0&size=50&meetingId=' + encodeURIComponent(id));
         const pushRows = (pushPage && pushPage.content) ? pushPage.content : [];
         document.getElementById('obs-push-readable').textContent = pushRows.length
           ? pushRows.map(r => '[' + (r.sendTime || '-') + '] ' + (r.status || '-') + ' ' + (r.taskName || r.taskId || '-') + ' -> ' + (r.targetType || '') + ':' + (r.targetId || '')).join('\n')
           : '暂无推送日志';
         document.getElementById('obs-push-raw').textContent = JSON.stringify(pushRows || [], null, 2);
 
-        const execRows = await AdminApi.fetch('/api/v1/admin/pipeline/executions?meetingId=' + encodeURIComponent(id));
         document.getElementById('obs-pipeline-readable').textContent = (execRows || []).length
           ? (execRows || []).map(e => '#' + e.id + ' [' + (e.stage || '-') + '] ' + (e.status || '-') + ' retry=' + (e.retryCount || 0) + '/' + (e.maxRetries || 0) + (e.lastError ? (' err=' + e.lastError) : '')).join('\n')
           : '暂无流水线执行记录';
@@ -274,28 +311,6 @@ AdminModules.register({
     document.getElementById('m-tab-ops').onclick = () => setTab('ops');
     document.getElementById('m-tab-obs').onclick = () => setTab('obs');
     document.getElementById('m-reload').onclick = load;
-    document.getElementById('obs-load').onclick = loadObservability;
-    document.getElementById('obs-meeting-view-readable').onclick = () => {
-      meetingDetailMode = 'readable';
-      applyMeetingDetailView();
-    };
-    document.getElementById('obs-meeting-view-raw').onclick = () => {
-      meetingDetailMode = 'raw';
-      applyMeetingDetailView();
-    };
-    document.getElementById('obs-minute-view-readable').onclick = () => { sectionMode.minute = 'readable'; applySectionView('minute'); };
-    document.getElementById('obs-minute-view-raw').onclick = () => { sectionMode.minute = 'raw'; applySectionView('minute'); };
-    document.getElementById('obs-transcript-view-readable').onclick = () => { sectionMode.transcript = 'readable'; applySectionView('transcript'); };
-    document.getElementById('obs-transcript-view-raw').onclick = () => { sectionMode.transcript = 'raw'; applySectionView('transcript'); };
-    document.getElementById('obs-push-view-readable').onclick = () => { sectionMode.push = 'readable'; applySectionView('push'); };
-    document.getElementById('obs-push-view-raw').onclick = () => { sectionMode.push = 'raw'; applySectionView('push'); };
-    document.getElementById('obs-pipeline-view-readable').onclick = () => { sectionMode.pipeline = 'readable'; applySectionView('pipeline'); };
-    document.getElementById('obs-pipeline-view-raw').onclick = () => { sectionMode.pipeline = 'raw'; applySectionView('pipeline'); };
-    renderMeetingDetail(meetingDetailRaw);
-    applySectionView('minute');
-    applySectionView('transcript');
-    applySectionView('push');
-    applySectionView('pipeline');
     setTab('ops');
     load();
   }

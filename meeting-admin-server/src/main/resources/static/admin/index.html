@@ -1,12 +1,19 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>会议管理后台</title>
-  <link rel="stylesheet" href="/static/admin/admin.css"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/ui-kit/tokens.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/ui-kit/components.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/ui-kit/icons.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/ui-kit/motion.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/admin/admin.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/admin/admin-layout.css?v=sm-ui-20260610-10"/>
 </head>
-<body>
+<body class="admin-shell">
 <div id="login-panel" class="panel">
   <h1>会议管理后台</h1>
   <p>Smart Meeting Admin · 端口 8766</p>
@@ -25,7 +32,11 @@
     <div id="module-root"></div>
   </main>
 </div>
-<script src="/static/admin/admin-form-hints.js"></script>
-<script src="/static/admin/admin.js"></script>
+<script src="/static/ui-kit/icons.js?v=sm-ui-20260610-10"></script>
+<script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return'<span class="sidebar-icon-fallback" aria-hidden="true">•</span>'}};}</script>
+<script src="/static/ui-kit/motion.js?v=sm-ui-20260610-10"></script>
+<script src="/static/admin/admin-form-hints.js?v=sm-ui-20260610-10"></script>
+<script src="/static/admin/admin-form.js?v=sm-ui-20260610-10"></script>
+<script src="/static/admin/admin.js?v=sm-ui-20260610-10"></script>
 </body>
 </html>
