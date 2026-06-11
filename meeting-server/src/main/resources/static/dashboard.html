@@ -13,8 +13,11 @@
 <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-2">
 <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-2">
 <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-2">
+<link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-2">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
 <script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
 <script src="ui-kit/motion.js?v=sm-ui-20260610-2"></script>
+<script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
 <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
 <body class="dashboard-page">
@@ -86,6 +89,20 @@ function canEnd(st){
 }
 
 function initBlurFade(){ if(window.SmMotion) SmMotion.initBlurFade(); }
+
+function initDashboardBento(){
+  if(!window.MagicBento||!window.gsap) return;
+  MagicBento.enhance('#app .ui-card.card',{
+    glowColor:'0, 47, 167',
+    spotlightRadius:300,
+    spotlightEl:'#hostMagicSpotlight',
+    scopeEl:'body.dashboard-page',
+    enableTilt:false,
+    enableMagnetism:false,
+    enableStars:false,
+    clickEffect:true
+  });
+}
 
 async function init(){
   try{
@@ -209,9 +226,11 @@ async function init(){
     }
 
     initBlurFade();
+    initDashboardBento();
   }catch(e){
-    document.getElementById('app').innerHTML='<div class="ui-card msg msg-err">加载失败: '+esc(e.message)+'</div>';
+    document.getElementById('app').innerHTML='<div class="ui-card card msg msg-err">加载失败: '+esc(e.message)+'</div>';
     initBlurFade();
+    initDashboardBento();
   }
 }
 
@@ -247,5 +266,6 @@ function showMsg(id,text,isErr){
 
 init();
 </script>
+<div class="magic-bento-global-spotlight" id="hostMagicSpotlight" aria-hidden="true"></div>
 </body>
 </html>

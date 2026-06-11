@@ -35,6 +35,18 @@
 | **AI 主持** | 虚拟主持形象与 TTS 播报状态 |
 | **议程列表** | 全部会序项及进度 |
 
+#### 前端 UI 预览（免完整会中链路）
+
+调主持页前台 UI（会议控制、会序资料、AI 主持 Strands、议程列表等）时，可用以下方式，**不必每次重启 meeting-server**：
+
+| 方式 | 适用场景 | 操作 |
+|------|----------|------|
+| **预览页** | 全页 UI / avatar / CSS 迭代 | 服务已启动时打开 `http://{host}:{port}/static/host-avatar-preview.html`；底部可切换「未开始 / 进行中 / 检点 / 播报 / 旁观」等 mock 场景，无需 token |
+| **本地静态服务** | 最快 CSS 迭代（零 JVM） | 在 `meeting-server/src/main/resources` 执行 `npx serve -l 5500`，浏览器打开 `http://localhost:5500/static/host-avatar-preview.html`，改 `static/styles/host-meeting.css` 后普通刷新 |
+| **完整主持页强刷** | 联调会序资料等全页 | 确保 IDE 已将 `src/main/resources/static` 同步到 `target/classes`（或 `mvn compile -pl meeting-server`），在 `/host/{meetingId}?token=...` **Ctrl+F5**；主持 HTML 为 `no-store`，CSS/JS 靠 `?v=sm-ui-*` 破缓存 |
+
+说明：项目未引入 `spring-boot-devtools`；若用 `java -jar` 跑 fat jar，改静态文件后需重新打包或重启。`host-strands-avatar.js` 经 esm.sh 加载 `ogl`，预览环境需能访问外网。
+
 ### 2.0 工作台权限与多人前台（2026-06-08）
 
 - **白名单**：存储于 `int_meeting_system_config.config_key=dashboard.user_grants`；Admin **用户管理 → 编辑用户 → 前台授权** 维护；页头可配置「默认拒绝未授权用户」。

@@ -497,14 +497,14 @@ body.agenda-doc-fullscreen-lock {
 }
 .host-toast.host-toast-fade { opacity: 0; }
 
-/* — AI Avatar — */
+/* — AI Avatar（横向流光条，配色对齐 Strands 紫/青/橙） — */
 .card-avatar {
-  --avatar-deep: #0b3d3d;
-  --avatar-mid: #0f766e;
-  --avatar-core: #14b8a6;
-  --avatar-bright: #5eead4;
-  --avatar-shadow: rgba(15, 118, 110, 0.22);
-  --avatar-glow: 0 0 12px rgba(45, 212, 191, 0.35);
+  --avatar-deep: #4c1d95;
+  --avatar-mid: #7c3aed;
+  --avatar-core: #06b6d4;
+  --avatar-bright: #f97316;
+  --avatar-shadow: rgba(124, 58, 237, 0.28);
+  --avatar-glow: 0 0 16px rgba(6, 182, 212, 0.35), 0 0 28px rgba(192, 38, 211, 0.2);
   flex-shrink: 0;
 }
 .avatar-card-top {
@@ -522,63 +522,106 @@ body.agenda-doc-fullscreen-lock {
   animation: avatar-badge-pulse 1.8s ease-in-out infinite;
 }
 @keyframes avatar-badge-pulse {
-  0%,100%{ box-shadow: 0 0 0 0 rgba(15,118,110,.2);} 50%{ box-shadow: 0 0 0 6px rgba(15,118,110,0);}
+  0%,100%{ box-shadow: 0 0 0 0 rgba(124,58,237,.22);} 50%{ box-shadow: 0 0 0 6px rgba(124,58,237,0);}
 }
-.avatar-stage { display: flex; flex-direction: column; align-items: center; padding: 4px 0 0; }
+.avatar-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  padding: 4px 0 0;
+}
 .avatar-figure {
   position: relative;
-  width: 152px;
-  height: 152px;
-  border-radius: 50%;
+  width: 100%;
+  height: 80px;
+  border-radius: 12px;
   flex-shrink: 0;
-  background:
-    radial-gradient(circle at 34% 22%, rgba(255,255,255,.92) 0%, rgba(255,255,255,.14) 22%, transparent 38%),
-    radial-gradient(circle at 50% 118%, rgba(15,118,110,.18) 0%, transparent 50%),
-    linear-gradient(158deg, var(--avatar-deep) 0%, var(--avatar-mid) 38%, var(--avatar-core) 78%, var(--avatar-bright) 100%);
-  box-shadow:
-    0 4px 16px var(--avatar-shadow),
-    inset 0 0 0 1px rgba(255,255,255,.35);
+  overflow: hidden;
+  background: var(--color-surface, #FFFFFF);
+  box-shadow: inset 0 0 0 1px var(--color-border, rgba(0, 0, 0, 0.08));
   transition: box-shadow 0.35s ease;
 }
+.avatar-figure.avatar-figure--css-fallback {
+  background:
+    linear-gradient(90deg,
+      var(--avatar-deep) 0%,
+      var(--avatar-mid) 22%,
+      var(--avatar-core) 48%,
+      var(--avatar-bright) 78%,
+      var(--avatar-mid) 100%);
+}
+.avatar-strands-mount {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  overflow: hidden;
+  z-index: 1;
+}
+.avatar-strands-mount canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.avatar-figure.avatar-strands-active {
+  background: var(--color-surface, #FFFFFF);
+}
 .avatar-stage[data-state="speaking"] .avatar-figure {
-  animation: avatar-figure-breathe 2s ease-in-out infinite;
+  animation: avatar-figure-glow 2s ease-in-out infinite;
   box-shadow:
-    0 8px 24px rgba(15,118,110,.28),
-    inset 0 0 0 1px rgba(255,255,255,.5),
+    inset 0 0 0 1px rgba(124, 58, 237, 0.18),
     var(--avatar-glow);
 }
-@keyframes avatar-figure-breathe {
-  0%, 100% { transform: scale(1); }
-  50% { transform: scale(1.035); }
+@keyframes avatar-figure-glow {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.12); }
 }
 .avatar-mouth-slot {
   position: absolute;
   left: 50%;
-  bottom: 17%;
+  bottom: 10px;
   transform: translateX(-50%);
-  width: 56px;
-  height: 14px;
+  width: 64px;
+  height: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2;
+  z-index: 3;
+  pointer-events: none;
 }
 #avatarMouth {
-  width: 48px;
-  height: 9px;
+  width: 56px;
+  height: 4px;
   border-radius: 999px;
-  background: linear-gradient(180deg, var(--avatar-core), var(--avatar-deep));
+  background: linear-gradient(90deg, var(--avatar-mid), var(--avatar-core), var(--avatar-bright));
   transform: scaleY(0.35);
   transform-origin: center center;
-  transition: none;
+  transition: opacity 0.2s ease;
   will-change: transform;
-  box-shadow: inset 0 1px 2px rgba(255,255,255,.28), 0 2px 6px rgba(15,118,110,.35);
+  box-shadow: 0 0 8px rgba(6, 182, 212, 0.55);
+  opacity: 0;
+}
+.avatar-stage[data-state="speaking"] #avatarMouth {
+  opacity: 0.9;
 }
 .avatar-caption {
   margin-top: 14px; text-align: center; max-width: 100%; font-size: 12px; line-height: 1.5;
   color: var(--color-text-secondary);
   min-height: 2.8em; padding: 0 6px;
   font-variant-numeric: tabular-nums;
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar-figure.avatar-strands-active {
+    background: linear-gradient(90deg,
+      var(--avatar-deep) 0%,
+      var(--avatar-mid) 25%,
+      var(--avatar-core) 50%,
+      var(--avatar-bright) 75%,
+      var(--avatar-mid) 100%);
+  }
+  .avatar-strands-mount { display: none; }
 }
 
 /* — Agenda detail — */

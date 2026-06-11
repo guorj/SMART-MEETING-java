@@ -16,14 +16,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-21">
-  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-21">
-  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-21">
-  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-21">
-  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260610-21">
-  <script src="ui-kit/icons.js?v=sm-ui-20260610-21"></script>
-  <script src="ui-kit/motion.js?v=sm-ui-20260610-21"></script>
-  <script src="ui-kit/image-lightbox.js?v=sm-ui-20260610-21"></script>
+  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-2">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script src="ui-kit/icons.js?v=sm-ui-20260610-32"></script>
+  <script src="ui-kit/motion.js?v=sm-ui-20260610-32"></script>
+  <script src="ui-kit/image-lightbox.js?v=sm-ui-20260610-32"></script>
+  <script type="module" src="static/host-strands-avatar.js?v=sm-ui-20260610-32"></script>
   <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
 <body class="host-page">
@@ -136,7 +139,8 @@
           <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
         </div>
         <div class="avatar-stage" id="avatarStage" data-state="idle">
-          <div class="avatar-figure" aria-hidden="true">
+          <div class="avatar-figure avatar-figure--css-fallback" aria-hidden="true">
+            <div id="avatarStrands" class="avatar-strands-mount"></div>
             <div class="avatar-mouth-slot">
               <div id="avatarMouth"></div>
             </div>
@@ -151,6 +155,8 @@
     </aside>
   </div>
 
+  <div class="magic-bento-global-spotlight" id="hostMagicSpotlight" aria-hidden="true"></div>
+
   <div id="hostToastStack" class="host-toast-stack" aria-live="polite" aria-atomic="false"></div>
 
   <!-- 发版：同步改 ?v= 与 recorder.js 内 SM_STATIC_ASSET_V；host 内联脚本变更记 sm-20260608-2 -->
@@ -158,6 +164,26 @@
   <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
   <script src="static/recorder.js?v=sm-20260608-2"></script>
+  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      if (!window.MagicBento || !window.gsap) return;
+
+      MagicBento.enhance(
+        '.card-agenda-progress, .card-avatar, .card-agenda-detail, .card-matter, #currentAgendaPanel',
+        {
+          glowColor: '0, 47, 167',
+          spotlightRadius: 300,
+          spotlightEl: '#hostMagicSpotlight',
+          scopeEl: '.host-workspace',
+          enableTilt: false,
+          enableMagnetism: false,
+          enableStars: false,
+          clickEffect: true
+        }
+      );
+    });
+  </script>
   <script>
     (function () {
       const params = new URLSearchParams(location.search);
@@ -281,6 +307,9 @@
           }
           var cap = document.getElementById('avatarCaption');
           if (cap && caption != null) cap.textContent = caption;
+          if (window.hostAvatarStrands && typeof window.hostAvatarStrands.setState === 'function') {
+            window.hostAvatarStrands.setState(state);
+          }
         }
 
         function stopLipLoop() {
@@ -3972,6 +4001,11 @@
           stopRecTimer();
           updateRecordingStatusUI('idle');
           try { hostTtsAvatar.dispose(); } catch (e2) { /* ignore */ }
+          try {
+            if (window.hostAvatarStrands && typeof window.hostAvatarStrands.dispose === 'function') {
+              window.hostAvatarStrands.dispose();
+            }
+          } catch (e3) { /* ignore */ }
           const res = await fetch(meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId) + '/recording-session/end'), {
             method: 'POST',
             headers: { 'Authorization': 'Bearer ' + token }

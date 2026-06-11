@@ -50,4 +50,19 @@ class RecorderPageStaticSmokeTest extends BaseTest {
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("<html")));
     }
+
+    /** 会议前台 UI 预览页应可直接访问（完整主持页布局 + mock 场景）。 */
+    @Test
+    void staticHostAvatarPreviewOk() throws Exception {
+        mockMvc.perform(get("/static/host-avatar-preview.html"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("会议前台 UI 预览")))
+                .andExpect(content().string(containsString("会议控制")))
+                .andExpect(content().string(containsString("议程列表")))
+                .andExpect(content().string(containsString("avatarStrands")))
+                .andExpect(content().string(containsString("host-strands-avatar.js")))
+                .andExpect(content().string(containsString("host-meeting-preview.js")))
+                .andExpect(content().string(containsString("agendaDocFsFab")))
+                .andExpect(content().string(containsString("btnAgendaDocNextTopicFab")));
+    }
 }

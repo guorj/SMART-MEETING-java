@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>18 种 UI 按钮风格图鉴</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #111;
+      min-height: 100vh;
+      padding: 48px 24px 64px;
+      color: #fff;
+    }
+
+    .page-header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+
+    .page-header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-bottom: 8px;
+    }
+
+    .page-header p {
+      font-size: 14px;
+      color: rgba(255,255,255,0.5);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-gap: 16px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .tile {
+      border-radius: 20px;
+      padding: 32px 24px 28px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 180px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .tile-label {
+      position: absolute;
+      top: 14px;
+      left: 16px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      opacity: 0.55;
+      text-transform: uppercase;
+    }
+
+    .tile-label span {
+      display: block;
+      font-size: 10px;
+      font-weight: 400;
+      opacity: 0.7;
+      margin-top: 2px;
+      text-transform: none;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      column-gap: 8px;
+      border: none;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      padding: 12px 28px;
+      border-radius: 999px;
+      white-space: nowrap;
+      transition: transform 0.15s ease, filter 0.15s ease;
+      text-decoration: none;
+      line-height: 1;
+    }
+
+    .btn:hover { transform: scale(1.03); }
+    .btn:active { transform: scale(0.97); }
+
+    .btn-icon {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    /* 1 Flat UI */
+    .tile-flat { background: linear-gradient(145deg, #f5d5c8, #f0c9b0); }
+    .btn-flat {
+      background: #111;
+      color: #fff;
+      padding: 14px 32px;
+    }
+
+    /* 2 Skeuomorphic */
+    .tile-skeuo { background: #e8e8e8; }
+    .btn-skeuo {
+      background: linear-gradient(180deg, #fff 0%, #e8e8e8 100%);
+      color: #888;
+      padding: 14px 36px;
+      box-shadow:
+        0 1px 0 #fff inset,
+        0 -1px 0 rgba(0,0,0,0.08) inset,
+        0 4px 8px rgba(0,0,0,0.12),
+        0 8px 16px rgba(0,0,0,0.08),
+        0 0 0 3px #d0d0d0,
+        0 0 0 4px #fff,
+        0 0 0 5px #c8c8c8;
+    }
+
+    /* 3 Stroke */
+    .tile-stroke { background: #7c3aed; }
+    .btn-stroke {
+      background: #f5f0eb;
+      color: #111;
+      border: 2.5px solid #111;
+      padding: 12px 20px 12px 28px;
+      box-shadow: 4px 4px 0 rgba(0,0,0,0.25);
+    }
+    .btn-stroke .btn-icon {
+      width: 28px;
+      height: 28px;
+      background: #111;
+      border-radius: 50%;
+      color: #fff;
+      margin-left: 4px;
+    }
+
+    /* 4 Glass */
+    .tile-glass { background: #9ca3af; }
+    .btn-glass {
+      background: rgba(255,255,255,0.25);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      color: #333;
+      border: 1px solid rgba(255,255,255,0.5);
+      box-shadow: 0 4px 24px rgba(0,0,0,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+      padding: 14px 32px;
+    }
+
+    /* 5 Glow */
+    .tile-glow { background: linear-gradient(180deg, #1a1a1a, #0a0a0a); }
+    .btn-glow {
+      background: linear-gradient(135deg, #f5c4a8, #e8a882);
+      color: #3d2010;
+      padding: 14px 32px;
+      box-shadow:
+        0 0 30px rgba(245,180,140,0.6),
+        0 0 60px rgba(245,180,140,0.3),
+        inset 0 1px 0 rgba(255,255,255,0.4);
+    }
+    .btn-glow .sparkle { font-size: 12px; opacity: 0.8; }
+
+    /* 6 Dark */
+    .tile-dark { background: #000; }
+    .btn-dark {
+      background: #1e1b4b;
+      color: #c4b5fd;
+      padding: 14px 28px;
+    }
+
+    /* 7 Dark Chrome */
+    .tile-dark-chrome { background: #000; }
+    .btn-dark-chrome {
+      background: linear-gradient(180deg, #e8e8ec 0%, #a0a0a8 40%, #606068 70%, #888890 100%);
+      color: #1a1a1a;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      font-size: 13px;
+      padding: 14px 36px;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.9),
+        inset 0 -1px 0 rgba(0,0,0,0.2),
+        0 0 24px rgba(120,100,255,0.4),
+        0 4px 12px rgba(0,0,0,0.5);
+    }
+
+    /* 8 Classy */
+    .tile-classy { background: #f5f5f4; }
+    .btn-classy {
+      background: transparent;
+      color: #111;
+      font-family: 'DM Serif Display', Georgia, serif;
+      font-weight: 400;
+      font-size: 16px;
+      border: 1px solid #111;
+      padding: 12px 32px;
+    }
+
+    /* 9 Shadow */
+    .tile-shadow { background: #a78bfa; }
+    .btn-shadow {
+      background: #b89ffa;
+      color: #fff;
+      padding: 14px 20px 14px 28px;
+      box-shadow:
+        0 20px 40px rgba(88,28,135,0.35),
+        0 40px 80px rgba(88,28,135,0.2),
+        0 8px 16px rgba(0,0,0,0.1);
+    }
+    .btn-shadow .btn-icon {
+      width: 26px;
+      height: 26px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 50%;
+      font-size: 12px;
+    }
+
+    /* 10 3D recessed */
+    .tile-3d { background: radial-gradient(ellipse at 50% 0%, #4c1d95, #0a0a0a 70%); }
+    .btn-3d {
+      background: #0f0a1a;
+      color: #c4b5fd;
+      padding: 14px 28px;
+      box-shadow:
+        inset 0 3px 8px rgba(0,0,0,0.8),
+        inset 0 -1px 0 rgba(255,255,255,0.05),
+        0 0 0 3px #1a1028,
+        0 4px 0 #080510;
+    }
+
+    /* 11 Gradient */
+    .tile-gradient { background: #000; }
+    .btn-gradient {
+      background: linear-gradient(90deg, #2563eb, #f97316);
+      color: #fff;
+      font-style: italic;
+      padding: 14px 32px;
+      box-shadow:
+        0 0 20px rgba(37,99,235,0.5),
+        0 0 20px rgba(249,115,22,0.5),
+        inset 0 0 0 1px rgba(255,255,255,0.2);
+    }
+
+    /* 12 Claymo */
+    .tile.claymo { background: linear-gradient(145deg, #fde8d8, #f5cbb8); }
+    .btn.claymo {
+      background: linear-gradient(145deg, #e07040, #c45a28);
+      color: #fff;
+      padding: 14px 28px;
+      box-shadow:
+        inset 2px 2px 4px rgba(255,255,255,0.25),
+        inset -2px -2px 4px rgba(0,0,0,0.15),
+        6px 8px 20px rgba(180,80,40,0.35);
+    }
+    .btn.claymo .btn-icon {
+      width: 32px;
+      height: 32px;
+      background: rgba(0,0,0,0.15);
+      border-radius: 50%;
+      box-shadow: inset 1px 1px 3px rgba(0,0,0,0.2);
+      font-size: 16px;
+    }
+
+    /* 13 Chrome (light) */
+    .tile-chrome { background: #e5e5e5; }
+    .btn-chrome {
+      background: linear-gradient(180deg, #f8f8fa 0%, #c8c8d0 45%, #9898a0 55%, #d0d0d8 100%);
+      color: #333;
+      font-weight: 700;
+      padding: 14px 36px;
+      box-shadow:
+        inset 0 1px 0 rgba(255,255,255,0.95),
+        inset 0 -1px 0 rgba(0,0,0,0.1),
+        0 0 20px rgba(100,80,200,0.25),
+        0 4px 8px rgba(0,0,0,0.15);
+    }
+
+    /* 14 Neumo */
+    .tile-neumo { background: #eceef2; }
+    .btn-neumo {
+      background: #eceef2;
+      color: #aaa;
+      padding: 14px 24px 14px 28px;
+      box-shadow:
+        inset 4px 4px 8px rgba(0,0,0,0.08),
+        inset -4px -4px 8px rgba(255,255,255,0.9);
+    }
+    .btn-neumo .btn-icon { font-size: 16px; opacity: 0.5; }
+
+    /* 15 Neo-brut */
+    .tile-neobrut { background: #a78bfa; }
+    .btn-neobrut {
+      background: #fff;
+      color: #111;
+      font-weight: 700;
+      border: 2.5px solid #111;
+      padding: 12px 20px 12px 24px;
+      box-shadow: 5px 5px 0 #111;
+      border-radius: 999px;
+    }
+    .btn-neobrut .btn-icon {
+      width: 28px;
+      height: 28px;
+      border: 2px solid #111;
+      border-radius: 50%;
+      font-size: 12px;
+    }
+    .btn-neobrut:hover { box-shadow: 3px 3px 0 #111; transform: translate(2px, 2px); }
+
+    /* 16 Frosted */
+    .tile-frosted {
+      background: linear-gradient(135deg, #312e81, #1e1b4b 50%, #0f172a);
+    }
+    .btn-frosted {
+      background: rgba(255,255,255,0.08);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      color: #fff;
+      border: 1px solid rgba(255,255,255,0.2);
+      padding: 14px 24px 14px 28px;
+    }
+    .btn-frosted .btn-icon { font-size: 16px; opacity: 0.8; }
+
+    /* 17 Neon */
+    .tile-neon { background: #000; }
+    .btn-neon {
+      background: #0a0a0a;
+      color: #fff;
+      padding: 14px 36px;
+      border: 1px solid rgba(255,255,255,0.15);
+      box-shadow:
+        -8px 0 24px rgba(249,115,22,0.5),
+        8px 0 24px rgba(99,102,241,0.5),
+        0 0 12px rgba(249,115,22,0.3),
+        0 0 12px rgba(99,102,241,0.3);
+    }
+
+    /* 18 Soft */
+    .tile-soft { background: linear-gradient(145deg, #fde8d8, #fce4cc); }
+    .btn-soft {
+      background: linear-gradient(145deg, #f0a060, #e88850);
+      color: #fff;
+      padding: 14px 28px;
+      box-shadow: 0 8px 24px rgba(220,120,60,0.4);
+    }
+    .btn-soft .btn-icon { font-size: 18px; }
+  </style>
+</head>
+<body>
+
+  <header class="page-header">
+    <h1>18 种 UI 按钮风格图鉴</h1>
+    <p>纯 CSS 实现 · 悬停可交互 · 可直接复用 class</p>
+  </header>
+
+  <div class="grid">
+
+    <div class="tile tile-flat">
+      <div class="tile-label">扁平式<span>Flat UI</span></div>
+      <button class="btn btn-flat" type="button">Send request</button>
+    </div>
+
+    <div class="tile tile-skeuo">
+      <div class="tile-label">拟物化<span>Skeuomorphic</span></div>
+      <button class="btn btn-skeuo" type="button">Unlock It</button>
+    </div>
+
+    <div class="tile tile-stroke">
+      <div class="tile-label">描边风格<span>Stroke UI</span></div>
+      <button class="btn btn-stroke" type="button">
+        Sign Up
+        <span class="btn-icon" aria-hidden="true">→</span>
+      </button>
+    </div>
+
+    <div class="tile tile-glass">
+      <div class="tile-label">玻璃拟态<span>Glass UI</span></div>
+      <button class="btn btn-glass" type="button">Book now</button>
+    </div>
+
+    <div class="tile tile-glow">
+      <div class="tile-label">光效风格<span>Glow UI</span></div>
+      <button class="btn btn-glow" type="button">
+        <span class="sparkle" aria-hidden="true">✦✦</span>
+        Generate
+      </button>
+    </div>
+
+    <div class="tile tile-dark">
+      <div class="tile-label">暗黑扁平<span>Dark UI</span></div>
+      <button class="btn btn-dark" type="button">
+        <span class="btn-icon" aria-hidden="true">📁</span>
+        Upload files
+      </button>
+    </div>
+
+    <div class="tile tile-dark-chrome">
+      <div class="tile-label">暗黑铬式<span>Dark Chrome</span></div>
+      <button class="btn btn-dark-chrome" type="button">EXPLORE</button>
+    </div>
+
+    <div class="tile tile-classy">
+      <div class="tile-label">线性简约<span>Classy UI</span></div>
+      <button class="btn btn-classy" type="button">Get Started</button>
+    </div>
+
+    <div class="tile tile-shadow">
+      <div class="tile-label">多层次阴影<span>Shadow UI</span></div>
+      <button class="btn btn-shadow" type="button">
+        Read more
+        <span class="btn-icon" aria-hidden="true">→</span>
+      </button>
+    </div>
+
+    <div class="tile tile-3d">
+      <div class="tile-label">3D 风格<span>3D UI</span></div>
+      <button class="btn btn-3d" type="button">
+        <span class="btn-icon" aria-hidden="true">☁↓</span>
+        Download
+      </button>
+    </div>
+
+    <div class="tile tile-gradient">
+      <div class="tile-label">渐变风格<span>Gradient UI</span></div>
+      <button class="btn btn-gradient" type="button">Start Now</button>
+    </div>
+
+    <div class="tile claymo">
+      <div class="tile-label">黏土风格<span>Claymo UI</span></div>
+      <button class="btn claymo" type="button">
+        <span class="btn-icon" aria-hidden="true">🔥</span>
+        Buy now
+      </button>
+    </div>
+
+    <div class="tile tile-chrome">
+      <div class="tile-label">铬式风格<span>Chrome UI</span></div>
+      <button class="btn btn-chrome" type="button">Discover</button>
+    </div>
+
+    <div class="tile tile-neumo">
+      <div class="tile-label">新拟态<span>Neumo UI</span></div>
+      <button class="btn btn-neumo" type="button">
+        Search by
+        <span class="btn-icon" aria-hidden="true">🔍</span>
+      </button>
+    </div>
+
+    <div class="tile tile-neobrut">
+      <div class="tile-label">新粗野主义<span>Neo-brut UI</span></div>
+      <button class="btn btn-neobrut" type="button">
+        Subscribe
+        <span class="btn-icon" aria-hidden="true">◎</span>
+      </button>
+    </div>
+
+    <div class="tile tile-frosted">
+      <div class="tile-label">毛玻璃<span>Frosted UI</span></div>
+      <button class="btn btn-frosted" type="button">
+        Search
+        <span class="btn-icon" aria-hidden="true">🔍</span>
+      </button>
+    </div>
+
+    <div class="tile tile-neon">
+      <div class="tile-label">霓虹光效<span>Neon UI</span></div>
+      <button class="btn btn-neon" type="button">Update</button>
+    </div>
+
+    <div class="tile tile-soft">
+      <div class="tile-label">柔和风格<span>Soft UI</span></div>
+      <button class="btn btn-soft" type="button">
+        <span class="btn-icon" aria-hidden="true">⛈</span>
+        More info
+      </button>
+    </div>
+
+  </div>
+
+</body>
+</html>

@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MagicBento 组件演示</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    :root {
+      --magic-bento-hue: 27;
+      --magic-bento-sat: 69%;
+      --magic-bento-white: #ffffff;
+      --magic-bento-primary: #8400ff;
+      --magic-bento-primary-glow: rgba(132, 0, 255, 0.2);
+      --magic-bento-border-color: #2F293A;
+      --magic-bento-bg-dark: #120F17;
+      --magic-bento-bg-light: #1a1722;
+    }
+    
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #0a090f;
+      min-height: 100vh;
+      color: #fff;
+    }
+    
+    .demo-page {
+      padding: 40px 20px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    
+    .demo-header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    
+    .demo-title {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #8400ff, #06B6D4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    
+    .demo-subtitle {
+      color: rgba(255, 255, 255, 0.6);
+      font-size: 14px;
+    }
+    
+    .demo-controls {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-bottom: 32px;
+    }
+    
+    .demo-btn {
+      padding: 10px 20px;
+      border-radius: 8px;
+      border: 1px solid #2F293A;
+      background: #120F17;
+      color: white;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      transition: all 0.2s;
+    }
+    
+    .demo-btn:hover {
+      border-color: #8400ff;
+      box-shadow: 0 0 20px rgba(132, 0, 255, 0.2);
+    }
+    
+    .demo-btn--active {
+      background: #8400ff;
+      border-color: #8400ff;
+    }
+    
+    .magic-bento-grid {
+      display: grid;
+      gap: 0.5em;
+      padding: 0.75em;
+      max-width: 54em;
+      margin: 0 auto;
+      font-size: clamp(1rem, 0.9rem + 0.5vw, 1.5rem);
+    }
+    
+    .magic-bento-card {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      position: relative;
+      aspect-ratio: 4/3;
+      min-height: 200px;
+      width: 100%;
+      max-width: 100%;
+      padding: 1.25em;
+      border-radius: 20px;
+      border: 1px solid var(--magic-bento-border-color);
+      background: var(--magic-bento-bg-dark);
+      font-weight: 300;
+      overflow: hidden;
+      transition: all 0.3s ease;
+      cursor: pointer;
+      user-select: none;
+      --glow-x: 50%;
+      --glow-y: 50%;
+      --glow-intensity: 0;
+      --glow-radius: 200px;
+      --glow-color: 132, 0, 255;
+    }
+    
+    .magic-bento-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+    }
+    
+    .magic-bento-card__header,
+    .magic-bento-card__content {
+      display: flex;
+      position: relative;
+      color: var(--magic-bento-white);
+      z-index: 2;
+    }
+    
+    .magic-bento-card__header {
+      gap: 0.75em;
+      justify-content: space-between;
+    }
+    
+    .magic-bento-card__content {
+      flex-direction: column;
+    }
+    
+    .magic-bento-card__label {
+      font-size: 16px;
+      color: rgba(255, 255, 255, 0.7);
+    }
+    
+    .magic-bento-card__title {
+      font-weight: 400;
+      font-size: 16px;
+      margin: 0 0 0.25em;
+    }
+    
+    .magic-bento-card__description {
+      font-size: 12px;
+      line-height: 1.2;
+      opacity: 0.9;
+    }
+    
+    .magic-bento-card--text-autohide .magic-bento-card__title,
+    .magic-bento-card--text-autohide .magic-bento-card__description {
+      display: -webkit-box;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    
+    .magic-bento-card--text-autohide .magic-bento-card__title {
+      -webkit-line-clamp: 1;
+      line-clamp: 1;
+    }
+    
+    .magic-bento-card--text-autohide .magic-bento-card__description {
+      -webkit-line-clamp: 2;
+      line-clamp: 2;
+    }
+    
+    .magic-bento-card--border-glow::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      padding: 6px;
+      background: radial-gradient(
+        calc(var(--glow-radius) * 1px) circle at var(--glow-x) var(--glow-y),
+        rgba(var(--glow-color), calc(var(--glow-intensity) * 0.8)) 0%,
+        rgba(var(--glow-color), calc(var(--glow-intensity) * 0.4)) 30%,
+        transparent 60%
+      );
+      border-radius: inherit;
+      -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      -webkit-mask-composite: xor;
+      mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+      mask-composite: exclude;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.3s ease;
+      z-index: 1;
+    }
+    
+    .magic-bento-card--border-glow:hover::after {
+      opacity: 1;
+    }
+    
+    .magic-bento-card--border-glow:hover {
+      box-shadow:
+        0 4px 20px rgba(46, 24, 78, 0.4),
+        0 0 30px var(--magic-bento-primary-glow);
+    }
+    
+    .magic-bento-particle {
+      position: absolute;
+      width: 4px;
+      height: 4px;
+      border-radius: 50%;
+      background: rgba(132, 0, 255, 1);
+      box-shadow: 0 0 6px rgba(132, 0, 255, 0.6);
+      pointer-events: none;
+      z-index: 100;
+    }
+    
+    .magic-bento-ripple {
+      position: absolute;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(132, 0, 255, 0.4) 0%, rgba(132, 0, 255, 0.2) 30%, transparent 70%);
+      pointer-events: none;
+      z-index: 1000;
+    }
+    
+    .magic-bento-global-spotlight {
+      position: fixed;
+      width: 800px;
+      height: 800px;
+      border-radius: 50%;
+      pointer-events: none;
+      background: radial-gradient(circle,
+        rgba(132, 0, 255, 0.15) 0%,
+        rgba(132, 0, 255, 0.08) 15%,
+        rgba(132, 0, 255, 0.04) 25%,
+        rgba(132, 0, 255, 0.02) 40%,
+        rgba(132, 0, 255, 0.01) 65%,
+        transparent 70%
+      );
+      z-index: 200;
+      opacity: 0;
+      transform: translate(-50%, -50%);
+      mix-blend-mode: screen;
+    }
+    
+    .magic-bento-section {
+      position: relative;
+    }
+    
+    @media (max-width: 599px) {
+      .magic-bento-grid {
+        grid-template-columns: 1fr;
+        width: 90%;
+        margin: 0 auto;
+        padding: 0.5em;
+      }
+      .magic-bento-card {
+        width: 100%;
+        min-height: 180px;
+      }
+    }
+    
+    @media (min-width: 600px) {
+      .magic-bento-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+    
+    @media (min-width: 1024px) {
+      .magic-bento-grid {
+        grid-template-columns: repeat(4, 1fr);
+      }
+      .magic-bento-card:nth-child(3) {
+        grid-column: span 2;
+        grid-row: span 2;
+      }
+      .magic-bento-card:nth-child(4) {
+        grid-column: 1 / span 2;
+        grid-row: 2 / span 2;
+      }
+      .magic-bento-card:nth-child(6) {
+        grid-column: 4;
+        grid-row: 3;
+      }
+    }
+    
+    .card-icon {
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(132, 0, 255, 0.1);
+      border-radius: 8px;
+      color: #8400ff;
+    }
+  </style>
+</head>
+<body>
+  <div class="demo-page">
+    <header class="demo-header">
+      <h1 class="demo-title">✨ MagicBento</h1>
+      <p class="demo-subtitle">将鼠标悬停在卡片上体验效果</p>
+    </header>
+    
+    <div class="demo-controls">
+      <button class="demo-btn demo-btn--active" id="btnThemePurple">紫色主题</button>
+      <button class="demo-btn" id="btnThemeBlue">蓝色主题</button>
+      <button class="demo-btn" id="btnThemeGreen">绿色主题</button>
+      <button class="demo-btn" id="btnToggleParticles">粒子效果: ON</button>
+    </div>
+    
+    <div class="magic-bento-section">
+      <div class="magic-bento-grid" id="bentoGrid"></div>
+    </div>
+  </div>
+  
+  <div class="magic-bento-global-spotlight" id="globalSpotlight"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
+  <script>
+    (function() {
+      const DEFAULT_PARTICLE_COUNT = 12;
+      const DEFAULT_SPOTLIGHT_RADIUS = 300;
+      const DEFAULT_GLOW_COLOR = '132, 0, 255';
+      const MOBILE_BREAKPOINT = 768;
+
+      const meetingCards = [
+        {
+          title: '会议概览',
+          description: '查看所有正在进行的会议',
+          label: 'Overview',
+          icon: '📊'
+        },
+        {
+          title: '录制管理',
+          description: '管理和下载会议录音',
+          label: 'Recordings',
+          icon: '🎙️'
+        },
+        {
+          title: 'AI 主持',
+          description: '智能会议主持人配置',
+          label: 'AI Host',
+          icon: '🤖'
+        },
+        {
+          title: '议题管理',
+          description: '创建和编辑会议议程',
+          label: 'Agenda',
+          icon: '📋'
+        },
+        {
+          title: '参会人员',
+          description: '管理和邀请参会人',
+          label: 'People',
+          icon: '👥'
+        },
+        {
+          title: '系统设置',
+          description: '配置系统参数',
+          label: 'Settings',
+          icon: '⚙️'
+        }
+      ];
+
+      let config = {
+        textAutoHide: true,
+        enableStars: true,
+        enableSpotlight: true,
+        enableBorderGlow: true,
+        enableTilt: true,
+        enableMagnetism: true,
+        clickEffect: true,
+        spotlightRadius: 300,
+        particleCount: 12,
+        glowColor: DEFAULT_GLOW_COLOR
+      };
+
+      let isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+      let cardStates = new Map();
+      let spotlightEl = document.getElementById('globalSpotlight');
+      let particlesEnabled = true;
+
+      function calculateSpotlightValues(radius) {
+        return {
+          proximity: radius * 0.5,
+          fadeDistance: radius * 0.75
+        };
+      }
+
+      function updateCardGlowProperties(card, mouseX, mouseY, glow, radius) {
+        const rect = card.getBoundingClientRect();
+        const relativeX = ((mouseX - rect.left) / rect.width) * 100;
+        const relativeY = ((mouseY - rect.top) / rect.height) * 100;
+        card.style.setProperty('--glow-x', relativeX + '%');
+        card.style.setProperty('--glow-y', relativeY + '%');
+        card.style.setProperty('--glow-intensity', glow.toString());
+        card.style.setProperty('--glow-radius', radius + 'px');
+      }
+
+      function createParticle(x, y, glowColor) {
+        const el = document.createElement('div');
+        el.className = 'magic-bento-particle';
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.background = 'rgba(' + glowColor + ', 1)';
+        el.style.boxShadow = '0 0 6px rgba(' + glowColor + ', 0.6)';
+        return el;
+      }
+
+      function generateMemoizedParticles(card, count, glowColor) {
+        const particles = [];
+        const { width, height } = card.getBoundingClientRect();
+        for (let i = 0; i < count; i++) {
+          particles.push({
+            x: Math.random() * width,
+            y: Math.random() * height
+          });
+        }
+        return particles;
+      }
+
+      function animateParticles(card, memoizedParticles, glowColor) {
+        const state = cardStates.get(card);
+        if (!state || !state.isHovered) return;
+        
+        memoizedParticles.forEach((pos, index) => {
+          setTimeout(() => {
+            const currentState = cardStates.get(card);
+            if (!currentState || !currentState.isHovered) return;
+            
+            const particle = createParticle(pos.x, pos.y, glowColor);
+            card.appendChild(particle);
+            currentState.particles.push(particle);
+            
+            gsap.fromTo(particle, 
+              { scale: 0, opacity: 0 },
+              { scale: 1, opacity: 1, duration: 0.3, ease: 'back.out(1.7)' }
+            );
+            
+            gsap.to(particle, {
+              x: (Math.random() - 0.5) * 100,
+              y: (Math.random() - 0.5) * 100,
+              rotation: Math.random() * 360,
+              duration: 2 + Math.random() * 2,
+              ease: 'none',
+              repeat: -1,
+              yoyo: true
+            });
+            
+            gsap.to(particle, {
+              opacity: 0.3,
+              duration: 1.5,
+              ease: 'power2.inOut',
+              repeat: -1,
+              yoyo: true
+            });
+          }, index * 100);
+        });
+      }
+
+      function clearParticles(card) {
+        const state = cardStates.get(card);
+        if (!state) return;
+        
+        state.particles.forEach(particle => {
+          gsap.to(particle, {
+            scale: 0,
+            opacity: 0,
+            duration: 0.3,
+            ease: 'back.in(1.7)',
+            onComplete: function() {
+              if (particle.parentNode) particle.parentNode.removeChild(particle);
+            }
+          });
+        });
+        state.particles = [];
+      }
+
+      function handleCardClick(card, glowColor, e) {
+        const rect = card.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        const maxDistance = Math.max(
+          Math.hypot(x, y),
+          Math.hypot(x - rect.width, y),
+          Math.hypot(x, y - rect.height),
+          Math.hypot(x - rect.width, y - rect.height)
+        );
+        
+        const ripple = document.createElement('div');
+        ripple.className = 'magic-bento-ripple';
+        ripple.style.width = (maxDistance * 2) + 'px';
+        ripple.style.height = (maxDistance * 2) + 'px';
+        ripple.style.left = (x - maxDistance) + 'px';
+        ripple.style.top = (y - maxDistance) + 'px';
+        ripple.style.background = 'radial-gradient(circle, rgba(' + glowColor + ', 0.4) 0%, rgba(' + glowColor + ', 0.2) 30%, transparent 70%)';
+        card.appendChild(ripple);
+        
+        gsap.fromTo(ripple,
+          { scale: 0, opacity: 1 },
+          { scale: 1, opacity: 0, duration: 0.8, ease: 'power2.out',
+            onComplete: function() { ripple.remove(); }
+          }
+        );
+      }
+
+      function setupCard(card, index, options) {
+        const { glowColor, enableTilt, enableMagnetism, clickEffect, particleCount, enableStars } = options;
+        const memoizedParticles = generateMemoizedParticles(card, particleCount, glowColor);
+        
+        const state = {
+          isHovered: false,
+          particles: [],
+          memoizedParticles: memoizedParticles
+        };
+        cardStates.set(card, state);
+        
+        card.addEventListener('mouseenter', function() {
+          state.isHovered = true;
+          if (enableStars && particlesEnabled) {
+            animateParticles(card, memoizedParticles, glowColor);
+          }
+        });
+        
+        card.addEventListener('mouseleave', function() {
+          state.isHovered = false;
+          clearParticles(card);
+          
+          if (enableTilt) {
+            gsap.to(card, { rotateX: 0, rotateY: 0, duration: 0.3, ease: 'power2.out' });
+          }
+          
+          if (enableMagnetism) {
+            gsap.to(card, { x: 0, y: 0, duration: 0.3, ease: 'power2.out' });
+          }
+        });
+        
+        card.addEventListener('mousemove', function(e) {
+          const rect = card.getBoundingClientRect();
+          const x = e.clientX - rect.left;
+          const y = e.clientY - rect.top;
+          const centerX = rect.width / 2;
+          const centerY = rect.height / 2;
+          
+          if (enableTilt) {
+            const rotateX = ((y - centerY) / centerY) * -10;
+            const rotateY = ((x - centerX) / centerX) * 10;
+            gsap.to(card, { rotateX, rotateY, duration: 0.1, ease: 'power2.out', transformPerspective: 1000 });
+          }
+          
+          if (enableMagnetism) {
+            const magnetX = (x - centerX) * 0.05;
+            const magnetY = (y - centerY) * 0.05;
+            gsap.to(card, { x: magnetX, y: magnetY, duration: 0.3, ease: 'power2.out' });
+          }
+        });
+        
+        if (clickEffect) {
+          card.addEventListener('click', function(e) {
+            handleCardClick(card, glowColor, e);
+          });
+        }
+      }
+
+      function setupGlobalSpotlight(gridEl, options) {
+        const { spotlightRadius, glowColor, disableAnimations } = options;
+        
+        if (disableAnimations) return;
+        
+        let isInside = false;
+        
+        document.addEventListener('mousemove', function(e) {
+          const section = gridEl.closest('.magic-bento-section');
+          if (!section) return;
+          
+          const rect = section.getBoundingClientRect();
+          isInside = e.clientX >= rect.left && e.clientX <= rect.right && e.clientY >= rect.top && e.clientY <= rect.bottom;
+          
+          if (!isInside) {
+            gsap.to(spotlightEl, { opacity: 0, duration: 0.3, ease: 'power2.out' });
+            gridEl.querySelectorAll('.magic-bento-card').forEach(card => {
+              card.style.setProperty('--glow-intensity', '0');
+            });
+            return;
+          }
+          
+          const { proximity, fadeDistance } = calculateSpotlightValues(spotlightRadius);
+          let minDistance = Infinity;
+          
+          gridEl.querySelectorAll('.magic-bento-card').forEach(card => {
+            const cardRect = card.getBoundingClientRect();
+            const centerX = cardRect.left + cardRect.width / 2;
+            const centerY = cardRect.top + cardRect.height / 2;
+            const distance = Math.hypot(e.clientX - centerX, e.clientY - centerY) - Math.max(cardRect.width, cardRect.height) / 2;
+            const effectiveDistance = Math.max(0, distance);
+            
+            minDistance = Math.min(minDistance, effectiveDistance);
+            
+            let glowIntensity = 0;
+            if (effectiveDistance <= proximity) {
+              glowIntensity = 1;
+            } else if (effectiveDistance <= fadeDistance) {
+              glowIntensity = (fadeDistance - effectiveDistance) / (fadeDistance - proximity);
+            }
+            
+            updateCardGlowProperties(card, e.clientX, e.clientY, glowIntensity, spotlightRadius);
+          });
+          
+          gsap.to(spotlightEl, { left: e.clientX, top: e.clientY, duration: 0.1, ease: 'power2.out' });
+          
+          const targetOpacity = minDistance <= proximity ? 0.8 :
+            minDistance <= fadeDistance ? ((fadeDistance - minDistance) / (fadeDistance - proximity)) * 0.8 : 0;
+          
+          gsap.to(spotlightEl, { opacity: targetOpacity, duration: targetOpacity > 0 ? 0.2 : 0.5, ease: 'power2.out' });
+        });
+        
+        document.addEventListener('mouseleave', function() {
+          isInside = false;
+          gridEl.querySelectorAll('.magic-bento-card').forEach(card => {
+            card.style.setProperty('--glow-intensity', '0');
+          });
+          gsap.to(spotlightEl, { opacity: 0, duration: 0.3, ease: 'power2.out' });
+        });
+      }
+
+      function init(selector, options) {
+        const gridEl = document.querySelector(selector);
+        if (!gridEl) return;
+        
+        const mergedConfig = Object.assign({}, config, options);
+        const {
+          textAutoHide, enableBorderGlow, glowColor,
+          spotlightRadius, enableSpotlight, disableAnimations
+        } = mergedConfig;
+        
+        if (!options.cards) {
+          console.error('MagicBento: cards option is required');
+          return;
+        }
+        
+        gridEl.innerHTML = '';
+        
+        options.cards.forEach((cardData, index) => {
+          const card = document.createElement('div');
+          let className = 'magic-bento-card';
+          if (textAutoHide) className += ' magic-bento-card--text-autohide';
+          if (enableBorderGlow) className += ' magic-bento-card--border-glow';
+          card.className = className;
+          card.style.setProperty('--glow-color', glowColor);
+          
+          card.innerHTML = `
+            <div class="magic-bento-card__header">
+              <div class="card-icon">${cardData.icon || '📄'}</div>
+              <div class="magic-bento-card__label">${cardData.label}</div>
+            </div>
+            <div class="magic-bento-card__content">
+              <h2 class="magic-bento-card__title">${cardData.title}</h2>
+              <p class="magic-bento-card__description">${cardData.description}</p>
+            </div>
+          `;
+          
+          gridEl.appendChild(card);
+          setupCard(card, index, mergedConfig);
+        });
+        
+        if (enableSpotlight) {
+          setupGlobalSpotlight(gridEl, mergedConfig);
+        }
+      }
+
+      window.MagicBento = { init };
+
+      init('#bentoGrid', {
+        textAutoHide: true,
+        enableStars: true,
+        enableSpotlight: true,
+        enableBorderGlow: true,
+        enableTilt: true,
+        enableMagnetism: true,
+        clickEffect: true,
+        spotlightRadius: 300,
+        particleCount: 12,
+        glowColor: DEFAULT_GLOW_COLOR,
+        cards: meetingCards
+      });
+
+      const themes = {
+        purple: '132, 0, 255',
+        blue: '59, 130, 246',
+        green: '16, 185, 129'
+      };
+
+      let currentTheme = 'purple';
+
+      function setTheme(theme) {
+        currentTheme = theme;
+        document.documentElement.style.setProperty('--magic-bento-primary', theme === 'purple' ? '#8400ff' : theme === 'blue' ? '#3b82f6' : '#10b981');
+        init('#bentoGrid', {
+          textAutoHide: true,
+          enableStars: true,
+          enableSpotlight: true,
+          enableBorderGlow: true,
+          enableTilt: true,
+          enableMagnetism: true,
+          clickEffect: true,
+          spotlightRadius: 300,
+          particleCount: 12,
+          glowColor: themes[theme],
+          cards: meetingCards
+        });
+      }
+
+      document.getElementById('btnThemePurple').addEventListener('click', function() {
+        document.querySelectorAll('.demo-btn').forEach(function(b) { b.classList.remove('demo-btn--active'); });
+        this.classList.add('demo-btn--active');
+        setTheme('purple');
+      });
+
+      document.getElementById('btnThemeBlue').addEventListener('click', function() {
+        document.querySelectorAll('.demo-btn').forEach(function(b) { b.classList.remove('demo-btn--active'); });
+        this.classList.add('demo-btn--active');
+        setTheme('blue');
+      });
+
+      document.getElementById('btnThemeGreen').addEventListener('click', function() {
+        document.querySelectorAll('.demo-btn').forEach(function(b) { b.classList.remove('demo-btn--active'); });
+        this.classList.add('demo-btn--active');
+        setTheme('green');
+      });
+
+      document.getElementById('btnToggleParticles').addEventListener('click', function() {
+        particlesEnabled = !particlesEnabled;
+        this.textContent = '粒子效果: ' + (particlesEnabled ? 'ON' : 'OFF');
+        
+        document.querySelectorAll('.magic-bento-particle').forEach(function(p) { p.remove(); });
+      });
+
+      window.addEventListener('resize', function() {
+        isMobile = window.innerWidth <= MOBILE_BREAKPOINT;
+      });
+    })();
+  </script>
+</body>
+</html>
