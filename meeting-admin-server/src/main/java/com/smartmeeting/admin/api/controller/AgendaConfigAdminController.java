@@ -29,6 +29,12 @@ public class AgendaConfigAdminController {
         return ApiResponse.ok(agendaConfigService.listPresetHeaders());
     }
 
+    /** 按 config_name 检索其在各 preset host_agenda 中的位置（与保存冲突校验同源） */
+    @GetMapping("/config-names/{name}/locations")
+    public ApiResponse<List<String>> configNameLocations(@PathVariable String name) {
+        return ApiResponse.ok(agendaConfigService.findConfigNameLocations(name));
+    }
+
     @PostMapping("/presets")
     public ApiResponse<Map<String, Integer>> createPreset(@RequestBody(required = false) CreatePresetRequest body) {
         Integer wantedCode = body != null ? body.getPresetTypeCode() : null;

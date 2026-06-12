@@ -32,7 +32,8 @@ public class AgendaMaterialDiskStorage {
             throws IOException {
         String normalizedMime = AgendaMaterialFileSupport.validateAndNormalizeMime(mimeType, originalFilename);
         if (normalizedMime == null) {
-            throw new IllegalArgumentException("不支持的文件类型，仅允许 doc/docx 与常见图片");
+            throw new IllegalArgumentException(
+                    "不支持的文件类型，仅允许 doc/docx、ppt/pptx、pdf、xls/xlsx、csv 与常见图片");
         }
         long max = AgendaMaterialFileSupport.maxBytesForMime(normalizedMime, maxImageBytes, maxDocBytes);
         if (sizeBytes <= 0 || sizeBytes > max) {

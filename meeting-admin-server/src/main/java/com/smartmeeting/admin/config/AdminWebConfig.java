@@ -32,5 +32,8 @@ public class AdminWebConfig implements WebMvcConfigurer {
         registry.addResourceHandler("/static/admin/**")
                 .addResourceLocations("classpath:/static/admin/")
                 .setCachePeriod(0);
+        registry.addResourceHandler("/static/ui-kit/**")
+                .addResourceLocations("classpath:/static/ui-kit/")
+                .setCachePeriod(0);
     }
 }

@@ -9,6 +9,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 import com.smartmeeting.matterprogress.feishu.BitableDisplayMode;
@@ -18,6 +20,8 @@ import com.smartmeeting.matterprogress.feishu.DocxBlockMarkdownExporter;
 import com.smartmeeting.matterprogress.feishu.BitableTableInfo;
 import com.smartmeeting.matterprogress.feishu.FeishuSpreadsheetPlainTextFetcher;
 import com.smartmeeting.config.MatterProgressFetchProperties;
+import com.smartmeeting.config.AgendaMaterialProperties;
+import com.smartmeeting.config.agenda.AgendaMaterialPathResolver;
 import com.smartmeeting.config.feishu.FeishuResourceKind;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 
@@ -31,22 +35,26 @@ import com.smartmeeting.service.structured.ExcelStructuredExporter;
 import com.smartmeeting.service.structured.TaskListStructuredExporter;
 import com.smartmeeting.service.structured.PptxSlideImageExporter;
 import com.smartmeeting.service.structured.PdfPageImageExporter;
+import com.smartmeeting.service.structured.FeishuRasterCache;
+import com.smartmeeting.service.structured.AgendaMaterialGeneratedImages;
 import com.smartmeeting.service.feishu.BitableTableIdResolver;
 import com.smartmeeting.service.feishu.DocxEmbeddedBitableResolver;
 import com.smartmeeting.service.feishu.DocxEmbeddedBitableResolver.EmbeddedBitableRef;
+import com.smartmeeting.service.feishu.SheetEmbeddedBitableResolver;
 import com.smartmeeting.service.feishu.FeishuDriveClient;
 import com.smartmeeting.api.dto.structured.*;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.io.IOException;
 
 /**
  * 飞书开放平台 API 封装：Tenant Token 管理、消息发送、云文档读写与资源正文拉取。
  * <p>
  * API 文档：<a href="https://open.feishu.cn/document">飞书开放平台</a>
  * <p>
- * 主要协作组件：{@link RestTemplate}、{@link ObjectMapper}、
- * {@link com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry}（AI 主持期间抑制推送）。
+ * 主要协作组件：{@link RestTemplate}、{@link ObjectMapper}。
  */
 @Slf4j
 @Service
@@ -55,8 +63,8 @@ public class FeishuService {
 
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
-    private final com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry meetingHostFeishuMuteRegistry;
     private final MatterProgressFetchProperties matterProgressFetchProperties;
+    private final AgendaMaterialProperties agendaMaterialProperties;
 
     @Value("${meeting.feishu.app-id:test}")
     private String appId;
@@ -113,13 +121,9 @@ public class FeishuService {
      *
      * @param chatId 群 chat_id
      * @param text   消息正文
-     * @return 发送成功返回 {@code true}；被静音或 HTTP 失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；HTTP 失败时返回 {@code false}
      */
     public boolean sendMessage(String chatId, String text) {
-        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
-            log.warn("Feishu send suppressed (AI host in-session): sendMessage chatId={}", chatId);
-            return false;
-        }
         String token = getTenantToken();
         String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
 
@@ -186,13 +190,9 @@ public class FeishuService {
      * @param chatId   群 chat_id
      * @param title    卡片标题
      * @param elements 卡片元素列表（含 content、可选 doc_url）
-     * @return 发送成功返回 {@code true}；被静音、序列化异常或 HTTP 失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；序列化异常或 HTTP 失败时返回 {@code false}
      */
     public boolean sendCardMessage(String chatId, String title, List<Map<String, String>> elements) {
-        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
-            log.warn("Feishu send suppressed (AI host in-session): sendCardMessage chatId={}", chatId);
-            return false;
-        }
         String token = getTenantToken();
         String url = baseUrl + "/open-apis/im/v1/messages?receive_id_type=chat_id";
 
@@ -303,13 +303,9 @@ public class FeishuService {
      *
      * @param chatId   群 chat_id
      * @param cardJson 卡片 JSON 字符串
-     * @return 发送成功返回 {@code true}；被静音或 HTTP 失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；HTTP 失败时返回 {@code false}
      */
     public boolean sendInteractiveCard(String chatId, String cardJson) {
-        if (meetingHostFeishuMuteRegistry.isMuted(chatId)) {
-            log.warn("Feishu send suppressed (AI host in-session): sendInteractiveCard chatId={}", chatId);
-            return false;
-        }
         return sendInteractiveCardToReceiveId("chat_id", chatId, cardJson);
     }
 
@@ -611,6 +607,10 @@ public class FeishuService {
             return fetchBitablePlainText(objToken, ref.tableId(), bitableMode(ref));
         }
         if ("sheet".equalsIgnoreCase(objType)) {
+            EmbeddedBitableRef embedded = resolveWikiSheetEmbeddedBitable(objToken, ref);
+            if (embedded != null) {
+                return fetchBitablePlainText(embedded.appToken(), embedded.tableId(), bitableMode(ref));
+            }
             return fetchSheetPlainText(objToken);
         }
         if ("file".equalsIgnoreCase(objType)) {
@@ -817,7 +817,14 @@ public class FeishuService {
         try {
             ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.GET, request, JsonNode.class);
             JsonNode json = response.getBody();
-            if (json == null || json.path("code").asInt(-1) != 0) {
+            if (json == null) {
+                log.warn("listBitableTables empty response app={}", appToken);
+                return List.of();
+            }
+            int code = json.path("code").asInt(-1);
+            if (code != 0) {
+                log.warn("listBitableTables failed app={} code={} msg={}",
+                        appToken, code, json.path("msg").asText(""));
                 return List.of();
             }
             JsonNode items = json.path("data").path("items");
@@ -1074,6 +1081,10 @@ public class FeishuService {
             return "bitable_records";
         }
         if ("sheet".equalsIgnoreCase(objType)) {
+            String objToken = node.path("obj_token").asText("");
+            if (!objToken.isBlank() && resolveWikiSheetEmbeddedBitable(objToken, ref) != null) {
+                return "bitable_records";
+            }
             return "sheet_cells";
         }
         if ("file".equalsIgnoreCase(objType)) {
@@ -1112,6 +1123,10 @@ public class FeishuService {
             return fetchBitableStructured(objToken, ref.tableId(), bitableMode(ref));
         }
         if ("sheet".equalsIgnoreCase(objType)) {
+            EmbeddedBitableRef embedded = resolveWikiSheetEmbeddedBitable(objToken, ref);
+            if (embedded != null) {
+                return fetchBitableStructured(embedded.appToken(), embedded.tableId(), bitableMode(ref));
+            }
             return fetchSheetStructuredContent(objToken);
         }
         if ("file".equalsIgnoreCase(objType)) {
@@ -1131,6 +1146,57 @@ public class FeishuService {
             return fetchDocxBlocks(objToken);
         }
         return null;
+    }
+
+    /**
+     * Wiki 节点为电子表格且内嵌多维表格时，从 sheets v2 metainfo 的 blockToken 解析 app_token/table_id。
+     */
+    private EmbeddedBitableRef resolveWikiSheetEmbeddedBitable(String spreadsheetToken, FeishuResourceRef ref) {
+        if (spreadsheetToken == null || spreadsheetToken.isBlank()) {
+            return null;
+        }
+        JsonNode metainfo = fetchSpreadsheetMetainfo(spreadsheetToken.trim());
+        if (metainfo == null) {
+            return null;
+        }
+        String configuredTable = ref != null ? ref.tableId() : null;
+        EmbeddedBitableRef found = SheetEmbeddedBitableResolver.findEmbeddedBitable(metainfo, configuredTable);
+        if (found != null) {
+            return found;
+        }
+        List<EmbeddedBitableRef> all = SheetEmbeddedBitableResolver.listEmbeddedBitables(metainfo);
+        if (all.size() == 1) {
+            EmbeddedBitableRef only = all.get(0);
+            if (configuredTable != null && !configuredTable.isBlank()
+                    && !configuredTable.trim().equals(only.tableId())) {
+                log.warn("wiki sheet embedded bitable table mismatch: configured={} actual={}, using sole embed",
+                        configuredTable, only.tableId());
+            }
+            return only;
+        }
+        if (configuredTable != null && !configuredTable.isBlank() && !all.isEmpty()) {
+            log.warn("wiki sheet ?table={} not matched among {} embedded bitable blocks, spreadsheet={}",
+                    configuredTable, all.size(), spreadsheetToken);
+        }
+        return null;
+    }
+
+    JsonNode fetchSpreadsheetMetainfo(String spreadsheetToken) {
+        String tenantToken = getTenantToken();
+        String url = baseUrl + "/open-apis/sheets/v2/spreadsheets/" + spreadsheetToken.trim() + "/metainfo";
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(tenantToken);
+        ResponseEntity<JsonNode> response = restTemplate.exchange(
+                url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+        JsonNode json = response.getBody();
+        if (json == null) {
+            throw new RuntimeException("飞书 sheets metainfo 响应为空");
+        }
+        int code = json.path("code").asInt(-1);
+        if (code != 0) {
+            throw new RuntimeException("飞书 sheets metainfo code=" + code + " msg=" + json.path("msg").asText(""));
+        }
+        return json.path("data");
     }
 
     private EmbeddedBitableRef resolveWikiDocxEmbeddedBitable(String documentId, FeishuResourceRef ref) {
@@ -1306,22 +1372,27 @@ public class FeishuService {
         String url = baseUrl + "/open-apis/task/v2/tasklists/" + tasklistGuid;
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(tenantToken);
-        ResponseEntity<JsonNode> response = restTemplate.exchange(
-                url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
-        JsonNode json = response.getBody();
-        if (json == null) {
-            throw new RuntimeException("飞书 tasklist get 响应为空");
+        try {
+            ResponseEntity<JsonNode> response = restTemplate.exchange(
+                    url, HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+            JsonNode json = response.getBody();
+            if (json == null) {
+                throw new RuntimeException("飞书 tasklist get 响应为空");
+            }
+            int code = json.path("code").asInt(-1);
+            if (code != 0) {
+                throw toTasklistApiException(tasklistGuid, code, json.path("msg").asText(""));
+            }
+            JsonNode tasklist = json.path("data").path("tasklist");
+            if (tasklist.isMissingNode() || tasklist.isNull()) {
+                throw new RuntimeException("飞书 tasklist get 无 tasklist 数据");
+            }
+            return tasklist;
+        } catch (HttpStatusCodeException e) {
+            throw toTasklistHttpException(tasklistGuid, e);
+        } catch (RestClientException e) {
+            throw new RuntimeException("飞书 tasklist get 请求失败: " + e.getMessage(), e);
         }
-        int code = json.path("code").asInt(-1);
-        if (code != 0) {
-            throw new RuntimeException("飞书 tasklist get code=" + code + " msg=" + json.path("msg").asText("")
-                    + "（请确认应用已开通 task:tasklist:read 且已加入清单协作成员）");
-        }
-        JsonNode tasklist = json.path("data").path("tasklist");
-        if (tasklist.isMissingNode() || tasklist.isNull()) {
-            throw new RuntimeException("飞书 tasklist get 无 tasklist 数据");
-        }
-        return tasklist;
     }
 
     private List<JsonNode> fetchTaskListTaskItems(String tasklistGuid) {
@@ -1332,37 +1403,93 @@ public class FeishuService {
         List<JsonNode> all = new ArrayList<>();
         HttpHeaders headers = new HttpHeaders();
         headers.setBearerAuth(tenantToken);
-        while (hasMore) {
-            UriComponentsBuilder ub = UriComponentsBuilder
-                    .fromUriString(baseUrl + "/open-apis/task/v2/tasklists/" + tasklistGuid + "/tasks")
-                    .queryParam("page_size", pageSize);
-            if (pageToken != null && !pageToken.isBlank()) {
-                ub.queryParam("page_token", pageToken);
-            }
-            ResponseEntity<JsonNode> response = restTemplate.exchange(
-                    ub.toUriString(), HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
-            JsonNode json = response.getBody();
-            if (json == null) {
-                throw new RuntimeException("飞书 tasklist tasks 响应为空");
-            }
-            int code = json.path("code").asInt(-1);
-            if (code != 0) {
-                throw new RuntimeException("飞书 tasklist tasks code=" + code + " msg=" + json.path("msg").asText(""));
-            }
-            JsonNode data = json.path("data");
-            JsonNode items = data.path("items");
-            if (items.isArray()) {
-                for (JsonNode item : items) {
-                    all.add(item);
+        try {
+            while (hasMore) {
+                UriComponentsBuilder ub = UriComponentsBuilder
+                        .fromUriString(baseUrl + "/open-apis/task/v2/tasklists/" + tasklistGuid + "/tasks")
+                        .queryParam("page_size", pageSize);
+                if (pageToken != null && !pageToken.isBlank()) {
+                    ub.queryParam("page_token", pageToken);
+                }
+                ResponseEntity<JsonNode> response = restTemplate.exchange(
+                        ub.toUriString(), HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
+                JsonNode json = response.getBody();
+                if (json == null) {
+                    throw new RuntimeException("飞书 tasklist tasks 响应为空");
+                }
+                int code = json.path("code").asInt(-1);
+                if (code != 0) {
+                    throw toTasklistApiException(tasklistGuid, code, json.path("msg").asText(""));
+                }
+                JsonNode data = json.path("data");
+                JsonNode items = data.path("items");
+                if (items.isArray()) {
+                    for (JsonNode item : items) {
+                        all.add(item);
+                    }
+                }
+                hasMore = data.path("has_more").asBoolean(false);
+                pageToken = data.path("page_token").asText(null);
+                if (hasMore && (pageToken == null || pageToken.isBlank())) {
+                    break;
                 }
             }
-            hasMore = data.path("has_more").asBoolean(false);
-            pageToken = data.path("page_token").asText(null);
-            if (hasMore && (pageToken == null || pageToken.isBlank())) {
-                break;
-            }
+            return all;
+        } catch (HttpStatusCodeException e) {
+            throw toTasklistHttpException(tasklistGuid, e);
+        } catch (RestClientException e) {
+            throw new RuntimeException("飞书 tasklist tasks 请求失败: " + e.getMessage(), e);
         }
-        return all;
+    }
+
+    private static final int FEISHU_TASKLIST_UNAUTHORIZED = 1470403;
+
+    private RuntimeException toTasklistHttpException(String tasklistGuid, HttpStatusCodeException httpEx) {
+        String body = httpEx.getResponseBodyAsString(StandardCharsets.UTF_8);
+        int feishuCode = parseFeishuErrorCode(body);
+        if (feishuCode == FEISHU_TASKLIST_UNAUTHORIZED || httpEx.getStatusCode().value() == 403) {
+            return new RuntimeException(tasklistUnauthorizedMessage(tasklistGuid));
+        }
+        String detail = trimFeishuErrorDetail(body);
+        return new RuntimeException("飞书 tasklist 请求失败 HTTP " + httpEx.getStatusCode().value()
+                + (detail.isBlank() ? "" : "（" + detail + "）"));
+    }
+
+    private RuntimeException toTasklistApiException(String tasklistGuid, int code, String msg) {
+        if (code == FEISHU_TASKLIST_UNAUTHORIZED) {
+            return new RuntimeException(tasklistUnauthorizedMessage(tasklistGuid));
+        }
+        return new RuntimeException("飞书 tasklist code=" + code + " msg=" + msg
+                + "（请确认应用已开通 task:tasklist:read 且已加入清单协作成员）");
+    }
+
+    private String tasklistUnauthorizedMessage(String tasklistGuid) {
+        return "任务清单无读取权限（guid=" + tasklistGuid + "）：请在飞书客户端打开该任务清单 → 成员 → 将本应用添加为可阅读协作成员，"
+                + "并在开放平台确认已开通 task:tasklist:read 权限；或将会序资料改为 Wiki/Doc 链接。";
+    }
+
+    private int parseFeishuErrorCode(String body) {
+        if (body == null || body.isBlank()) {
+            return -1;
+        }
+        try {
+            return objectMapper.readTree(body).path("code").asInt(-1);
+        } catch (Exception ignored) {
+            return -1;
+        }
+    }
+
+    private String trimFeishuErrorDetail(String body) {
+        if (body == null || body.isBlank()) {
+            return "";
+        }
+        try {
+            JsonNode json = objectMapper.readTree(body);
+            String msg = json.path("msg").asText("");
+            return msg.isBlank() ? body.substring(0, Math.min(body.length(), 120)) : msg;
+        } catch (Exception ignored) {
+            return body.substring(0, Math.min(body.length(), 120));
+        }
     }
 
     /**
@@ -1534,12 +1661,38 @@ public class FeishuService {
         return null;
     }
 
+    /**
+     * 飞书 Wiki 附件/幻灯片栅格缓存键，供主持页 proxy-raster-image 使用。
+     *
+     * @return 如 {@code file-{token}}、{@code slides-{token}}；非 Wiki 附件/幻灯片时返回 null
+     */
+    public String resolveRasterCacheKey(FeishuResourceRef ref) {
+        if (ref == null || ref.kind() != FeishuResourceKind.WIKI) {
+            return null;
+        }
+        JsonNode node = fetchWikiNode(ref);
+        if (node == null) {
+            return null;
+        }
+        String objType = node.path("obj_type").asText("");
+        String objToken = node.path("obj_token").asText("");
+        if (objToken.isBlank()) {
+            return null;
+        }
+        if ("file".equalsIgnoreCase(objType)) {
+            return "file-" + objToken.trim();
+        }
+        if ("slides".equalsIgnoreCase(objType)) {
+            return "slides-" + objToken.trim();
+        }
+        return null;
+    }
+
     private Object fetchWikiFileStructured(String fileToken) {
         try {
             byte[] data = FeishuDriveClient.downloadFile(restTemplate, baseUrl, getTenantToken(), fileToken);
             Path temp = FeishuDriveClient.writeTempFile(data, guessSuffix(data));
-            Path genDir = temp.getParent().resolve("feishu-file-" + fileToken);
-            Files.createDirectories(genDir);
+            Path genDir = feishuRasterOutputDir("file-" + fileToken);
             try {
                 if (isPdfBytes(data)) {
                     return PdfPageImageExporter.export(temp, genDir);
@@ -1563,8 +1716,7 @@ public class FeishuService {
             byte[] pdf = FeishuDriveClient.exportDocument(
                     restTemplate, baseUrl, getTenantToken(), slidesToken, "slides", "pdf", 25_000);
             Path temp = FeishuDriveClient.writeTempFile(pdf, ".pdf");
-            Path genDir = temp.getParent().resolve("feishu-slides-" + slidesToken);
-            Files.createDirectories(genDir);
+            Path genDir = feishuRasterOutputDir("slides-" + slidesToken);
             try {
                 return PdfPageImageExporter.export(temp, genDir);
             } finally {
@@ -1608,6 +1760,13 @@ public class FeishuService {
             return ".pptx";
         }
         return ".bin";
+    }
+
+    private Path feishuRasterOutputDir(String cacheKey) throws IOException {
+        List<Path> dirs = AgendaMaterialPathResolver.candidateStorageDirs(agendaMaterialProperties.getStorageDir());
+        Path dir = FeishuRasterCache.dirForKey(dirs.get(0), cacheKey);
+        AgendaMaterialGeneratedImages.ensureDir(dir);
+        return dir;
     }
 
 }

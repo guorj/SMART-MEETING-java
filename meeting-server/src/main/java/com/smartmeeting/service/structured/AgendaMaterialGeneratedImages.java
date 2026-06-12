@@ -43,11 +43,13 @@ public final class AgendaMaterialGeneratedImages {
             return false;
         }
         try {
-            String[] lines = Files.readString(stamp).trim().split("\n", 2);
+            String[] lines = Files.readString(stamp).trim().split("\n");
             long savedMtime = Long.parseLong(lines[0].trim());
             int savedCount = lines.length > 1 ? Integer.parseInt(lines[1].trim()) : pageCount;
+            int savedVersion = lines.length > 2 ? Integer.parseInt(lines[2].trim()) : 0;
             long currentMtime = Files.getLastModifiedTime(sourceFile).toMillis();
-            if (savedMtime != currentMtime || savedCount != pageCount) {
+            if (savedMtime != currentMtime || savedCount != pageCount
+                    || savedVersion != PptxSlideRenderSupport.CACHE_VERSION) {
                 return false;
             }
             for (int i = 0; i < pageCount; i++) {
@@ -63,7 +65,8 @@ public final class AgendaMaterialGeneratedImages {
 
     public static void writeRasterCacheStamp(Path sourceFile, Path generatedDir, int pageCount) throws IOException {
         ensureDir(generatedDir);
-        String payload = Files.getLastModifiedTime(sourceFile).toMillis() + "\n" + pageCount;
+        String payload = Files.getLastModifiedTime(sourceFile).toMillis() + "\n" + pageCount
+                + "\n" + PptxSlideRenderSupport.CACHE_VERSION;
         Files.writeString(cacheStamp(generatedDir), payload);
     }
 }

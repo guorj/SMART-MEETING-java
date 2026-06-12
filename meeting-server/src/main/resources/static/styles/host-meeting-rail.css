@@ -1,0 +1,384 @@
+/* 主持页 Rail 布局 — host-page.host-rail-layout（生产 + 预览） */
+
+body.host-page.host-rail-layout {
+  --rail-drawer-w: 340px;
+  --rail-edge-w: 14px;
+  --rail-dock-h: 16px;
+  --rail-top: 0px;
+  --rail-bottom: calc(var(--rail-dock-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: max(16px, env(safe-area-inset-bottom, 0px));
+}
+
+body.host-page.host-preview-mode.host-rail-layout {
+  --rail-dock-h: 120px;
+  padding-bottom: var(--rail-bottom);
+}
+
+body.host-page.host-preview-mode.host-rail-layout .blur-fade:not(.magic-bento-enhanced) {
+  opacity: 1 !important;
+  transform: none !important;
+  filter: none !important;
+}
+
+body.host-page.host-preview-mode.host-rail-layout .blur-fade.magic-bento-enhanced {
+  opacity: 1 !important;
+  filter: none !important;
+}
+
+/* — Header timers (legacy header slot hidden; timers live in agenda strip) — */
+body.host-page.host-rail-layout .host-header > .host-header-timers {
+  display: none;
+}
+
+body.host-page.host-rail-layout #titleLine {
+  display: none !important;
+}
+
+body.host-page.host-rail-layout .current-agenda-timers.host-header-timers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-primary);
+}
+
+body.host-page.host-rail-layout .current-agenda-timers .ui-timer {
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+}
+
+body.host-page.host-rail-layout .current-agenda-timers .ui-timer:first-child {
+  font-weight: 700;
+}
+
+/* — Current agenda head + recording — */
+body.host-page.host-rail-layout .current-agenda-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+body.host-page.host-rail-layout .current-agenda-panel-head-left {
+  flex: 1;
+  min-width: 0;
+}
+
+body.host-page.host-rail-layout .current-agenda-panel-head h3 {
+  margin-bottom: 0;
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount {
+  flex-shrink: 0;
+  max-width: min(100%, 280px);
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount .host-recording-widget {
+  margin-top: 0;
+  width: auto;
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount .host-recording-chip {
+  padding: 6px 10px;
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount .rec-status-sub {
+  display: none;
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount .rec-status-main {
+  font-size: 13px;
+}
+
+body.host-page.host-rail-layout .current-agenda-recording-mount .rec-status-timer {
+  font-size: 13px;
+}
+
+/* — Rail shell — */
+body.host-page.host-rail-layout .host-rail-shell {
+  display: block;
+  min-height: calc(100dvh - 180px - var(--rail-dock-h));
+  position: relative;
+}
+
+body.host-page.host-rail-layout .host-rail-main {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+  padding-right: 0;
+}
+
+body.host-page.host-rail-layout .host-rail-main .card-matter {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: min(480px, calc(100dvh - 280px - var(--rail-dock-h)));
+  margin-top: 0;
+}
+
+body.host-page.host-rail-layout .host-rail-main .card-matter #progressReportBody {
+  flex: 1;
+  min-height: min(360px, calc(100dvh - 340px - var(--rail-dock-h)));
+  max-height: none;
+}
+
+body.host-page.host-rail-layout .host-rail-agenda-strip.current-agenda-panel {
+  margin-bottom: 0;
+  border-left: none;
+  border-top: 2px solid var(--color-primary);
+  background: var(--color-primary-light);
+  box-shadow: var(--shadow-card);
+}
+
+body.host-page.host-rail-layout .host-rail-idle-hint {
+  padding: 24px 20px;
+  text-align: center;
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface);
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: min(360px, calc(100dvh - 340px - var(--rail-dock-h)));
+}
+
+body.host-page.host-rail-layout .host-rail-idle-hint[hidden] {
+  display: none !important;
+}
+
+body.host-page.host-rail-layout .host-rail-idle-hint p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.6;
+  max-width: 40ch;
+}
+
+/* — Unified drawer — */
+body.host-page.host-rail-layout .host-rail-drawer {
+  position: fixed;
+  top: var(--rail-top);
+  right: 0;
+  width: var(--rail-drawer-w);
+  bottom: var(--rail-bottom);
+  z-index: 35;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: -4px 0 24px rgba(26, 26, 26, 0.1);
+  transform: translateX(100%);
+  transition: transform 200ms cubic-bezier(0.22, 1, 0.36, 1);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer.is-open {
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.host-page.host-rail-layout .host-rail-drawer {
+    transition: none;
+  }
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 12px 14px 16px;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section {
+  padding-bottom: 16px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .card-light,
+body.host-page.host-rail-layout .host-rail-drawer-section .card-agenda-progress,
+body.host-page.host-rail-layout .host-rail-drawer-section .card-avatar,
+body.host-page.host-rail-layout .host-rail-drawer-section .card-agenda-detail {
+  border: none;
+  box-shadow: none;
+  padding: 0;
+  background: transparent;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .panel-title {
+  font-size: 15px;
+  margin-bottom: 10px;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .control-primary-sticky {
+  position: static;
+  margin: 0 0 12px;
+  padding: 0 0 12px;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 0;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .timers-display {
+  display: none;
+}
+
+body.host-page.host-rail-layout:not(.host-preview-mode) .host-rail-mobile-toggle {
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .control-danger-zone {
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section .control-danger-zone .btn-danger {
+  width: auto;
+  min-width: 120px;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section--avatar .avatar-stage {
+  min-height: 120px;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-section--agenda .agenda-detail-body {
+  min-height: 120px;
+  max-height: none;
+}
+
+/* — Desktop hover edge — */
+body.host-page.host-rail-layout .host-rail-edge {
+  position: fixed;
+  top: var(--rail-top);
+  right: 0;
+  width: var(--rail-edge-w);
+  bottom: var(--rail-bottom);
+  z-index: 34;
+  pointer-events: auto;
+  background: transparent;
+}
+
+body.host-page.host-rail-layout .host-rail-edge::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: 3px;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 48px;
+  border-radius: 999px;
+  background: var(--color-border);
+  opacity: 0.6;
+  transition: opacity 200ms ease, background 200ms ease;
+}
+
+body.host-page.host-rail-layout .host-rail-edge.is-hot::after,
+body.host-page.host-rail-layout .host-rail-drawer.is-open ~ .host-rail-edge::after {
+  opacity: 1;
+  background: var(--color-primary);
+}
+
+/* — Mobile toggle — */
+body.host-page.host-rail-layout .host-rail-mobile-toggle {
+  display: none;
+  position: fixed;
+  right: 16px;
+  bottom: calc(var(--rail-dock-h) + 12px + env(safe-area-inset-bottom, 0px));
+  z-index: 38;
+  width: var(--touch-min);
+  height: var(--touch-min);
+  min-width: var(--touch-min);
+  padding: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+body.host-page.host-rail-layout .host-rail-mobile-toggle.is-active {
+  background: var(--color-primary-light);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+body.host-page.host-rail-layout .host-rail-mobile-toggle .icon-sm {
+  margin: 0;
+}
+
+/* — Transcript flyout (anchored to agenda-strip recording widget) — */
+body.host-page.host-rail-layout #transcriptPanel.host-recording-transcript-flyout:not(.transcript-panel-hidden) {
+  position: absolute;
+  z-index: 150;
+  right: 0;
+  top: calc(100% + 6px);
+  bottom: auto;
+  width: min(340px, calc(100vw - 32px));
+  max-height: min(320px, 40dvh);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+body.host-page.host-rail-layout #transcriptPanel.host-recording-transcript-flyout:not(.transcript-panel-hidden) .transcript-host-viewport {
+  max-height: min(260px, 36dvh);
+  overflow-y: auto;
+}
+
+body.host-page.host-preview-mode.host-rail-layout.scene-idle .host-rail-main {
+  opacity: 0.96;
+}
+
+/* — Responsive — */
+@media (min-width: 901px) {
+  body.host-page.host-rail-layout .host-rail-mobile-toggle {
+    display: none !important;
+  }
+}
+
+@media (max-width: 900px) {
+  body.host-page.host-rail-layout {
+    --rail-drawer-w: min(340px, calc(100vw - 24px));
+  }
+
+  body.host-page.host-rail-layout .host-rail-edge {
+    display: none;
+  }
+
+  body.host-page.host-rail-layout .host-rail-mobile-toggle {
+    display: inline-flex;
+  }
+
+  body.host-page.host-rail-layout .host-rail-drawer {
+    width: var(--rail-drawer-w);
+  }
+
+  body.host-page.host-rail-layout .host-rail-main .card-matter {
+    min-height: min(360px, calc(100dvh - 320px - var(--rail-dock-h)));
+  }
+
+  body.host-page.host-rail-layout .current-agenda-panel-head {
+    flex-wrap: wrap;
+  }
+
+  body.host-page.host-rail-layout .current-agenda-recording-mount {
+    max-width: 100%;
+    width: 100%;
+  }
+
+  body.host-page.host-rail-layout .current-agenda-recording-mount .host-recording-widget {
+    width: 100%;
+  }
+}

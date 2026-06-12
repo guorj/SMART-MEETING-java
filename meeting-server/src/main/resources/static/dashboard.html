@@ -9,15 +9,19 @@
 <title>智能会议前台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-2">
-<link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-2">
-<link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-2">
-<link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-2">
-<link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-2">
+<link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/chroma-grid.css?v=sm-ui-20260612-3">
+<link rel="stylesheet" href="ui-kit/gooey-nav.css?v=sm-ui-20260612-6">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
 <script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
 <script src="ui-kit/motion.js?v=sm-ui-20260610-2"></script>
 <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
+<script src="ui-kit/chroma-grid.js?v=sm-ui-20260612-3"></script>
+<script src="ui-kit/gooey-nav.js?v=sm-ui-20260612-3"></script>
 <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
 <body class="dashboard-page">
@@ -88,20 +92,110 @@ function canEnd(st){
   return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
 }
 
+let presetChromaGrid=null;
+let gooeyNavInstance=null;
+let activeDashboardTab='quick';
+
 function initBlurFade(){ if(window.SmMotion) SmMotion.initBlurFade(); }
+
+function buildNavItems(perms){
+  const items=[{id:'quick',label:'快速开始'}];
+  if(perms.canRegisterVoiceprint) items.push({id:'voiceprint',label:'声纹注册'});
+  items.push({id:'recent',label:'近期会议'});
+  items.push({id:'account',label:'账户信息'});
+  return items;
+}
+
+function showDashboardPanel(tabId){
+  activeDashboardTab=tabId;
+  document.querySelectorAll('.dashboard-panel').forEach(panel=>{
+    const panelId=panel.id.replace(/^panel-/,'');
+    panel.classList.toggle('hidden',panelId!==tabId);
+  });
+}
+
+function initDashboardNav(items){
+  if(!window.GooeyNav||!items.length) return;
+  if(gooeyNavInstance) gooeyNavInstance.unmount();
+  let initialIndex=items.findIndex(item=>item.id===activeDashboardTab);
+  if(initialIndex<0){
+    initialIndex=0;
+    activeDashboardTab=items[0].id;
+  }
+  gooeyNavInstance=GooeyNav.mount('#dashboard-nav',{
+    items,
+    initialActiveIndex:initialIndex,
+    particleCount:0,
+    onSelect:(index,item)=>showDashboardPanel(item.id)
+  });
+  showDashboardPanel(activeDashboardTab);
+}
+
+function initPresetChromaGrid(presets){
+  if(!window.ChromaGrid||!presets||!presets.length) return;
+  const mountEl=document.getElementById('preset-chroma-grid');
+  if(!mountEl) return;
+  if(presetChromaGrid) presetChromaGrid.unmount();
+  const items=ChromaGrid.presetsToItems(presets);
+  presetChromaGrid=ChromaGrid.mount(mountEl,{
+    items,
+    columns:2,
+    radius:260,
+    damping:0.45,
+    fadeOut:0.6,
+    ease:'power3.out',
+    onItemClick:(item)=>{
+      doCreateMeeting(parseInt(item.code,10),item.code);
+    }
+  });
+}
 
 function initDashboardBento(){
   if(!window.MagicBento||!window.gsap) return;
   MagicBento.enhance('#app .ui-card.card',{
     glowColor:'0, 47, 167',
-    spotlightRadius:300,
-    spotlightEl:'#hostMagicSpotlight',
-    scopeEl:'body.dashboard-page',
+    enableSpotlight:false,
     enableTilt:false,
     enableMagnetism:false,
     enableStars:false,
     clickEffect:true
   });
+}
+
+function renderActiveMeetingHtml(activeMeeting,canCreate,canEndMeeting){
+  if(!activeMeeting) return '';
+  if(canEndMeeting){
+    return `<div class="ui-card card blur-fade">
+      <div class="msg msg-info" style="margin-top:0;margin-bottom:10px">
+        检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}
+      </div>
+      <div class="btn-grid" style="margin-top:0">
+        ${canCreate?`<button class="ui-btn ui-btn-recover btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>`:''}
+        <button class="ui-btn ui-btn-danger btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
+      </div>
+    </div>`;
+  }
+  return `<div class="ui-card card blur-fade">
+    <div class="msg msg-info" style="margin-top:0;margin-bottom:0">
+      进行中：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}<br/>
+      <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
+    </div>
+  </div>`;
+}
+
+function renderQuickPanel(canCreate,presets,activeMeeting,canEndMeeting){
+  const activeBlock=renderActiveMeetingHtml(activeMeeting,canCreate,canEndMeeting);
+  const presetBlock=canCreate
+    ? `<div class="ui-card card card-chroma-meetings blur-fade">
+        <h2>开始会议</h2>
+        <div id="preset-chroma-grid"></div>
+        <p id="create-msg" class="msg hidden"></p>
+      </div>`
+    : `<div class="ui-card card blur-fade">
+        <h2>开始会议</h2>
+        <p class="muted">您没有创建会议的权限，请联系管理员。</p>
+      </div>`;
+  return activeBlock+presetBlock;
 }
 
 async function init(){
@@ -117,64 +211,60 @@ async function init(){
     const canCreate=perms.canCreateMeeting;
     const canEndMeeting=perms.canEndMeeting;
     const canVoiceprint=perms.canRegisterVoiceprint;
+    const navItems=buildNavItems(perms);
 
-    const presetButtons=canCreate
-      ? presets.map(p=>`<button class="ui-btn ui-btn-primary" data-code="${p.code}">${ix('video')}${esc(p.displayName)}</button>`).join('')
-      : '<p class="muted">您没有创建会议的权限，请联系管理员。</p>';
     const meetingList=meetings.length===0?'<p class="muted">暂无近期会议</p>':
       meetings.map(m=>`<div class="meeting-item"><span class="meeting-title">${esc(m.title)}</span>${statusBadge(m.status)}<span class="meeting-time">${fmtDt(m.createdAt)}</span>${m.docUrl?'<a class="meeting-link" href="'+esc(m.docUrl)+'" target="_blank">纪要</a>':''}</div>`).join('');
-    const activeHtml=(activeMeeting && canEndMeeting)
-      ? `<div class="msg msg-info" style="margin-top:0;margin-bottom:10px">
-           检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}
-         </div>
-         <div class="btn-grid" style="margin-top:0">
-           ${canCreate?`<button class="ui-btn ui-btn-recover btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>`:''}
-           <button class="ui-btn ui-btn-danger btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
-         </div>`
-      : (activeMeeting && !canEndMeeting
-        ? `<div class="msg msg-info" style="margin-top:0;margin-bottom:0">
-             进行中：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}<br/>
-             <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
-           </div>`
-        : '');
 
     const accountDetails=me.mappingExists
       ? '<p class="muted">OA userId: '+esc(me.oaUserId)+'</p>'
       : '<p class="muted">未关联 OA 账号</p>';
 
+    const voiceprintPanel=canVoiceprint
+      ? `<section id="panel-voiceprint" class="dashboard-panel hidden">
+          <div class="ui-card card blur-fade">
+            <h2>声纹注册</h2>
+            <p>${vp.registered?'声纹特征 ID: '+esc(vp.featureId)+'<br/>有效期至: '+fmtDt(vp.expiresAt):'您尚未注册声纹，注册后会议纪要可自动识别您的声音。'}</p>
+            <button class="ui-btn ui-btn-voice" id="btn-register">${ix('microphone')}${vp.registered?'重新注册声纹':'注册声纹'}</button>
+          </div>
+        </section>`
+      : '';
+
     document.getElementById('app').innerHTML=`
-      <div class="ui-card card blur-fade">
-        <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuUserId)}</span>${vpBadge(vp.expiryStatus)}</div>
-        <details class="ui-help"><summary>账号信息</summary>${accountDetails}</details>
-      </div>
-      ${canCreate ? `<div class="ui-card card blur-fade">
-        <h2>开始会议</h2>
-        <div class="btn-grid">${presetButtons}</div>
-        <p id="create-msg" class="msg hidden"></p>
-      </div>` : ''}
-      ${activeMeeting ? `<div class="ui-card card blur-fade">${activeHtml}</div>` : ''}
-      ${canVoiceprint ? `<div class="ui-card card blur-fade">
-        <h2>声纹管理</h2>
-        <p>${vp.registered?'声纹特征 ID: '+esc(vp.featureId)+'<br/>有效期至: '+fmtDt(vp.expiresAt):'您尚未注册声纹，注册后会议纪要可自动识别您的声音。'}</p>
-        <button class="ui-btn ui-btn-voice" id="btn-register">${ix('microphone')}${vp.registered?'重新注册声纹':'注册声纹'}</button>
-      </div>` : ''}
-      <div class="ui-card card blur-fade">
-        <h2>近期会议</h2>
-        ${meetingList}
-      </div>
-      <div class="ui-card card blur-fade">
-        <details class="ui-help"><summary>帮助</summary>
-          <p class="muted">令牌有效期 8 小时 · 过期后请重新发送「会议管理」</p>
-        </details>
+      <div class="dashboard-shell">
+        <div class="ui-card card dashboard-nav-card blur-fade">
+          <div id="dashboard-nav"></div>
+        </div>
+        <div class="dashboard-panels">
+          <section id="panel-quick" class="dashboard-panel">
+            ${renderQuickPanel(canCreate,presets,activeMeeting,canEndMeeting)}
+          </section>
+          ${voiceprintPanel}
+          <section id="panel-recent" class="dashboard-panel hidden">
+            <div class="ui-card card blur-fade">
+              <h2>近期会议</h2>
+              ${meetingList}
+            </div>
+          </section>
+          <section id="panel-account" class="dashboard-panel hidden">
+            <div class="ui-card card blur-fade">
+              <h2>账户信息</h2>
+              <div class="user-bar"><span class="user-name">${esc(me.userName||me.feishuUserId)}</span>${vpBadge(vp.expiryStatus)}</div>
+              ${accountDetails}
+            </div>
+            <div class="ui-card card blur-fade">
+              <details class="ui-help"><summary>帮助</summary>
+                <p class="muted">令牌有效期 8 小时 · 过期后请重新发送「会议管理」</p>
+              </details>
+            </div>
+          </section>
+        </div>
       </div>`;
 
+    initDashboardNav(navItems);
+
     if(canCreate){
-      document.querySelectorAll('[data-code]').forEach(btn=>{
-        btn.onclick=async()=>{
-          const code=parseInt(btn.dataset.code);
-          await doCreateMeeting(code);
-        };
-      });
+      initPresetChromaGrid(presets);
     }
     if(canVoiceprint){
       const regBtn=document.getElementById('btn-register');
@@ -234,11 +324,13 @@ async function init(){
   }
 }
 
-async function doCreateMeeting(presetCode){
+async function doCreateMeeting(presetCode,busyCode){
   const msgEl=document.getElementById('create-msg');
+  if(!msgEl) return;
   msgEl.classList.remove('hidden');
   msgEl.className='msg msg-info';
   msgEl.textContent='正在创建会议…';
+  if(presetChromaGrid) presetChromaGrid.setBusy(busyCode!=null?busyCode:presetCode,true);
   try{
     const body={presetTypeCode:presetCode};
     const r=await api('/api/v1/dashboard/create-meeting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
@@ -254,11 +346,13 @@ async function doCreateMeeting(presetCode){
   }catch(e){
     msgEl.className='msg msg-err';
     msgEl.textContent=e.message;
+    if(presetChromaGrid) presetChromaGrid.setBusy(busyCode!=null?busyCode:presetCode,false);
   }
 }
 
 function showMsg(id,text,isErr){
   const el=document.getElementById(id);
+  if(!el) return;
   el.classList.remove('hidden');
   el.className=isErr?'msg msg-err':'msg msg-ok';
   el.textContent=text;
@@ -266,6 +360,5 @@ function showMsg(id,text,isErr){
 
 init();
 </script>
-<div class="magic-bento-global-spotlight" id="hostMagicSpotlight" aria-hidden="true"></div>
 </body>
 </html>

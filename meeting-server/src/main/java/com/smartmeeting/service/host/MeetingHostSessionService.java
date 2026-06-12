@@ -49,7 +49,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * AI 会议主持会话：单会议维度的议题进度、倒计时、飞书群静音、主持端 WebSocket 状态推送与讯飞 TTS 播报编排。
+ * AI 会议主持会话：单会议维度的议题进度、倒计时、主持端 WebSocket 状态推送与讯飞 TTS 播报编排。
  * <p>
  * 主持页订阅 {@code host_state}、{@code host_toast}（时间类提醒）与 {@code tts_*} 消息；
  * 时间提醒经 toast 下发，其余话术合成 PCM 后经 {@link MeetingHostWebSocketHandler} 下发。
@@ -64,7 +64,6 @@ public class MeetingHostSessionService {
     private final ParticipantMapper participantMapper;
     private final MeetingTypePresetMapper presetMapper;
     private final PresetAgendaDocService presetAgendaDocService;
-    private final MeetingHostFeishuMuteRegistry muteRegistry;
     private final MeetingHostWebSocketHandler hostWebSocketHandler;
     private final XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
     private final ObjectMapper objectMapper;
@@ -89,13 +88,12 @@ public class MeetingHostSessionService {
     private final Map<String, HostRuntime> runtimes = new ConcurrentHashMap<>();
 
     /**
-     * 构造主持会话服务，注入会议/参会人持久层、预设议程与飞书静音、WebSocket 推送及 TTS 合成依赖。
+     * 构造主持会话服务，注入会议/参会人持久层、预设议程、WebSocket 推送及 TTS 合成依赖。
      *
      * @param meetingMapper           会议表，用于加载 chatId、host_agenda、preset 等
      * @param participantMapper       参会人表，检点名单优先从此加载
      * @param presetMapper            会务类型预设（议程模板、应到名单 participants_names）
      * @param presetAgendaDocService  预设会序飞书资料配置合并
-     * @param muteRegistry            飞书群静音/恢复
      * @param hostWebSocketHandler    主持端 WebSocket，推送 host_state 与 TTS 帧
      * @param ttsSynthesizeService    讯飞在线合成，产出 16k s16le PCM
      * @param objectMapper            JSON 序列化（状态、TTS 消息体）
@@ -104,7 +102,6 @@ public class MeetingHostSessionService {
                                      ParticipantMapper participantMapper,
                                      MeetingTypePresetMapper presetMapper,
                                      PresetAgendaDocService presetAgendaDocService,
-                                     MeetingHostFeishuMuteRegistry muteRegistry,
                                      @Lazy MeetingHostWebSocketHandler hostWebSocketHandler,
                                      XfyunOnlineTtsSynthesizeService ttsSynthesizeService,
                                      ObjectMapper objectMapper,
@@ -115,7 +112,6 @@ public class MeetingHostSessionService {
         this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
         this.presetAgendaDocService = presetAgendaDocService;
-        this.muteRegistry = muteRegistry;
         this.hostWebSocketHandler = hostWebSocketHandler;
         this.ttsSynthesizeService = ttsSynthesizeService;
         this.objectMapper = objectMapper;
@@ -246,7 +242,8 @@ public class MeetingHostSessionService {
             throw new BusinessException(400, "AI 会议主持人功能未启用");
         }
         if (runtimes.containsKey(meetingId)) {
-            throw new BusinessException(400, "主持会话已在进行中");
+            log.info("Host start ignored, session already active: meetingId={}", meetingId);
+            return;
         }
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -260,8 +257,6 @@ public class MeetingHostSessionService {
         mergePresetAgendaDocs(meeting.getPresetTypeCode(), topics, meetingId);
         log.info("Host start topics resolved: meetingId={}, topicCount={}, docBoundTopics={}, docSummary={}",
                 meetingId, topics.size(), countDocBoundTopics(topics), topicDocSummary(topics));
-
-        muteRegistry.muteChat(meeting.getChatId());
 
         long now = System.currentTimeMillis();
         HostRuntime rt = new HostRuntime();
@@ -1301,12 +1296,6 @@ public class MeetingHostSessionService {
             rt.tick.cancel(false);
         }
         runtimeLocks.remove(meetingId);
-        Meeting m = meetingMapper.selectById(meetingId);
-        if (m != null && m.getChatId() != null) {
-            muteRegistry.unmuteChat(m.getChatId());
-        } else if (rt.chatId != null) {
-            muteRegistry.unmuteChat(rt.chatId);
-        }
         log.info("Host session cleared: meetingId={}", meetingId);
     }
 

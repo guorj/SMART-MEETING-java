@@ -16,13 +16,48 @@ AdminModules.register({
     let saving = false;
     let metaSaving = false;
     let skipInlineCommit = false;
+    let uploadInProgress = false;
+    let inlineCommitTimer = null;
     const materialBlobCache = {};
 
     const esc = s => (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const docKey = (i, bi) => i + '-' + bi;
+    const parseDocKey = key => {
+      if (!key) return null;
+      const parts = String(key).split('-');
+      if (parts.length !== 2) return null;
+      const i = parseInt(parts[0], 10);
+      const bi = parseInt(parts[1], 10);
+      if (Number.isNaN(i) || Number.isNaN(bi)) return null;
+      return { i: i, bi: bi };
+    };
     const isLocalBinding = b => !!(b && String(b.storageKind || '').toUpperCase() === 'LOCAL' && (b.fileId || '').trim());
-    const bindingHasContent = b => isLocalBinding(b) || !!((b && b.feishuDocUrl) || '').trim();
+    const bindingHasContent = b => isLocalBinding(b) || !!((b && b.feishuDocUrl) || '').trim()
+      || !!((b && b.configName) || '').trim();
+    const activeSourceMode = tile => (tile.querySelector('.inl-source-opt.active') || {}).dataset?.source || 'FEISHU';
+    const switchSourceMode = (tile, mode) => {
+      if (!tile) return;
+      tile.querySelectorAll('.inl-source-opt').forEach(b => b.classList.toggle('active', b.dataset.source === mode));
+      tile.querySelector('.doc-source-feishu').classList.toggle('hidden', mode !== 'FEISHU');
+      tile.querySelector('.doc-source-local').classList.toggle('hidden', mode !== 'LOCAL');
+    };
     const isImageMime = m => String(m || '').toLowerCase().startsWith('image/');
+    const maxUploadBytesForFile = file => {
+      const mime = String(file && file.type || '').toLowerCase();
+      const name = String(file && file.name || '').toLowerCase();
+      if (mime.startsWith('image/') || /\.(jpe?g|png|gif|webp)$/.test(name)) return 10 * 1024 * 1024;
+      if (/\.(pptx?|pdf)$/.test(name) || mime.includes('presentation') || mime.includes('powerpoint') || mime === 'application/pdf') {
+        return 50 * 1024 * 1024;
+      }
+      return 20 * 1024 * 1024;
+    };
+    const validateUploadFile = file => {
+      const max = maxUploadBytesForFile(file);
+      if (file.size > max) {
+        const mb = Math.round(max / (1024 * 1024));
+        throw new Error((file.name || '文件') + ' 超过 ' + mb + 'MB 限制');
+      }
+    };
     const materialAdminUrl = fileId => '/api/v1/admin/agenda-config/materials/' + encodeURIComponent(fileId);
     const fetchMaterialBlobUrl = async fileId => {
       if (!fileId) return '';
@@ -75,6 +110,29 @@ AdminModules.register({
         code = Number(presetOptions[0].presetTypeCode);
         sel.value = String(code);
       }
+      const grid = document.getElementById('preset-picker-grid');
+      if (!grid) return;
+      const list = presetOptions.length ? presetOptions : [{ presetTypeCode: 1, displayName: '会务类型1' }];
+      grid.innerHTML = list.map(p => {
+        const active = Number(p.presetTypeCode) === Number(code) ? ' is-active' : '';
+        const name = esc(p.displayName || ('会务类型' + p.presetTypeCode));
+        return `<button type="button" class="preset-pick-btn${active}" data-code="${p.presetTypeCode}" title="${p.presetTypeCode} · ${name}">
+          <span class="preset-pick-code">#${p.presetTypeCode}</span>
+          <span class="preset-pick-name">${name}</span>
+        </button>`;
+      }).join('');
+      grid.querySelectorAll('.preset-pick-btn').forEach(btn => {
+        btn.onclick = async () => {
+          const next = Number(btn.dataset.code);
+          if (Number.isNaN(next) || next === Number(code)) return;
+          await flushPendingInlineCommit();
+          code = next;
+          sel.value = String(code);
+          await loadBundle();
+          render();
+          setMetaSaveStatus('idle', '修改后自动保存');
+        };
+      });
     };
 
     const loadPresetOptions = async () => {
@@ -256,25 +314,68 @@ AdminModules.register({
       }, 500);
     };
 
-    const startDocEdit = (agendaIndex, bindingIndex) => {
-      editingDocKey = docKey(agendaIndex, bindingIndex);
+    const scheduleInlineCommit = (agendaIndex, bindingIndex, delay) => {
+      clearTimeout(inlineCommitTimer);
+      inlineCommitTimer = setTimeout(() => {
+        inlineCommitTimer = null;
+        if (skipInlineCommit || saving || uploadInProgress) return;
+        const key = docKey(agendaIndex, bindingIndex);
+        if (editingDocKey !== key) return;
+        const tile = document.querySelector(`.doc-tile-editing[data-i="${agendaIndex}"][data-bi="${bindingIndex}"]`);
+        if (!tile) return;
+        if (tile.contains(document.activeElement)) return;
+        commitInlineEdit(agendaIndex, bindingIndex, false);
+      }, delay != null ? delay : 80);
+    };
+
+    const flushPendingInlineCommit = async () => {
+      clearTimeout(inlineCommitTimer);
+      inlineCommitTimer = null;
+      if (!editingDocKey) return;
+      skipInlineCommit = false;
+      const parsed = parseDocKey(editingDocKey);
+      if (!parsed) {
+        editingDocKey = null;
+        return;
+      }
+      const tile = document.querySelector(`.doc-tile-editing[data-i="${parsed.i}"][data-bi="${parsed.bi}"]`);
+      if (!tile) {
+        editingDocKey = null;
+        return;
+      }
+      await commitInlineEdit(parsed.i, parsed.bi, false);
+    };
+
+    const startDocEdit = async (agendaIndex, bindingIndex) => {
+      const nextKey = docKey(agendaIndex, bindingIndex);
+      if (editingDocKey && editingDocKey !== nextKey) {
+        await flushPendingInlineCommit();
+      }
+      editingDocKey = nextKey;
       renderAgendaTable();
       requestAnimationFrame(() => {
         const tile = document.querySelector('.doc-tile-editing');
-        const focusEl = tile && (tile.querySelector('.inl-url') || tile.querySelector('.inl-name'));
+        if (!tile) return;
+        const bi = +tile.dataset.bi;
+        const i = +tile.dataset.i;
+        const binding = bundleItems[i]?.bindings?.[bi];
+        const focusEl = isLocalBinding(binding)
+          ? (tile.querySelector('.inl-pick-file') || tile.querySelector('.inl-name'))
+          : (tile.querySelector('.inl-url') || tile.querySelector('.inl-name'));
         if (focusEl) focusEl.focus();
       });
     };
 
-    const addEmptyBinding = agendaIndex => {
+    const addEmptyBinding = (agendaIndex, preferLocal) => {
       const row = bundleItems[agendaIndex];
       if (!row.bindings) row.bindings = [];
       const slot = nextResourceSlot(row.bindings);
+      const local = !!preferLocal;
       row.bindings.push({
         configName: '',
         resourceSlot: slot,
         feishuDocUrl: '',
-        storageKind: 'FEISHU',
+        storageKind: local ? 'LOCAL' : 'FEISHU',
         fileId: null,
         originalFilename: null,
         mimeType: null,
@@ -329,6 +430,7 @@ AdminModules.register({
     };
 
     const uploadLocalMaterial = async file => {
+      validateUploadFile(file);
       const fd = new FormData();
       fd.append('file', file);
       const raw = await AdminApi.fetch('/api/v1/admin/agenda-config/materials/upload', { method: 'POST', body: fd });
@@ -357,9 +459,9 @@ AdminModules.register({
     };
 
     const readInlineForm = tile => {
-      const source = (tile.querySelector('.inl-source-opt.active') || {}).dataset?.source || 'FEISHU';
-      const local = source === 'LOCAL';
       const prev = bundleItems[+tile.dataset.i]?.bindings?.[+tile.dataset.bi] || {};
+      const source = activeSourceMode(tile);
+      const local = source === 'LOCAL';
       return {
         id: tile.dataset.id ? parseInt(tile.dataset.id, 10) : null,
         configName: tile.querySelector('.inl-name').value.trim(),
@@ -376,12 +478,17 @@ AdminModules.register({
     };
 
     const commitInlineEdit = async (agendaIndex, bindingIndex, cancel) => {
+      clearTimeout(inlineCommitTimer);
+      inlineCommitTimer = null;
+      const key = docKey(agendaIndex, bindingIndex);
       const tile = document.querySelector(`.doc-tile-editing[data-i="${agendaIndex}"][data-bi="${bindingIndex}"]`);
-      editingDocKey = null;
       if (!tile) {
+        if (editingDocKey === key) editingDocKey = null;
         renderAgendaTable();
         return;
       }
+      if (editingDocKey !== key && !cancel) return;
+      editingDocKey = null;
       if (cancel) {
         const b = bundleItems[agendaIndex].bindings[bindingIndex];
         if (!b.id && !b.configName && !bindingHasContent(b)) {
@@ -397,9 +504,19 @@ AdminModules.register({
         return;
       }
       if (!binding.configName) {
-        binding.configName = 'doc-' + (agendaIndex + 1) + '-' + (bindingIndex + 1);
+        binding.configName = 'preset' + code + '-doc-' + (agendaIndex + 1) + '-' + (bindingIndex + 1);
       }
       const prev = bundleItems[agendaIndex].bindings[bindingIndex] || {};
+      if (isLocalBinding(prev) && binding.storageKind === 'LOCAL') {
+        binding.fileId = prev.fileId;
+        binding.originalFilename = prev.originalFilename;
+        binding.mimeType = prev.mimeType;
+        binding.feishuDocUrl = '';
+      } else if (binding.storageKind === 'FEISHU') {
+        binding.fileId = null;
+        binding.originalFilename = null;
+        binding.mimeType = null;
+      }
       bundleItems[agendaIndex].bindings[bindingIndex] = Object.assign({}, prev, binding);
       renderAgendaTable();
       saving = true;
@@ -467,14 +584,17 @@ AdminModules.register({
             </div>
           </div>
           <div class="doc-source-local${localHidden}">
-            <div class="doc-inline-row">
+            <div class="doc-inline-row doc-local-upload-row">
               <label>本地文件</label>
-              <input class="inl-file" type="file" accept=".doc,.docx,image/*" multiple/>
-              <p class="doc-inline-hint-block">${AdminHints.presets.localUpload || '支持 doc/docx 与常见图片，可多选；上传后立即预览'}</p>
+              <div class="doc-local-upload-actions">
+                <button type="button" class="secondary inl-pick-file">选择文件…</button>
+                <input class="inl-file inl-file-hidden" type="file" accept=".doc,.docx,.ppt,.pptx,.pdf,.xls,.xlsx,.csv,image/*" multiple/>
+              </div>
+              <p class="doc-inline-hint-block">${AdminHints.presets.localUpload || '支持 doc/docx、ppt/pptx、pdf、xls/xlsx、csv 与常见图片；ppt/pdf 单文件最大 50MB，可多选'}</p>
             </div>
             ${localPreview}
           </div>
-          <p class="doc-inline-hint muted">点击外侧或按 Tab 离开即自动保存 · Esc 取消</p>
+          <p class="doc-inline-hint doc-inline-hint-block">点击外侧或按 Tab 离开即自动保存 · Esc 取消</p>
         </div>
         <div class="doc-tile-actions">
           <button type="button" class="danger ag-doc-rm" data-i="${agendaIndex}" data-bi="${bindingIndex}">删除</button>
@@ -487,7 +607,7 @@ AdminModules.register({
       const bdm = d.bitableDisplayMode
         ? `<span class="meta-pill meta-bdm">${esc(d.bitableDisplayMode)}</span>` : '';
       const role = (d.configRole || 'SOURCE').toLowerCase();
-      const name = d.configName ? esc(d.configName) : '<em class="muted">未命名配置</em>';
+      const name = d.configName ? esc(d.configName) : '<em class="agenda-empty-hint">未命名配置</em>';
       const local = isLocalBinding(d);
       let contentInner;
       let linkBtns = '';
@@ -505,7 +625,7 @@ AdminModules.register({
         }
       }
       const kindPill = local ? '<span class="meta-pill meta-local">本地</span>' : '';
-      return `<div class="doc-tile doc-tile-view doc-tile-clickable" data-i="${agendaIndex}" data-bi="${bindingIndex}" tabindex="0" title="点击编辑">
+      return `<div class="doc-tile doc-tile-view doc-tile-clickable ui-surface-card" data-i="${agendaIndex}" data-bi="${bindingIndex}" tabindex="0" title="点击编辑">
         <div class="doc-tile-main">
           <div class="doc-tile-head">
             <span class="doc-tile-name">${name}</span>
@@ -643,7 +763,8 @@ AdminModules.register({
       el.querySelectorAll('.ag-doc-add, .doc-tile-empty.doc-editable').forEach(btn => {
         btn.onclick = () => {
           const i = +btn.dataset.i;
-          const bi = addEmptyBinding(i);
+          const preferLocal = btn.classList.contains('doc-tile-empty');
+          const bi = addEmptyBinding(i, preferLocal);
           startDocEdit(i, bi);
         };
       });
@@ -662,16 +783,12 @@ AdminModules.register({
       el.querySelectorAll('.doc-tile-editing').forEach(tile => {
         const i = +tile.dataset.i;
         const bi = +tile.dataset.bi;
-        tile.addEventListener('focusout', e => {
-          if (tile.contains(e.relatedTarget)) return;
-          if (e.relatedTarget && e.relatedTarget.classList && e.relatedTarget.classList.contains('inl-file')) return;
-          setTimeout(() => {
-            if (skipInlineCommit) {
-              skipInlineCommit = false;
-              return;
-            }
-            if (editingDocKey === docKey(i, bi)) commitInlineEdit(i, bi, false);
-          }, 80);
+        tile.addEventListener('focusout', () => scheduleInlineCommit(i, bi, 80));
+        tile.querySelectorAll('.inl-name, .inl-url, .inl-role, .inl-slot, .inl-bdm').forEach(inp => {
+          inp.addEventListener('blur', () => scheduleInlineCommit(i, bi, 0));
+          if (inp.tagName === 'SELECT' || inp.type === 'number') {
+            inp.addEventListener('change', () => scheduleInlineCommit(i, bi, 300));
+          }
         });
         tile.addEventListener('keydown', e => {
           if (e.key === 'Escape') {
@@ -687,7 +804,10 @@ AdminModules.register({
         };
         btn.onclick = async e => {
         e.stopPropagation();
-        if (!confirm('删除该资料绑定？')) return;
+        if (!confirm('删除该资料绑定？')) {
+          skipInlineCommit = false;
+          return;
+        }
         const i = +btn.dataset.i;
         const bi = +btn.dataset.bi;
         editingDocKey = null;
@@ -706,6 +826,7 @@ AdminModules.register({
           setAutosaveStatus('error', '保存失败: ' + (err.message || ''));
         } finally {
           saving = false;
+          skipInlineCommit = false;
         }
       };
       });
@@ -730,10 +851,18 @@ AdminModules.register({
           e.stopPropagation();
           const tile = btn.closest('.doc-tile-editing');
           if (!tile) return;
-          const mode = btn.dataset.source;
-          tile.querySelectorAll('.inl-source-opt').forEach(b => b.classList.toggle('active', b.dataset.source === mode));
-          tile.querySelector('.doc-source-feishu').classList.toggle('hidden', mode !== 'FEISHU');
-          tile.querySelector('.doc-source-local').classList.toggle('hidden', mode !== 'LOCAL');
+          switchSourceMode(tile, btn.dataset.source);
+        };
+      });
+      el.querySelectorAll('.inl-pick-file').forEach(btn => {
+        btn.onclick = e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const tile = btn.closest('.doc-tile-editing');
+          if (!tile) return;
+          switchSourceMode(tile, 'LOCAL');
+          const input = tile.querySelector('.inl-file');
+          if (input) input.click();
         };
       });
       el.querySelectorAll('.inl-file').forEach(input => {
@@ -761,27 +890,29 @@ AdminModules.register({
           }
           const i = +tile.dataset.i;
           let bi = +tile.dataset.bi;
-          const hadEditKey = editingDocKey;
+          switchSourceMode(tile, 'LOCAL');
+          uploadInProgress = true;
           input.disabled = true;
           try {
             for (let fi = 0; fi < files.length; fi++) {
-              if (fi > 0) bi = addEmptyBinding(i);
+              if (fi > 0) bi = addEmptyBinding(i, true);
               const b = ensureBinding(i, bi);
               if (!b) throw new Error('资料绑定不存在');
               const data = await uploadLocalMaterial(files[fi]);
               assignLocalUploadToBinding(b, data);
             }
             await saveBundleImmediate();
-            editingDocKey = files.length > 1 ? null : hadEditKey;
+            editingDocKey = null;
             renderAgendaTable();
-            if (files.length === 1 && hadEditKey) startDocEdit(i, bi);
+            setAutosaveStatus('saved', '资料已上传并保存');
           } catch (err) {
+            setAutosaveStatus('error', '上传失败: ' + (err.message || ''));
             alert('上传失败: ' + (err.message || ''));
             renderAgendaTable();
-            if (hadEditKey) startDocEdit(i, bi);
           } finally {
             input.disabled = false;
             input.value = '';
+            uploadInProgress = false;
             skipInlineCommit = false;
           }
         };
@@ -899,7 +1030,7 @@ AdminModules.register({
       const box = document.getElementById('meta-participant-chips');
       if (!box) return;
       if (!metaParticipants.length) {
-        box.innerHTML = '<span class="muted">未选择参会人</span>';
+        box.innerHTML = '<span class="agenda-empty-hint">未选择参会人</span>';
         return;
       }
       box.innerHTML = metaParticipants.map((name, idx) =>
@@ -966,12 +1097,12 @@ AdminModules.register({
       const el = document.getElementById('agenda-table-wrap');
       if (!el) return;
       if (bundleItems.length === 0) {
-        el.innerHTML = '<div class="agenda-empty">暂无会序项，点击下方添加</div><div class="agenda-footer"><button type="button" class="ghost" id="ag-add-row">+ 会序项</button></div>';
+        el.innerHTML = '<div class="agenda-empty ui-surface-card">暂无会序项，点击下方添加</div><div class="agenda-footer"><button type="button" class="ui-btn ui-btn-secondary" id="ag-add-row">+ 会序项</button></div>';
         bindAgendaTableEvents(el);
         return;
       }
       const totalMin = bundleItems.reduce((s, r) => s + (r.minutes || 0), 0);
-      let html = `<div class="agenda-summary"><span>共 ${bundleItems.length} 项会序 · 约 ${totalMin} 分钟</span><span id="autosave-status" class="autosave-status autosave-idle">修改后自动保存</span></div>`;
+      let html = `<div class="agenda-summary ui-surface-card"><span>共 ${bundleItems.length} 项会序 · 约 ${totalMin} 分钟</span><span id="autosave-status" class="autosave-status autosave-idle">修改后自动保存</span></div>`;
       html += '<div class="agenda-timeline">';
       bundleItems.forEach((row, i) => {
         const tags = [];
@@ -986,7 +1117,7 @@ AdminModules.register({
         const ownerOptions = ['<option value="">选择负责人...</option>']
           .concat(userOptions.map(o => `<option value="${esc(o.uid)}">${esc(o.name ? (o.name + ' · ' + o.uid) : o.uid)}</option>`))
           .join('');
-        html += `<article class="agenda-card ag-row" data-i="${i}" draggable="true">
+        html += `<article class="agenda-card ag-row ui-surface-card" data-i="${i}" draggable="true">
           <div class="agenda-rail">
             <span class="agenda-num">${i + 1}</span>
             ${i < bundleItems.length - 1 ? '<span class="agenda-rail-line" aria-hidden="true"></span>' : ''}
@@ -1013,12 +1144,12 @@ AdminModules.register({
                 </div>
               </div>
               ${tagHtml}
-              <div class="agenda-owner-chips">${ownerTags || '<span class="muted">未设置负责人</span>'}</div>
+              <div class="agenda-owner-chips">${ownerTags || '<span class="agenda-empty-hint">未设置负责人</span>'}</div>
             </header>
             <section class="agenda-card-docs">
               <div class="agenda-doc-toolbar">
                 <span class="agenda-doc-label">资料绑定 <em>${bindings.length}</em></span>
-                <button type="button" class="ghost ag-doc-add" data-i="${i}">+ 添加资料</button>
+                <button type="button" class="ui-btn ui-btn-secondary ag-doc-add" data-i="${i}">+ 添加资料</button>
               </div>`;
         if (bindings.length === 0) {
           html += `<div class="doc-tile-empty doc-editable" data-i="${i}" tabindex="0">点击配置资料（飞书链接或本地上传）</div>`;
@@ -1029,7 +1160,7 @@ AdminModules.register({
         }
         html += '</section></div></article>';
       });
-      html += '</div><div class="agenda-footer"><button type="button" class="ghost" id="ag-add-row">+ 会序项</button></div>';
+      html += '</div><div class="agenda-footer"><button type="button" class="ui-btn ui-btn-secondary" id="ag-add-row">+ 会序项</button></div>';
       el.innerHTML = html;
       bindAgendaTableEvents(el);
     };
@@ -1039,32 +1170,36 @@ AdminModules.register({
       document.getElementById('agenda-table-panel').classList.toggle('hidden', tab !== 'table');
       document.getElementById('agenda-json-panel').classList.toggle('hidden', tab !== 'json');
       document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      renderPresetOptions();
       if (tab === 'basic') syncMetaForm();
       if (tab === 'table') renderAgendaTable();
     };
 
     root.innerHTML = `
-      <div class="panel">
-        <div class="panel-head"><h2>会务预设</h2><p>点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存。资料「角色」决定 weekly-jobs 能否引用为源/产出。</p></div>
-        <div class="toolbar toolbar-split">
-          <div class="toolbar-row">
-            <label class="field-inline" title="${AdminHints.presets.presetCode.replace(/"/g, '&quot;')}">会务类型<select id="preset-code"><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
-            <button type="button" class="primary" id="load-preset">加载</button>
-            <button type="button" class="secondary" id="create-preset">新增会务类型</button>
-            <button type="button" class="secondary" id="validate-preset">校验会序</button>
-            <button type="button" class="secondary" id="preview-preset">合并预览</button>
-          </div>
-          <hr class="toolbar-divider"/>
-          <div class="toolbar-row actions-secondary">
-            <button type="button" class="secondary" id="refresh-cache">刷新 preset 缓存</button>
-            <button type="button" class="secondary" id="refresh-meetings-dry">预览刷新未开会</button>
-            <button type="button" class="secondary" id="refresh-meetings">执行刷新未开会</button>
-            <button type="button" class="secondary" id="trigger-owner-notify">手动触发会序确认通知</button>
-          </div>
+      <div class="ui-card card admin-card blur-fade">
+        <h2>会务预设</h2>
+        <p class="module-intro-inline">点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存。资料「角色」决定 weekly-jobs 能否引用为源/产出。</p>
+        <div class="preset-picker-section">
+          <p class="preset-picker-label">选择会务类型</p>
+          <div id="preset-picker-grid" class="preset-picker-grid"></div>
+          <select id="preset-code" class="hidden" aria-label="会务类型"><option value="1">1</option></select>
+        </div>
+        <div class="admin-actions-row">
+          <button type="button" class="ui-btn ui-btn-primary" id="load-preset">加载</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="create-preset">新增会务类型</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="validate-preset">校验会序</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="preview-preset">合并预览</button>
+        </div>
+        <hr class="toolbar-divider"/>
+        <div class="admin-actions-row actions-secondary">
+          <button type="button" class="ui-btn ui-btn-secondary" id="refresh-cache">刷新 preset 缓存</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="refresh-meetings-dry">预览刷新未开会</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="refresh-meetings">执行刷新未开会</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="trigger-owner-notify">手动触发会序确认通知</button>
         </div>
       </div>
-      <div class="panel">
-        <div class="tabs">
+      <div class="ui-card card admin-card blur-fade">
+        <div class="tabs ui-tabs">
           <button type="button" data-tab="basic">基础信息</button>
           <button type="button" data-tab="table" class="active">会序与资料</button>
           <button type="button" data-tab="json">JSON 高级</button>
@@ -1087,51 +1222,61 @@ AdminModules.register({
             ${AdminForm.field('排期备注', '<textarea id="meta-schedule-note" rows="2" class="code-area" placeholder="如 每周一 9:30"></textarea>', '对应 int_meeting_type_preset.schedule_note')}
             ${AdminForm.field('议题摘要', '<textarea id="meta-agenda-summary" rows="3" class="code-area" placeholder="如 集团综合职能事务汇报"></textarea>', '对应 int_meeting_type_preset.agenda_summary')}
           </div>
-          <p class="preset-meta-actions"><button type="button" class="secondary" id="save-meta">立即保存</button></p>
+          <p class="preset-meta-actions"><button type="button" class="ui-btn ui-btn-secondary" id="save-meta">立即保存</button></p>
         </div>
         <div id="agenda-table-panel"><div id="agenda-table-wrap"></div></div>
         <div id="agenda-json-panel" class="hidden">
           <p class="form-hint">${AdminHints.presets.hostAgendaJson}</p>
           <textarea id="host-agenda-json" class="code-area" rows="14"></textarea>
-          <p style="margin-top:0.75rem"><button type="button" class="primary" id="save-json">保存 JSON</button></p>
+          <p style="margin-top:0.75rem"><button type="button" class="ui-btn ui-btn-primary" id="save-json">保存 JSON</button></p>
         </div>
       </div>
-      <pre id="preview-out" class="panel hidden"></pre>
-      <pre id="validate-out" class="panel hidden"></pre>
-      <div class="panel hidden form-editor" id="preset-create-editor">
+      <pre id="preview-out" class="ui-card card admin-card hidden"></pre>
+      <pre id="validate-out" class="ui-card card admin-card hidden"></pre>
+      <div class="ui-card card admin-card hidden form-editor" id="preset-create-editor">
         <h3>新增会务类型</h3>
         <p class="form-hint">一次填写后提交。编号可留空自动分配。</p>
         ${AdminForm.field('会务类型编号', '<input id="preset-create-code" type="number" min="1" placeholder="留空自动分配"/>', '正整数，留空自动使用下一个编号')}
         ${AdminForm.field('会务类型名称', '<input id="preset-create-name" type="text" placeholder="如 经营例会"/>', '建议填写便于识别的业务名称')}
         <p id="preset-create-msg" class="msg hidden"></p>
-        <div class="toolbar">
-          <button type="button" class="primary" id="preset-create-submit">提交创建</button>
-          <button type="button" class="secondary" id="preset-create-cancel">取消</button>
+        <div class="admin-actions-row">
+          <button type="button" class="ui-btn ui-btn-primary" id="preset-create-submit">提交创建</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="preset-create-cancel">取消</button>
         </div>
       </div>
-      <div class="panel hidden form-editor" id="owner-notify-editor">
+      <div class="ui-card card admin-card hidden form-editor" id="owner-notify-editor">
         <h3>手动触发会序确认通知</h3>
         <p class="form-hint">按当前会务类型（preset code）批量触发 PRE 通知流程。默认模板为 pre_10m_default。</p>
         ${AdminForm.field('模板编码', '<input id="owner-notify-template-code" type="text" placeholder="pre_10m_default（留空使用默认）"/>')}
         ${AdminForm.field('跳过已有执行', '<label class="check-label"><input id="owner-notify-skip-existing" type="checkbox" checked/> 仅触发尚未执行 PRE 的会议</label>')}
         <p id="owner-notify-msg" class="msg hidden"></p>
-        <div class="toolbar">
-          <button type="button" class="primary" id="owner-notify-submit">提交触发</button>
-          <button type="button" class="secondary" id="owner-notify-cancel">取消</button>
+        <div class="admin-actions-row">
+          <button type="button" class="ui-btn ui-btn-primary" id="owner-notify-submit">提交触发</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="owner-notify-cancel">取消</button>
         </div>
       </div>`;
 
     root.querySelectorAll('.tabs button').forEach(b => {
-      b.onclick = () => { tab = b.dataset.tab; render(); };
+      b.onclick = async () => {
+        await flushPendingInlineCommit();
+        tab = b.dataset.tab;
+        render();
+      };
     });
     document.getElementById('save-meta').onclick = async () => { await saveMeta(false); };
     document.getElementById('preset-code').onchange = async () => {
       clearTimeout(metaSaveTimer);
+      await flushPendingInlineCommit();
       await loadBundle();
       render();
       setMetaSaveStatus('idle', '修改后自动保存');
     };
-    document.getElementById('load-preset').onclick = async () => { await loadBundle(); render(); setAutosaveStatus('idle', '已加载'); };
+    document.getElementById('load-preset').onclick = async () => {
+      await flushPendingInlineCommit();
+      await loadBundle();
+      render();
+      setAutosaveStatus('idle', '已加载');
+    };
     document.getElementById('create-preset').onclick = () => {
       const ed = document.getElementById('preset-create-editor');
       document.getElementById('preset-create-code').value = '';
@@ -1251,10 +1396,24 @@ AdminModules.register({
       alert('已刷新 ' + r.count + ' 场');
     };
 
+    if (window.__presetsOutsideCommitHandler) {
+      document.removeEventListener('mousedown', window.__presetsOutsideCommitHandler, true);
+    }
+    window.__presetsOutsideCommitHandler = e => {
+      if (!editingDocKey || skipInlineCommit) return;
+      const tile = document.querySelector('.doc-tile-editing[data-i][data-bi]');
+      if (!tile || tile.contains(e.target)) return;
+      const i = +tile.dataset.i;
+      const bi = +tile.dataset.bi;
+      scheduleInlineCommit(i, bi, 0);
+    };
+    document.addEventListener('mousedown', window.__presetsOutsideCommitHandler, true);
+
     await Promise.all([loadPresetOptions(), loadUserOptions(1)]);
     await loadBundle();
     bindMetaEvents();
     render();
+    if (window.SmMotion && SmMotion.initBlurFade) SmMotion.initBlurFade();
     loadUserOptions(20).then(refreshUserPickers).catch(() => {});
   }
 });

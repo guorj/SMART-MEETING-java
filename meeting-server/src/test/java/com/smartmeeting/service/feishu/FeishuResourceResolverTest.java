@@ -135,6 +135,18 @@ class FeishuResourceResolverTest {
         assertEquals("tbl7viO4AJ4ebD0B", base.tableId());
     }
 
+    /** base 无 table= 时应解析为全库拉取（tableId 为空）。 */
+    @Test
+    void parsesBaseUrlWithoutTableParam() {
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(
+                "https://ovjde0k7vc1.feishu.cn/base/SnsXbyQ1Qa57fCsI8mrcRAIbnve");
+        assertNotNull(ref);
+        assertEquals(FeishuResourceKind.BASE, ref.kind());
+        assertEquals("SnsXbyQ1Qa57fCsI8mrcRAIbnve", ref.primaryToken());
+        assertNull(ref.tableId());
+        assertTrue(ref.canFetchPlainText());
+    }
+
     /** 非飞书应用 URL 应被拒绝识别。 */
     @Test
     void rejectsNonFeishuAppUrls() {

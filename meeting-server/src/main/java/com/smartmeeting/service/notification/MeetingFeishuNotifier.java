@@ -2,7 +2,6 @@ package com.smartmeeting.service.notification;
 
 import com.smartmeeting.config.MeetingNotificationProperties;
 import com.smartmeeting.service.FeishuService;
-import com.smartmeeting.service.host.MeetingHostFeishuMuteRegistry;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -14,8 +13,7 @@ import java.util.Map;
 /**
  * 会后等业务飞书通知门面：优先经 feishu-scheduled-bot 推送，失败时可回退直连 {@link FeishuService}。
  * <p>
- * 主要协作组件：{@link FeishuNotificationClient}、{@link MeetingNotificationProperties}、
- * {@link MeetingHostFeishuMuteRegistry}（AI 主持期间抑制推送）。
+ * 主要协作组件：{@link FeishuNotificationClient}、{@link MeetingNotificationProperties}。
  */
 @Slf4j
 @Service
@@ -25,7 +23,6 @@ public class MeetingFeishuNotifier {
     private final FeishuService feishuService;
     private final FeishuNotificationClient notificationClient;
     private final MeetingNotificationProperties notificationProperties;
-    private final MeetingHostFeishuMuteRegistry muteRegistry;
 
     /**
      * 发送飞书卡片消息（经 Bot 或直连降级）。
@@ -36,7 +33,7 @@ public class MeetingFeishuNotifier {
      * @param eventType       事件类型（如 TODO_SYNC、MINUTE_READY）
      * @param meetingId       关联会议 ID
      * @param idempotencyKey  幂等键，防止重复推送
-     * @return 发送成功返回 {@code true}；目标为空、被静音或全部渠道失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；目标为空或全部渠道失败时返回 {@code false}
      */
     public boolean sendCardMessage(String targetId,
                                    String title,
@@ -46,11 +43,6 @@ public class MeetingFeishuNotifier {
                                    String idempotencyKey) {
         if (targetId == null || targetId.isBlank()) {
             log.warn("Skip notification: empty targetId, eventType={}", eventType);
-            return false;
-        }
-        if (muteRegistry.isMuted(targetId)) {
-            log.warn("Feishu send suppressed (AI host in-session): eventType={}, targetId={}",
-                    eventType, targetId);
             return false;
         }
 
@@ -87,7 +79,7 @@ public class MeetingFeishuNotifier {
      * @param eventType       事件类型
      * @param meetingId       关联会议 ID
      * @param idempotencyKey  幂等键
-     * @return 发送成功返回 {@code true}；目标为空、被静音或全部渠道失败时返回 {@code false}
+     * @return 发送成功返回 {@code true}；目标为空或全部渠道失败时返回 {@code false}
      */
     public boolean sendTextMessage(String targetId,
                                    String text,
@@ -95,9 +87,6 @@ public class MeetingFeishuNotifier {
                                    String meetingId,
                                    String idempotencyKey) {
         if (targetId == null || targetId.isBlank()) {
-            return false;
-        }
-        if (muteRegistry.isMuted(targetId)) {
             return false;
         }
 

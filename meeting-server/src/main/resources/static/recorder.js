@@ -3,7 +3,7 @@
  * 支持AudioWorklet + ScriptProcessorNode降级 + 自动重采样 + 断线重连 + 波形可视化
  */
 /** 与 index.html / host-meeting.html 中 script 的 ?v= 同步修改，用于 worklet 等子资源破缓存 */
-const SM_STATIC_ASSET_V = 'sm-20260608-2';
+const SM_STATIC_ASSET_V = 'sm-ui-20260611-reconnect';
 
 function smAssetUrl(path) {
     const resolved = (typeof meetingAsset === 'function') ? meetingAsset(path) : path;
@@ -11,12 +11,16 @@ function smAssetUrl(path) {
     return resolved + sep + 'v=' + encodeURIComponent(SM_STATIC_ASSET_V);
 }
 
+function smAudioSessionStorageKey(meetingId) {
+    return 'sm_audio_session_' + meetingId;
+}
+
 class MeetingRecorder {
     constructor(meetingId, token, wsUrl) {
         this.meetingId = meetingId;
         this.token = token;
         this.wsUrlBase = wsUrl || null;  // 自定义ws URL
-        this.sessionToken = null;
+        this.sessionToken = this._loadPersistedSessionToken();
         this.ws = null;
         this.audioContext = null;
         this.mediaStream = null;
@@ -29,6 +33,36 @@ class MeetingRecorder {
         this.pendingChunks = [];
         this._useFallback = false;
         this._sourceNode = null;
+    }
+
+    _loadPersistedSessionToken() {
+        try {
+            return sessionStorage.getItem(smAudioSessionStorageKey(this.meetingId)) || null;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    _persistSessionToken(token) {
+        if (!token) return;
+        try {
+            sessionStorage.setItem(smAudioSessionStorageKey(this.meetingId), token);
+        } catch (e) {
+            console.warn('无法持久化 session_token', e);
+        }
+    }
+
+    _clearPersistedSessionToken() {
+        try {
+            sessionStorage.removeItem(smAudioSessionStorageKey(this.meetingId));
+        } catch (e) {
+            /* ignore */
+        }
+    }
+
+    /** 主持页重进：等同 start()，需用户手势授权麦克风 */
+    async rejoin() {
+        return this.start();
     }
 
     async start() {
@@ -197,6 +231,7 @@ class MeetingRecorder {
                         const msg = JSON.parse(event.data);
                         if (msg.type === 'session') {
                             this.sessionToken = msg.session_token;
+                            this._persistSessionToken(msg.session_token);
                         } else if (msg.type === 'ping') {
                             this.ws.send(JSON.stringify({ type: 'pong' }));
                         } else if (msg.type === 'auto_paused') {
@@ -204,7 +239,7 @@ class MeetingRecorder {
                             this.onStatusChange?.('paused');
                             this.onWarning?.(msg.message || '连续静音，已自动暂停推流');
                         } else if (msg.type === 'asr_disabled' || msg.type === 'asr_started'
-                                || msg.type === 'recording_started') {
+                                || msg.type === 'recording_started' || msg.type === 'recording_rejoined') {
                             this.onTranscript?.(msg);
                         } else if (msg.type === 'asr_warning') {
                             this.onWarning?.(msg.message || '实时转写异常');
@@ -297,6 +332,7 @@ class MeetingRecorder {
 
     stop() {
         this.isRecording = false;
+        this._clearPersistedSessionToken();
         if (this.workletNode) this.workletNode.disconnect();
         if (this._sourceNode) this._sourceNode.disconnect();
         if (this.audioContext && this.audioContext.state !== 'closed') {

@@ -351,6 +351,10 @@ public class PresetAgendaDocService {
             }
             partBuilder.contentType(contentType);
             partBuilder.structuredContent(structured);
+            String rasterCacheKey = feishuService.resolveRasterCacheKey(ref);
+            if (rasterCacheKey != null && !rasterCacheKey.isBlank()) {
+                partBuilder.rasterCacheKey(rasterCacheKey);
+            }
             if ("docx_blocks".equals(contentType) && meeting != null && meeting.getId() != null) {
                 var images = StructuredImageCollector.collectFromStructuredJson(
                         objectMapper, structured, contentType, meeting.getId());

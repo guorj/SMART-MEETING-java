@@ -42,8 +42,6 @@ class MeetingHostRollCallAgendaGateTest {
     @Mock
     private PresetAgendaDocService presetAgendaDocService;
     @Mock
-    private MeetingHostFeishuMuteRegistry muteRegistry;
-    @Mock
     private MeetingHostWebSocketHandler hostWebSocketHandler;
     @Mock
     private XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
@@ -64,7 +62,6 @@ class MeetingHostRollCallAgendaGateTest {
                 participantMapper,
                 presetMapper,
                 presetAgendaDocService,
-                muteRegistry,
                 hostWebSocketHandler,
                 ttsSynthesizeService,
                 new ObjectMapper(),

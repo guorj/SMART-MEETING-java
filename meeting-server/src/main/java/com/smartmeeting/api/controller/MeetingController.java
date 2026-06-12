@@ -413,4 +413,28 @@ public class MeetingController {
         return ResponseEntity.notFound().build();
     }
 
+    /**
+     * 代理下载飞书 Wiki 附件/幻灯片栅格缓存的页面/幻灯片图片。
+     */
+    @GetMapping("/{id}/agenda-materials/proxy-raster-image")
+    public ResponseEntity<Resource> proxyRasterImage(
+            @PathVariable String id,
+            @RequestParam String cacheKey,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(value = "token", required = false) String queryToken,
+            @RequestHeader(value = "Authorization", required = false) String authorization) {
+        String token = resolveMeetingPageToken(authorization, queryToken);
+        jwtUtil.verifyRecordingPageToken(token, id);
+        try {
+            java.nio.file.Path imagePath = agendaMaterialStorageService.resolveRasterCacheImagePath(cacheKey, page);
+            if (imagePath != null && java.nio.file.Files.exists(imagePath)) {
+                return ResponseEntity.ok()
+                        .contentType(MediaType.IMAGE_PNG)
+                        .cacheControl(org.springframework.http.CacheControl.maxAge(1, java.util.concurrent.TimeUnit.HOURS))
+                        .body(new FileSystemResource(imagePath));
+            }
+        } catch (Exception ignored) {}
+        return ResponseEntity.notFound().build();
+    }
+
 }

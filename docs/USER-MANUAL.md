@@ -19,7 +19,7 @@
 1. 飞书发送「会议管理」进入工作台（**须在工作台白名单** `dashboard.user_grants` 内；未授权时单聊提示联系管理员）。
 2. 选择模板创建会议（需 `canCreateMeeting=true`）。
 3. 建会时按模板最新 `host_agenda` 生成会议快照。
-4. 进入**会议主页**（`/rec` / `/host`）后，在 **会议控制** 区点击「开始会议」开启会话与录音（**主控**：先 `start` 者得写权限；**旁观**：使用「复制旁观链接」或 `/view/{meetingId}`，只读会序/资料/倒计时）。
+4. 进入**会议主页**（`/rec` / `/host`）后，在 **会议控制** 区点击「开始会议」开启会话与录音（**每场仅首次有效**；刷新页面后会自动恢复主持控制，**须点「重连录音」**重新授权麦克风，不会再次调用开始接口）。**主控**：先 `start` 者得写权限；**旁观**：使用「复制旁观链接」或 `/view/{meetingId}`，只读会序/资料/倒计时。
 5. 结束会议请使用 **会议控制** 底部独立的「结束会议」按钮（与「下一议题」等操作分离），避免误触。
 6. 结束会议后按开关触发会后链路：离线转写（`meeting.asr.offline-enabled`）与纪要生成（`meeting.minute.generation-enabled`）**相互独立**；两者皆开时先离线转写入库，再生成纪要。**开关维护**：Admin → **系统参数**（热加载）。生效顺序：**DB > Java 出厂默认 > infra YAML/env**；新装/空库须执行 `schema-seed/meeting-runtime-defaults-prod.sql`（生产策略）；Admin「恢复默认」回 Java 出厂值，非 seed 值。
 
@@ -51,7 +51,7 @@
 
 - **白名单**：存储于 `int_meeting_system_config.config_key=dashboard.user_grants`；Admin **用户管理 → 编辑用户 → 前台授权** 维护；页头可配置「默认拒绝未授权用户」。
 - **权限项**：`canCreateMeeting`（建会/恢复）、`canEndMeeting`（结束会）、`canRegisterVoiceprint`（声纹注册）；白名单内默认人人可注册声纹。
-- **会中入口**：群聊已静音时，飞书「会议管理」改 **单聊** 发卡或拒绝提示，避免群内需 @ 机器人却无卡片。
+- **会中入口**：飞书「会议管理」在当前会话（群聊或单聊）直接发送「智能会议前台」交互卡片。
 - **主控 + 旁观**：每场会议 1 路录音推流；主持写 API 仅主控 token；旁观 token（`type=viewer`）可读 state/agenda，不可操作下一议题或结束会。
 
 ### 2.1 录音与转写（默认）
@@ -92,7 +92,7 @@
 | ----------- | ---- | ---- |
 | `docx_blocks` | 飞书 docx/wiki、本地上传 docx | 标题/列表/图片块；失败降级 plainText |
 | `bitable_records` | 飞书 base/wiki 多维表格 | 支持 GROUPED 分区、多数据表（`tables[]`）、进度条/链接等类型化单元格 |
-| `task_list` | 飞书任务清单 AppLink（`applink.../client/todo/task_list?guid=`） | Task v2 API 拉取清单与任务；需应用权限 `task:tasklist:read`，且应用宜加入清单可阅读协作成员 |
+| `task_list` | 飞书任务清单 AppLink（`applink.../client/todo/task_list?guid=`） | Task v2 API 拉取清单与任务；需应用权限 `task:tasklist:read`，且**必须**在飞书任务清单「成员」中将本应用添加为可阅读协作成员（否则返回 1470403/403） |
 | `sheet_cells` / `excel_workbook` | 飞书 wiki 电子表格、本地 xls/xlsx | 多 sheet 时可能为 `excel_workbook` |
 | `ppt_slides` / `pdf_pages` | 本地 ppt/pdf、Wiki slides（导出 PDF） | 翻页 + 缩略图条；PDF 可切换「连续滚动」 |
 | `image_gallery` | 本地上传图片（并入 `parts[]`） | 画廊展示，点击 Lightbox 放大 |
@@ -102,7 +102,7 @@
 
 **Wiki 扩展节点（0.36）**：`file`（按附件类型走 pdf/ppt/xlsx 管线）、`slides`（异步导出 PDF 后分页预览）、`mindnote`（API 无正文，展示标题 + 外链提示）。
 
-**任务清单 AppLink**：会序可配置 `https://applink.feishu.cn/client/todo/task_list?guid={清单GUID}`。拉取失败时展示 `fetchError` 与外链。若无法开通 Task API，可改用 `/wiki/`、`/docx/`、`/base/` 或本地上传 xlsx/csv/pdf 作为替代资料。
+**任务清单 AppLink**：会序可配置 `https://applink.feishu.cn/client/todo/task_list?guid={清单GUID}`。若出现 **1470403 / Invoker is unauthorized**，表示应用未被加入该清单协作成员：在飞书客户端打开清单 → 成员 → 添加应用为可阅读成员，并在开放平台确认 `task:tasklist:read` 已开通。拉取失败时主持页展示 `fetchError` 与外链；若无法开通，可改用 `/wiki/`、`/docx/`、`/base/` 或本地上传 xlsx/csv/pdf。
 
 - 图片代理：`/agenda-materials/proxy-image`（飞书）、`/agenda-materials/proxy-file-image`（本地页图）。
 - 拉取失败时仍展示飞书外链与 `fetchError` 说明，不阻塞主持流程。
@@ -129,7 +129,6 @@
 
 ## 4. 已知行为与限制
 
-- AI 主持会中会对群消息做静音抑制；部分群卡片会被拦截（日志会打印 `Feishu send suppressed`）。
 - 待办提醒若未关闭且责任人是无效 `user_id`（如 `vp_...`），会触发飞书 400。
 - 定时任务是否执行取决于开关与 profile 覆盖值，详见 `开关手册.md`。
 - **临时兜底映射（2026-06-07 起）**：当飞书回调中某用户的 `user_id` 为空时，系统按 `open_id` 自动映射临时 userId，使该用户可正常使用会议管理功能。命中时日志打印 `user_id empty, apply temp open_id fallback`。此映射为临时措施，待飞书侧修复用户身份问题后移除。
@@ -153,7 +152,11 @@
 
 ### 5.3 “会议管理”无弹窗
 
-- 若日志出现 `Feishu send suppressed (AI host in-session)`，表示会中静音策略拦截了群卡片发送。
+按顺序检查：
+
+1. 用户是否在工作台白名单（`dashboard.user_grants`）且 `enabled=true`；未授权时仅收到文字拒绝提示。
+2. 飞书回调是否上送 `user_id`（日志 `user_id empty, apply temp open_id fallback` 表示命中临时兜底）。
+3. `meeting-server` 日志是否有 `发送会议前台入口卡片失败` 或飞书 API 报错（如 `meeting.base-url` 不可达）。
 
 ---
 

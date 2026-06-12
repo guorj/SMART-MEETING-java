@@ -29,9 +29,9 @@ server:
 spring:
   servlet:
     multipart:
-      # 会序资料上传（图片/docx）单请求上限；须 ≥ meeting.agenda-material.max-*-bytes
-      max-file-size: 25MB
-      max-request-size: 25MB
+      # 会序资料上传（图片/doc/ppt/pdf 等）单请求上限；须 ≥ meeting.agenda-material.max-*-bytes
+      max-file-size: 55MB
+      max-request-size: 55MB
   application:
     name: meeting-admin-server
   profiles:

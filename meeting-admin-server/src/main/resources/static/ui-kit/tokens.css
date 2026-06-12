@@ -1,12 +1,13 @@
 /* 智能会议 ui-kit — Design Tokens · Swiss Anchor */
 :root {
-  --color-bg: #F7F7F8;
+  --color-bg: #FAFBFC;
   --color-surface: #FFFFFF;
-  --color-surface-2: #F0F1F3;
-  --color-border: #E2E4E8;
+  --color-surface-2: #F3F4F6;
+  --color-border: #CBD5E1;
+  --color-border-emphasis: #94A3B8;
   --color-text: #1A1A1A;
-  --color-text-secondary: #5C5C5C;
-  --color-text-muted: #8A8A8A;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748B;
   --color-primary: #002FA7;
   --color-primary-hover: #001F75;
   --color-on-primary: #FFFFFF;
@@ -40,6 +41,20 @@
   --shadow-card: 0 1px 2px rgba(26, 26, 26, 0.06);
   --shadow-sm: 0 1px 2px rgba(26, 26, 26, 0.04);
   --shadow-lg: 0 12px 32px rgba(26, 26, 26, 0.08);
+  --shadow-primary-tinted: 0 8px 24px rgba(0, 47, 167, 0.18);
+  --shadow-btn-press: 0 2px 8px rgba(0, 47, 167, 0.12);
+  --shadow-stroke: 3px 3px 0 rgba(0, 47, 167, 0.14);
+
+  --surface-glass: rgba(255, 255, 255, 0.92);
+  --surface-glass-border: rgba(226, 228, 232, 0.85);
+  --surface-glass-dock: rgba(255, 255, 255, 0.96);
+
+  --avatar-stage-bg: #F4F7FC;
+  --avatar-stage-border: rgba(0, 47, 167, 0.12);
+  --avatar-stage-glow: rgba(0, 47, 167, 0.06);
+
+  --duration-interactive: 200ms;
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
   --touch-min: 44px;
   --font-family: "Inter", "Helvetica Neue", system-ui, sans-serif;
@@ -55,7 +70,8 @@
   --surface: var(--color-surface);
   --surface-2: var(--color-surface-2);
   --border: var(--color-border);
-  --border-strong: #CBD0D8;
+  --border-strong: var(--color-border-emphasis);
+  --border-emphasis: var(--color-border-emphasis);
   --text: var(--color-text);
   --text-muted: var(--color-text-muted);
   --text-soft: var(--color-text-secondary);

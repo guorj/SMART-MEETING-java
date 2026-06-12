@@ -69,6 +69,7 @@ public final class LocalAgendaMaterialPartBuilder {
                     var sp = preview.get();
                     AgendaDocPartDto.AgendaDocPartDtoBuilder builder = AgendaDocPartDto.builder()
                             .docKind("LOCAL")
+                            .fileId(binding.getFileId())
                             .contentType(sp.contentType())
                             .structuredContent(sp.structuredContent());
                     if ("docx_blocks".equals(sp.contentType()) && meeting.getId() != null) {

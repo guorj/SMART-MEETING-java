@@ -13,6 +13,7 @@ import com.smartmeeting.service.structured.PptxSlideImageExporter;
 import com.smartmeeting.service.structured.CsvStructuredExporter;
 import com.smartmeeting.service.structured.LocalDocStructuredExporter;
 import com.smartmeeting.service.structured.LocalDocxStructuredExporter;
+import com.smartmeeting.service.structured.FeishuRasterCache;
 import com.smartmeeting.service.structured.PdfPageImageExporter;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -35,10 +36,12 @@ public class AgendaMaterialStorageService {
 
     private final AgendaMaterialProperties properties;
     private final List<AgendaMaterialDiskStorage> readDisks = new ArrayList<>();
+    private List<Path> storageDirCandidates = List.of();
 
     @PostConstruct
     void init() {
-        for (Path dir : AgendaMaterialPathResolver.candidateStorageDirs(properties.getStorageDir())) {
+        storageDirCandidates = AgendaMaterialPathResolver.candidateStorageDirs(properties.getStorageDir());
+        for (Path dir : storageDirCandidates) {
             readDisks.add(new AgendaMaterialDiskStorage(
                     dir, properties.getMaxImageBytes(), properties.getMaxDocBytes()));
         }
@@ -252,6 +255,27 @@ public class AgendaMaterialStorageService {
         imagePath = AgendaMaterialGeneratedImages.slideImage(generatedDir, page);
         if (java.nio.file.Files.exists(imagePath)) {
             return imagePath;
+        }
+        return null;
+    }
+
+    /**
+     * 返回飞书 Wiki 附件/幻灯片栅格缓存的页面/幻灯片 PNG 路径。
+     */
+    public java.nio.file.Path resolveRasterCacheImagePath(String cacheKey, int page) {
+        if (cacheKey == null || cacheKey.isBlank()) {
+            return null;
+        }
+        for (Path storageDir : storageDirCandidates) {
+            java.nio.file.Path genDir = FeishuRasterCache.dirForKey(storageDir, cacheKey);
+            java.nio.file.Path pageImage = AgendaMaterialGeneratedImages.pageImage(genDir, page);
+            if (java.nio.file.Files.isRegularFile(pageImage)) {
+                return pageImage;
+            }
+            java.nio.file.Path slideImage = AgendaMaterialGeneratedImages.slideImage(genDir, page);
+            if (java.nio.file.Files.isRegularFile(slideImage)) {
+                return slideImage;
+            }
         }
         return null;
     }

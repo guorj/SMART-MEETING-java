@@ -215,6 +215,50 @@ public class AgendaConfigService {
         }
     }
 
+    /**
+     * 全局检索 config_name 在哪些会务类型的 host_agenda 中出现（与保存校验同源）。
+     */
+    public List<String> findConfigNameLocations(String configName) {
+        if (configName == null || configName.isBlank()) {
+            return List.of();
+        }
+        String needle = configName.trim();
+        List<String> hits = new ArrayList<>();
+        for (Integer code : listPresetCodes()) {
+            if (code == null) {
+                continue;
+            }
+            presetProvider.loadPreset(code).ifPresent(p -> hits.addAll(
+                    describeConfigNameHits(code, p.getDisplayName(), p.getHostAgendaJson(), needle)));
+        }
+        return hits;
+    }
+
+    private List<String> describeConfigNameHits(int presetTypeCode, String displayName,
+                                                String hostAgendaJson, String needle) {
+        List<String> hits = new ArrayList<>();
+        String label = displayName != null && !displayName.isBlank()
+                ? displayName.trim() : ("会务类型" + presetTypeCode);
+        for (AgendaDocBindingSnapshot b : PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
+                presetTypeCode, hostAgendaJson, objectMapper)) {
+            if (b.getConfigName() == null || !needle.equals(b.getConfigName().trim())) {
+                continue;
+            }
+            int agenda = b.getAgendaIndex() != null ? b.getAgendaIndex() + 1 : 0;
+            String url = b.getFeishuDocUrl() != null ? b.getFeishuDocUrl().trim() : "";
+            if (url.length() > 72) {
+                url = url.substring(0, 72) + "…";
+            }
+            hits.add(String.format(
+                    "会务类型 %d（%s）· 会序 %d · 槽位 %d · 角色 %s · url=%s",
+                    presetTypeCode, label, agenda,
+                    b.getResourceSlot() != null ? b.getResourceSlot() : 0,
+                    b.getConfigRole() != null ? b.getConfigRole() : "SOURCE",
+                    url.isEmpty() ? "—" : url));
+        }
+        return hits;
+    }
+
     private void assertConfigNamesUniqueAcrossPresets(int editingPreset, Set<String> namesInPayload) {
         if (namesInPayload.isEmpty()) {
             return;
@@ -226,9 +270,16 @@ public class AgendaConfigService {
             presetProvider.loadPreset(code).ifPresent(p -> {
                 for (AgendaDocBindingSnapshot b : PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
                         code, p.getHostAgendaJson(), objectMapper)) {
-                    if (b.getConfigName() != null && namesInPayload.contains(b.getConfigName().trim())) {
-                        throw new BusinessException("config_name 已在 preset " + code + " 使用: " + b.getConfigName());
+                    if (b.getConfigName() == null || !namesInPayload.contains(b.getConfigName().trim())) {
+                        continue;
                     }
+                    int agenda = b.getAgendaIndex() != null ? b.getAgendaIndex() + 1 : 0;
+                    String display = p.getDisplayName() != null && !p.getDisplayName().isBlank()
+                            ? p.getDisplayName().trim() : ("会务类型" + code);
+                    throw new BusinessException(String.format(
+                            "config_name「%s」与会务类型 %d（%s）会序 %d 的资料冲突；"
+                                    + "请修改当前资料的配置名，或到会务类型 %d 改名/删除该资料",
+                            b.getConfigName().trim(), code, display, agenda, code));
                 }
             });
         }

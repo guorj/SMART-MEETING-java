@@ -160,6 +160,11 @@ body.host-page {
   pointer-events: auto;
   transform: translateY(0);
 }
+#agendaDocCard.agenda-doc-fullscreen .agenda-doc-fs-fab .btn-agenda-next-fab {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
 .agenda-doc-scroll-end-sentinel {
   width: 100%;
   height: 1px;
@@ -185,11 +190,13 @@ body.agenda-doc-fullscreen-lock {
   display: flex !important;
   flex-direction: column;
   padding: 8px 12px 10px;
-  background: var(--color-surface);
+  background: transparent;
   box-shadow: none;
   filter: none !important;
-  opacity: 1 !important;
   overflow: hidden;
+}
+#agendaDocCard.agenda-doc-fullscreen:not(.agenda-doc-fs-ready) {
+  opacity: 1 !important;
 }
 #agendaDocCard.agenda-doc-fullscreen .agenda-doc-panel-head {
   flex-shrink: 0;
@@ -343,6 +350,7 @@ body.agenda-doc-fullscreen-lock {
   flex: 1 1 auto;
   min-height: 0;
   width: 100%;
+  max-width: 100%;
   max-height: none !important;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
@@ -370,8 +378,24 @@ body.agenda-doc-fullscreen-lock {
 #agendaDocCard.agenda-doc-fullscreen .structured-data-table,
 #agendaDocCard.agenda-doc-fullscreen .feishu-bitable-table {
   font-size: 14px;
-  width: auto;
-  max-width: 100%;
+}
+/* 全屏内表格：勿压成 100% 视口宽，由外层 scroll 容器横向滚动 */
+#agendaDocCard.agenda-doc-fullscreen .feishu-bitable-scroll .feishu-bitable-table,
+#agendaDocCard.agenda-doc-fullscreen .structured-table-scroll .structured-data-table,
+#agendaDocCard.agenda-doc-fullscreen .structured-table-scroll .feishu-bitable-table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+  table-layout: auto;
+}
+#agendaDocCard.agenda-doc-fullscreen .structured-bitable-grouped .feishu-bitable-section .structured-data-table,
+#agendaDocCard.agenda-doc-fullscreen .structured-bitable-grouped .feishu-bitable-section .feishu-bitable-table {
+  width: max-content;
+  min-width: 100%;
+  max-width: none;
+}
+#agendaDocCard.agenda-doc-fullscreen .feishu-bitable-section {
+  flex-shrink: 0;
   min-width: 0;
 }
 .structured-data-table {
@@ -397,6 +421,29 @@ body.agenda-doc-fullscreen-lock {
   gap: 8px;
   margin-left: auto;
   flex-shrink: 0;
+}
+
+/* — Recording reconnect banner — */
+.host-recording-reconnect-banner {
+  margin-top: var(--space-2);
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  border: 1px dashed var(--color-primary);
+  background: var(--color-primary-light);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: stretch;
+}
+
+.host-recording-reconnect-banner[hidden] {
+  display: none !important;
+}
+
+.host-recording-reconnect-banner p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 /* — Recording widget — */
@@ -1137,3 +1184,212 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   border: 1px solid var(--color-border, #e2e8f0); background: #fff;
 }
 .structured-slide-single-view { text-align: center; }
+
+/* — 预览沙盒 Overhaul（仅 .host-preview-mode，浅色系） — */
+body.host-page.host-preview-mode {
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 18px;
+  --shadow-card-elevated: 0 1px 0 rgba(255, 255, 255, 0.8) inset, 0 4px 20px rgba(26, 26, 26, 0.06);
+  --shadow-btn-soft: 0 2px 8px rgba(26, 26, 26, 0.06), 0 8px 24px rgba(26, 26, 26, 0.04);
+  --inset-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+  background: linear-gradient(180deg, #FFFFFF 0%, var(--color-bg) 180px);
+}
+body.host-page.host-preview-mode .host-header h1 {
+  font-size: clamp(1.35rem, 2.5vw, var(--font-display));
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+/* 预览按钮：覆盖遗留扁平 button/.btn-* 规则 */
+body.host-page.host-preview-mode .control-primary .ui-btn,
+body.host-page.host-preview-mode .control-secondary .ui-btn,
+body.host-page.host-preview-mode .control-danger-zone .ui-btn,
+body.host-page.host-preview-mode .roll-call-wrap .ui-btn {
+  border-radius: var(--radius-sm);
+}
+body.host-page.host-preview-mode .control-primary .ui-btn-frosted,
+body.host-page.host-preview-mode .control-secondary .ui-btn-frosted,
+body.host-page.host-preview-mode .roll-call-wrap .ui-btn-frosted,
+body.host-page.host-preview-mode .agenda-doc-panel-actions .ui-btn-frosted,
+body.host-page.host-preview-mode .agenda-doc-fs-fab .ui-btn-frosted {
+  background: var(--surface-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  color: var(--color-text);
+  border: 1px solid var(--surface-glass-border);
+  box-shadow: var(--inset-highlight), var(--shadow-btn-soft);
+}
+body.host-page.host-preview-mode .control-primary .ui-btn-frosted:hover:not(:disabled),
+body.host-page.host-preview-mode .control-secondary .ui-btn-frosted:hover:not(:disabled),
+body.host-page.host-preview-mode .roll-call-wrap .ui-btn-frosted:hover:not(:disabled),
+body.host-page.host-preview-mode .agenda-doc-panel-actions .ui-btn-frosted:hover:not(:disabled),
+body.host-page.host-preview-mode .agenda-doc-fs-fab .ui-btn-frosted:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: var(--color-border);
+  box-shadow: var(--inset-highlight), 0 4px 16px rgba(26, 26, 26, 0.08);
+}
+body.host-page.host-preview-mode .ui-btn-soft {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--inset-highlight), var(--shadow-btn-soft);
+}
+body.host-page.host-preview-mode .ui-btn-soft:hover:not(:disabled) {
+  background: var(--color-surface);
+  border-color: var(--color-text-muted);
+  box-shadow: var(--inset-highlight), 0 4px 16px rgba(26, 26, 26, 0.08);
+}
+body.host-page.host-preview-mode .btn-danger.ui-btn-danger-soft,
+body.host-page.host-preview-mode .control-danger-zone .ui-btn-danger-soft {
+  background: linear-gradient(180deg, var(--color-danger) 0%, var(--color-danger-hover) 100%);
+  color: var(--color-on-primary);
+  border-color: transparent;
+  box-shadow: 0 8px 24px rgba(217, 45, 32, 0.22), var(--inset-highlight);
+}
+body.host-page.host-preview-mode .btn-danger.ui-btn-danger-soft:hover:not(:disabled),
+body.host-page.host-preview-mode .control-danger-zone .ui-btn-danger-soft:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+  border-color: transparent;
+  box-shadow: 0 4px 16px rgba(217, 45, 32, 0.28);
+}
+body.host-page.host-preview-mode .control-primary-sticky {
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, var(--color-surface) 100%);
+  border-bottom: 1px solid var(--color-border);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+body.host-page.host-preview-mode .extend-select {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--inset-highlight), 0 1px 4px rgba(26, 26, 26, 0.04);
+  border-color: var(--color-border);
+}
+body.host-page.host-preview-mode .control-danger-zone {
+  margin-top: var(--space-4);
+  padding: var(--space-3);
+  border-top: none;
+  border-radius: var(--radius-md);
+  background: rgba(217, 45, 32, 0.06);
+  border: 1px solid rgba(217, 45, 32, 0.14);
+}
+body.host-page.host-preview-mode .rc-row {
+  border-radius: var(--radius-sm);
+  box-shadow: 0 1px 4px rgba(26, 26, 26, 0.04);
+}
+body.host-page.host-preview-mode .rc-row .rc-st {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+  font-weight: 600;
+}
+body.host-page.host-preview-mode .rc-row.ANSWERED .rc-st {
+  background: var(--color-success-bg);
+}
+body.host-page.host-preview-mode .rc-row.MISSED .rc-st {
+  background: var(--color-danger-bg);
+}
+body.host-page.host-preview-mode .rc-row.SKIPPED .rc-st {
+  background: var(--color-warning-bg);
+}
+body.host-page.host-preview-mode .card-light {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card-elevated);
+}
+body.host-page.host-preview-mode .card-agenda-progress {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card-elevated);
+}
+body.host-page.host-preview-mode .card-light--chromatic {
+  background: linear-gradient(180deg, var(--color-surface) 0%, #f3f5f8 100%);
+  border-color: rgba(0, 47, 167, 0.22);
+  box-shadow: var(--shadow-lg);
+}
+body.host-page.host-preview-mode .card-light--chromatic .avatar-card-top {
+  border-bottom-color: rgba(0, 47, 167, 0.12);
+}
+body.host-page.host-preview-mode .card-light--chromatic .avatar-stage {
+  padding: 8px;
+  border-radius: var(--radius-md);
+  background: var(--avatar-stage-bg, #F4F7FC);
+  border: 1px solid rgba(0, 47, 167, 0.22);
+}
+body.host-page.host-preview-mode .card-light--chromatic .avatar-figure {
+  border-radius: var(--radius-sm);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+}
+body.host-page.host-preview-mode .card-light--chromatic .avatar-caption {
+  color: #a8b8d0;
+  margin-top: 8px;
+}
+body.host-page.host-preview-mode .host-preview-banner {
+  margin-bottom: 12px;
+  padding: 10px 14px;
+  background: var(--surface-glass);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid var(--surface-glass-border);
+  border-radius: var(--radius-md);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+body.host-page.host-preview-mode .host-preview-banner summary {
+  cursor: pointer;
+  font-weight: 600;
+  color: var(--color-text);
+  list-style: none;
+}
+body.host-page.host-preview-mode .host-preview-banner summary::-webkit-details-marker { display: none; }
+body.host-page.host-preview-mode .host-preview-banner .host-preview-banner-body {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+}
+body.host-page.host-preview-mode .host-preview-dock {
+  background: var(--surface-glass-dock);
+  border-top: 1px solid var(--color-border);
+  box-shadow: 0 -8px 32px rgba(26, 26, 26, 0.06), inset 0 1px 0 var(--surface-glass-border);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+}
+body.host-page.host-preview-mode .host-preview-dock-label {
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+body.host-page.host-preview-mode .magic-bento-section-title {
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  text-transform: none;
+  color: var(--color-text);
+}
+body.host-page.host-preview-mode .magic-bento-global-spotlight {
+  background: radial-gradient(circle,
+    rgba(0, 47, 167, 0.07) 0%,
+    rgba(0, 47, 167, 0.04) 15%,
+    rgba(0, 47, 167, 0.02) 25%,
+    rgba(0, 47, 167, 0.01) 40%,
+    transparent 65%
+  );
+  mix-blend-mode: multiply;
+}
+body.host-page.host-preview-mode .current-agenda-panel {
+  background: var(--color-primary-light);
+  border-color: var(--color-border);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-primary);
+  box-shadow: var(--shadow-card-elevated);
+}
+body.host-page.host-preview-mode .agenda-doc-fs-fab .btn-agenda-next-fab.ui-btn-stroke {
+  box-shadow: var(--shadow-stroke);
+}
+body.host-page.host-preview-mode.scene-idle .host-workspace {
+  opacity: 0.92;
+}
+body.host-page.host-preview-mode.scene-idle .card-agenda-progress {
+  filter: saturate(0.85);
+}

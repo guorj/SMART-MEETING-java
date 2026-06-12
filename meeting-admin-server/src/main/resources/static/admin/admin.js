@@ -1,6 +1,7 @@
 ﻿(function () {
   const TOKEN_KEY = 'sm-admin-token';
   const LAST_ROUTE_KEY = 'sm-admin-last-route';
+  const STATIC_ASSET_VERSION = 'sm-ui-20260612-4';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;
@@ -21,7 +22,7 @@
 
   function renderModuleError(message) {
     const root = document.getElementById('module-root');
-    root.innerHTML = '<div class="panel"><p class="msg msg-err">' + message + '</p></div>';
+    root.innerHTML = '<div class="ui-card card admin-card"><p class="msg msg-err">' + message + '</p></div>';
   }
 
   window.AdminApi = {
@@ -126,7 +127,8 @@
     if (!m.scriptPath || scriptsLoaded[m.moduleId]) return;
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = m.scriptPath;
+      const sep = m.scriptPath.indexOf('?') >= 0 ? '&' : '?';
+      s.src = m.scriptPath + sep + 'v=' + encodeURIComponent(STATIC_ASSET_VERSION);
       s.onload = resolve;
       s.onerror = () => reject(new Error('模块脚本加载失败: ' + m.scriptPath));
       document.body.appendChild(s);
@@ -149,7 +151,7 @@
     if (window.SmMotion && SmMotion.showModuleSkeleton) {
       SmMotion.showModuleSkeleton(root);
     } else {
-      root.innerHTML = '<div class="panel"><p class="muted">加载中...</p></div>';
+      root.innerHTML = '<div class="ui-card card admin-card"><p class="muted">加载中...</p></div>';
     }
     if (!m) {
       document.getElementById('route-title').textContent = '模块不可用';

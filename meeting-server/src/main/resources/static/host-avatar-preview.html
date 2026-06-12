@@ -7,8 +7,11 @@
     (function () {
       var p = location.pathname || '';
       var ctx = (p === '/meeting-server' || p.startsWith('/meeting-server/')) ? '/meeting-server' : '';
+      var basePath = (p.indexOf('/static/') !== -1)
+        ? (ctx ? ctx + '/static/' : '/static/')
+        : (ctx ? ctx + '/' : '/');
       var base = document.createElement('base');
-      base.href = ctx ? ctx + '/' : '/';
+      base.href = basePath;
       document.head.appendChild(base);
     })();
   </script>
@@ -16,51 +19,25 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-2">
-  <script src="ui-kit/icons.js?v=sm-ui-20260610-32"></script>
-  <script src="ui-kit/motion.js?v=sm-ui-20260610-32"></script>
-  <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
-  <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
-  <script type="module" src="static/host-strands-avatar.js?v=sm-ui-20260610-32"></script>
+  <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="styles/host-meeting.css?v=sm-ui-20260611-fs-bitable">
+  <link rel="stylesheet" href="styles/host-meeting-rail.css?v=sm-ui-20260611-rail3">
+  <link rel="stylesheet" href="styles/host-agenda-fs-present.css?v=sm-ui-20260611-fs-bitable">
+  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-rail2">
+  <script src="ui-kit/icons.js?v=sm-ui-20260611-rail2"></script>
+  <script src="ui-kit/motion.js?v=sm-ui-20260611-rail2"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+  <script type="module" src="host-strands-avatar.js?v=sm-ui-20260611-rail2"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
   <style>
     body.host-page.host-preview-mode {
       padding-bottom: calc(120px + env(safe-area-inset-bottom, 0px));
     }
-    body.host-page.host-preview-mode .host-workspace {
-      min-height: auto;
-      align-items: start;
-    }
-    body.host-page.host-preview-mode .host-col-left {
-      min-height: auto;
-    }
-    body.host-page.host-preview-mode .blur-fade:not(.magic-bento-enhanced) {
-      opacity: 1 !important;
-      transform: none !important;
-      filter: none !important;
-    }
-    body.host-page.host-preview-mode .blur-fade.magic-bento-enhanced {
-      opacity: 1 !important;
-      filter: none !important;
-    }
-    .host-preview-banner {
-      font-size: 13px;
-      line-height: 1.5;
-      color: var(--color-text-secondary);
-      background: var(--color-surface);
-      border: 1px dashed var(--color-border);
-      border-radius: var(--radius-sm);
-      padding: 10px 14px;
-      margin-bottom: 12px;
-    }
-    .host-preview-banner strong { color: var(--color-text); }
-    .host-preview-banner code { font-size: 12px; }
     .host-preview-dock {
       position: fixed;
       left: 0;
@@ -71,16 +48,6 @@
       flex-direction: column;
       gap: 8px;
       padding: 10px 16px calc(10px + env(safe-area-inset-bottom, 0px));
-      background: rgba(248, 250, 252, 0.96);
-      border-top: 1px solid var(--color-border);
-      backdrop-filter: blur(8px);
-    }
-    .host-preview-dock-label {
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
-      color: var(--color-text-muted);
     }
     .host-preview-dock-row {
       display: flex;
@@ -90,23 +57,26 @@
     }
   </style>
 </head>
-<body class="host-page host-preview-mode">
-  <p class="host-preview-banner" role="note">
-    <strong>会议前台 UI 预览</strong> — 完整还原主持页布局（会议控制、录音、会序资料全屏 + 底部 FAB 下一议题、AI 主持、议程列表），无需 token / API。
-    访问 <code>/static/host-avatar-preview.html</code>；本地迭代可在 <code>src/main/resources</code> 执行 <code>npx serve -l 5500</code>。
-  </p>
-  
+<body class="host-page host-preview-mode host-rail-layout">
+  <details class="host-preview-banner" open>
+    <summary>会议前台 UI 预览 · Rail 布局</summary>
+    <div class="host-preview-banner-body">
+      Rail 布局：主区展示议题资料；桌面端鼠标移入右侧边缘自动滑出主持面板（会议控制 + AI 主持 + 议程列表）；移动端点击右下角图标打开。
+      访问 Spring Boot：<code>/meeting-server/host-avatar-preview.html</code>；本地静态服务请在 <code>static</code> 目录执行 <code>npx serve -l 5500</code> 后打开 <code>/host-avatar-preview.html</code>。
+    </div>
+  </details>
+
   <div class="magic-bento-section" id="magicBentoSection">
-    <div class="magic-bento-section-title">✨ 快捷功能</div>
+    <div class="magic-bento-section-title">快捷功能</div>
     <div class="magic-bento-grid" id="magicBentoGrid"></div>
   </div>
-  
+
   <header class="host-header">
     <div class="host-header-main">
       <h1 id="meetingTitleH1">2026 Q2 产品复盘会</h1>
       <span class="ui-badge ui-badge-success" id="meetingStatusBadge">进行中</span>
     </div>
-    <p class="sub" id="titleLine">主持人：张明 · 预计 90 分钟 · 预览数据</p>
+    <p class="sub" id="titleLine" hidden>主持人：张明 · 预计 90 分钟 · 预览数据</p>
     <p class="ios-banner ui-banner-warn" id="iosNoticeHost" style="display:none">iOS：请保持屏幕常亮，勿切换到其他应用</p>
   </header>
   <div class="err ui-banner-err" id="err" style="display:none"></div>
@@ -114,115 +84,141 @@
     旁观模式：会序与资料同步更新，操作按钮已隐藏。如需主控请使用操作员链接。
   </p>
 
-  <div class="host-workspace blur-fade">
-    <div class="host-col-left">
-      <div id="currentAgendaPanel" class="current-agenda-panel" aria-live="polite">
-        <h3><svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 当前议程</h3>
+  <div class="host-rail-shell blur-fade">
+    <main class="host-rail-main">
+      <div id="currentAgendaPanel" class="current-agenda-panel host-rail-agenda-strip" aria-live="polite">
+        <div class="current-agenda-panel-head">
+          <div class="current-agenda-panel-head-left">
+            <h3><svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 当前议程</h3>
+            <div class="host-header-timers current-agenda-timers" aria-live="polite">
+              <div class="timer ui-timer" id="topicTimer">议题剩余 00:12:34</div>
+              <div class="timer ui-timer" id="meetTimer">会议剩余 01:08:00</div>
+            </div>
+          </div>
+          <div class="current-agenda-recording-mount">
+            <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
+              <div class="host-recording-chip">
+                <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
+                  <div class="rec-status-row">
+                    <svg class="icon-rec" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg><span class="rec-status-dot recording" id="recStatusDot" aria-hidden="true"></span>
+                    <span class="rec-status-main" id="recStatusMain">正在录音</span>
+                    <span class="rec-status-timer" id="recStatusTimer">00:12:34</span>
+                  </div>
+                  <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
+                </div>
+              </div>
+              <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
+                <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
+                <div class="transcript-inner" id="transcriptHost">
+                  <div class="transcript-host-viewport" id="transcriptViewport">
+                    <div id="transcriptListHost"></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <p id="currentAgendaTitle" class="current-agenda-title"></p>
         <p id="currentAgendaMeta" class="current-agenda-meta"></p>
         <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
       </div>
-      <section class="card-light card-agenda-progress blur-fade" aria-label="主持模块">
-        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/></svg> 会议控制</h2>
-        <div class="control-primary-sticky">
-          <div class="control-primary">
-            <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 开始会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暂停会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 继续会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.544 10.456a4.368 4.368 0 0 0-6.176 0l-2.912 2.912a4.368 4.368 0 0 0 6.176 6.176l.813-.813"/><path d="M10.456 13.544a4.368 4.368 0 0 0 6.176 0l2.912-2.912a4.368 4.368 0 0 0-6.176-6.176l-.813.813"/></svg> 复制旁观链接</button>
-          </div>
-          <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
-            <div class="host-recording-chip">
-              <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
-                <div class="rec-status-row">
-                  <svg class="icon-rec" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg><span class="rec-status-dot recording" id="recStatusDot" aria-hidden="true"></span>
-                  <span class="rec-status-main" id="recStatusMain">正在录音</span>
-                  <span class="rec-status-timer" id="recStatusTimer">00:12:34</span>
-                </div>
-                <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
-              </div>
-            </div>
-            <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
-              <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
-              <div class="transcript-inner" id="transcriptHost">
-                <div class="transcript-host-viewport" id="transcriptViewport">
-                  <div id="transcriptListHost"></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="control-secondary row">
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> 下一议题</button>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过议题</button>
-        </div>
-        <div class="control-secondary row row-extend">
-          <span class="extend-label" id="extendTopicLabel">议题加时</span>
-          <select id="extendMinutesSelect" class="extend-select" aria-labelledby="extendTopicLabel">
-            <option value="1" selected>1 分钟</option>
-            <option value="3">3 分钟</option>
-            <option value="5">5 分钟</option>
-            <option value="10">10 分钟</option>
-          </select>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
-        </div>
-        <div class="timers timers-display">
-          <div class="timer ui-timer" id="topicTimer">议题剩余 00:12:34</div>
-          <div class="timer ui-timer" id="meetTimer">会议剩余 01:08:00</div>
-        </div>
-        <div class="control-danger-zone">
-          <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
-        </div>
-        <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
-          <h3>会议检点</h3>
-          <details class="ui-help">
-            <summary>检点说明</summary>
-            <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序中须有标题含<strong>「检点」</strong>的会序项；主持播报名字，被点到者答到。</p>
-          </details>
-          <div class="row" style="margin-top:0">
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg> 开始检点</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过当前</button>
-          </div>
-          <div class="rc-countdown" id="rollCallCountdown"></div>
-          <div class="rc-list" id="rollCallList"></div>
-        </div>
-      </section>
+      <div class="host-rail-idle-hint card-light" id="hostRailIdleHint" hidden>
+        <p class="muted">会议尚未开始。移入屏幕右侧或点击右下角图标打开主持面板，然后选择「开始会议」。</p>
+      </div>
       <section class="card-light card-matter blur-fade" id="agendaDocCard" aria-label="会序模块">
         <div class="agenda-doc-panel-head">
           <h2 class="panel-title" id="agendaDocPanelTitle"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8l6 6z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg> 当前议题资料</h2>
           <div class="agenda-doc-panel-actions">
-            <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreen" aria-pressed="false" title="进入全屏" aria-label="进入全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg></button>
+            <button type="button" class="ui-btn ui-btn-frosted btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreen" aria-pressed="false" title="进入全屏" aria-label="进入全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg></button>
           </div>
         </div>
         <p id="agendaDocExternalLink" class="muted" style="font-size:12px;margin-bottom:8px;display:none"></p>
         <div class="transcript-box md-body-host host-main-doc-body" id="progressReportBody"></div>
         <div class="agenda-doc-fs-fab" id="agendaDocFsFab" style="display:none" aria-hidden="true">
-          <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreenFab" title="退出全屏" aria-label="退出全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg></button>
-          <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-next-fab" id="btnAgendaDocNextTopicFab" title="下一议题" aria-label="下一议题"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+          <button type="button" class="ui-btn ui-btn-frosted btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreenFab" title="退出全屏" aria-label="退出全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg></button>
+          <button type="button" class="ui-btn ui-btn-stroke btn-agenda-icon btn-agenda-next-fab" id="btnAgendaDocNextTopicFab" title="下一议题" aria-label="下一议题"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
         </div>
       </section>
-    </div>
-    <aside class="host-col-right">
-      <section class="card-light card-avatar blur-fade" aria-label="主持模块">
-        <div class="avatar-card-top">
-          <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> AI 主持</h2>
-          <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
-        </div>
-        <div class="avatar-stage" id="avatarStage" data-state="idle">
-          <div class="avatar-figure avatar-figure--css-fallback" aria-hidden="true">
-            <div id="avatarStrands" class="avatar-strands-mount"></div>
-            <div class="avatar-mouth-slot">
-              <div id="avatarMouth"></div>
+    </main>
+
+    <aside class="host-rail-drawer" id="hostRailDrawer" aria-hidden="true" aria-label="主持面板">
+      <div class="host-rail-drawer-scroll" id="hostRailDrawerScroll">
+        <section class="host-rail-drawer-section host-rail-drawer-section--control" id="hostRailSectionControl">
+          <section class="card-light card-agenda-progress blur-fade" aria-label="主持模块">
+          <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/></svg> 会议控制</h2>
+          <div class="control-primary-sticky">
+            <div class="control-primary">
+              <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 开始会议</button>
+              <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnPauseMeeting"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暂停会议</button>
+              <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnResumeMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 继续会议</button>
+              <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnCopyViewerLink"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.544 10.456a4.368 4.368 0 0 0-6.176 0l-2.912 2.912a4.368 4.368 0 0 0 6.176 6.176l.813-.813"/><path d="M10.456 13.544a4.368 4.368 0 0 0 6.176 0l2.912-2.912a4.368 4.368 0 0 0-6.176-6.176l-.813.813"/></svg> 复制旁观链接</button>
             </div>
           </div>
-          <p class="avatar-caption" id="avatarCaption">等待中</p>
-        </div>
-      </section>
-      <section class="card-light card-agenda-detail blur-fade" aria-label="会序模块">
-        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> 议程列表</h2>
-        <div id="topics" class="agenda-detail-body"></div>
-      </section>
+          <div class="control-secondary row">
+            <button class="btn-secondary ui-btn ui-btn-stroke" type="button" id="btnNext"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> 下一议题</button>
+            <button class="btn-secondary ui-btn ui-btn-stroke" type="button" id="btnSkip"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过议题</button>
+          </div>
+          <div class="control-secondary row row-extend">
+            <span class="extend-label" id="extendTopicLabel">议题加时</span>
+            <select id="extendMinutesSelect" class="extend-select" aria-labelledby="extendTopicLabel">
+              <option value="1" selected>1 分钟</option>
+              <option value="3">3 分钟</option>
+              <option value="5">5 分钟</option>
+              <option value="10">10 分钟</option>
+            </select>
+            <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnExtendTopic"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
+          </div>
+          <div class="control-danger-zone">
+            <button class="btn-danger ui-btn ui-btn-danger ui-btn-danger-soft" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
+          </div>
+          <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
+            <h3>会议检点</h3>
+            <details class="ui-help">
+              <summary>检点说明</summary>
+              <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序中须有标题含<strong>「检点」</strong>的会序项；主持播报名字，被点到者答到。</p>
+            </details>
+            <div class="row" style="margin-top:0">
+              <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnRollCallStart"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg> 开始检点</button>
+              <button class="btn-secondary ui-btn ui-btn-frosted" type="button" id="btnRollCallSkip" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过当前</button>
+            </div>
+            <div class="rc-countdown" id="rollCallCountdown"></div>
+            <div class="rc-list" id="rollCallList"></div>
+          </div>
+        </section>
+        </section>
+
+        <section class="host-rail-drawer-section host-rail-drawer-section--avatar" id="hostRailSectionAvatar">
+          <section class="card-light card-avatar card-light--chromatic blur-fade" aria-label="主持模块">
+          <div class="avatar-card-top">
+            <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> AI 主持</h2>
+            <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
+          </div>
+          <div class="avatar-stage" id="avatarStage" data-state="idle">
+            <div class="avatar-figure avatar-figure--css-fallback" aria-hidden="true">
+              <div id="avatarStrands" class="avatar-strands-mount"></div>
+              <div class="avatar-mouth-slot">
+                <div id="avatarMouth"></div>
+              </div>
+            </div>
+            <p class="avatar-caption" id="avatarCaption">等待中</p>
+          </div>
+        </section>
+        </section>
+
+        <section class="host-rail-drawer-section host-rail-drawer-section--agenda" id="hostRailSectionAgenda">
+          <section class="card-light card-agenda-detail blur-fade" aria-label="会序模块">
+          <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> 议程列表</h2>
+          <div id="topics" class="agenda-detail-body"></div>
+        </section>
+        </section>
+      </div>
     </aside>
+
+    <div class="host-rail-edge" id="hostRailEdge" aria-hidden="true"></div>
+
+    <button type="button" class="host-rail-mobile-toggle ui-btn ui-btn-frosted" id="hostRailMobileToggle" aria-controls="hostRailDrawer" aria-expanded="false" aria-label="打开主持面板" title="主持面板">
+      <svg class="icon-sm" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="M8 8h.01"/><path d="M8 12h.01"/><path d="M8 16h.01"/></svg>
+    </button>
   </div>
 
   <div class="magic-bento-global-spotlight" id="hostMagicSpotlight" aria-hidden="true"></div>
@@ -231,24 +227,26 @@
 
   <div class="host-preview-dock" id="hostPreviewDock" role="toolbar" aria-label="预览场景切换">
     <span class="host-preview-dock-label">会议场景</span>
-    <div class="host-preview-dock-row">
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneIdle">未开始</button>
-      <button type="button" class="ui-btn ui-btn-primary" id="btnSceneLive">进行中</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnScenePaused">已暂停</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneRollcall">检点</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneTranscript">实时字幕</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneViewer" aria-pressed="false">旁观模式</button>
+    <div class="host-preview-dock-row" data-preview-dock="scene">
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneIdle" data-scene="idle">未开始</button>
+      <button type="button" class="ui-btn ui-btn-primary" id="btnSceneLive" data-scene="live">进行中</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnScenePaused" data-scene="paused">已暂停</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneRollcall" data-scene="rollcall">检点</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneTranscript" data-scene="transcript">实时字幕</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneViewer" data-scene="viewer" aria-pressed="false">旁观模式</button>
     </div>
     <span class="host-preview-dock-label">UI 效果</span>
-    <div class="host-preview-dock-row">
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneSpeak">模拟播报</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnSceneLip">口型动画</button>
-      <button type="button" class="ui-btn ui-btn-secondary" id="btnMagicBento" aria-pressed="false">✨ MagicBento</button>
+    <div class="host-preview-dock-row" data-preview-dock="effect">
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneSpeak" data-scene="speaking">模拟播报</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnSceneLip" data-scene="lip">口型动画</button>
+      <button type="button" class="ui-btn ui-btn-frosted" id="btnMagicBento" aria-pressed="false">MagicBento</button>
     </div>
   </div>
 
-  <script src="static/host-meeting-preview.js?v=sm-ui-20260610-32"></script>
-  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
+  <script src="host-meeting-rail.js?v=sm-ui-20260611-rail3"></script>
+  <script src="host-agenda-fs-present.js?v=sm-ui-20260611-fs-bitable"></script>
+  <script src="host-meeting-preview.js?v=sm-ui-20260611-fs-bitable"></script>
+  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-rail2"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (!window.MagicBento || !window.gsap) return;
@@ -266,7 +264,7 @@
         glowColor: '0, 47, 167',
         spotlightRadius: 300,
         spotlightEl: '#hostMagicSpotlight',
-        scopeEl: 'body.host-preview-mode',
+        scopeEl: '.host-rail-shell',
         enableTilt: false,
         enableMagnetism: false,
         enableStars: false,
@@ -293,7 +291,7 @@
           var isVisible = sectionEl.classList.contains('magic-bento-section--visible');
           sectionEl.classList.toggle('magic-bento-section--visible', !isVisible);
           btnToggleEl.classList.toggle('ui-btn-primary', !isVisible);
-          btnToggleEl.classList.toggle('ui-btn-secondary', isVisible);
+          btnToggleEl.classList.toggle('ui-btn-frosted', isVisible);
           btnToggleEl.setAttribute('aria-pressed', isVisible ? 'false' : 'true');
         });
       }

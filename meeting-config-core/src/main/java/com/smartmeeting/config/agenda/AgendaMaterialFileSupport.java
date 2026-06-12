@@ -5,7 +5,7 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * 会序本地上传资料：MIME/扩展名校验与类型判断（首期 doc/docx + 图片）。
+ * 会序本地上传资料：MIME/扩展名校验与类型判断（doc/docx、ppt/pptx、pdf、xls/xlsx、csv + 图片）。
  */
 public final class AgendaMaterialFileSupport {
 
@@ -124,6 +124,9 @@ Map.entry(".csv", "text/csv")
         String fromName = mimeFromFilename(originalFilename);
         String normalized = mimeType != null ? mimeType.trim().toLowerCase(Locale.ROOT) : "";
         if (normalized.isEmpty()) {
+            normalized = fromName;
+        }
+        if ("application/octet-stream".equals(normalized) && !fromName.isEmpty() && isAllowedMime(fromName)) {
             normalized = fromName;
         }
         if (!isAllowedMime(normalized)) {

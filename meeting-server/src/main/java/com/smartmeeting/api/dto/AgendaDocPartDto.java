@@ -24,4 +24,8 @@ public class AgendaDocPartDto {
     private Object structuredContent;
     /** 图片代理引用列表 */
     private java.util.List<com.smartmeeting.api.dto.structured.ImageRefDto> images;
+    /** 本地上传资料 fileId（ppt_slides / pdf_pages 翻页图代理） */
+    private String fileId;
+    /** 飞书 Wiki 附件/幻灯片栅格缓存键（如 file-{token}、slides-{token}） */
+    private String rasterCacheKey;
 }

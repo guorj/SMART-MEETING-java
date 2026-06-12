@@ -66,7 +66,7 @@
     '',
     '## 讨论纪要（预览占位）',
     '',
-    '请各负责人准备下季度目标与资源诉求。向下滚动至底部可显示 **下一议题** FAB。',
+    '请各负责人准备下季度目标与资源诉求。全屏模式下右下角可常驻 **下一议题** 按钮。',
     '',
     '---',
     '',
@@ -84,7 +84,7 @@
     '',
     '| 阶段 | 时间 | 交付 |\n| --- | --- | --- |\n| M1 | 7 月 | 前台 UI 预览 |\n| M2 | 8 月 | 资料全屏 FAB |\n| M3 | 9 月 | 旁观链路 |',
     '',
-    '滚动到底部可触发下一议题按钮。'
+    '全屏模式下右下角可常驻下一议题按钮。'
   ].join('\n');
 
   var lipTimer = null;
@@ -97,6 +97,9 @@
   var agendaDocFullscreen = false;
   var agendaDocNextFabRevealed = false;
   var agendaDocScrollFabRoots = [];
+
+  var PREVIEW_SCENE_BTNS = ['btnSceneIdle', 'btnSceneLive', 'btnScenePaused', 'btnSceneRollcall', 'btnSceneTranscript'];
+  var PREVIEW_EFFECT_BTNS = ['btnSceneSpeak', 'btnSceneLip'];
 
   function $(id) {
     return document.getElementById(id);
@@ -365,6 +368,11 @@
     return true;
   }
 
+  function revealAgendaDocNextFab() {
+    agendaDocNextFabRevealed = true;
+    setAgendaDocNextFabVisible(true);
+  }
+
   function resetAgendaDocNextFabRevealed() {
     agendaDocNextFabRevealed = false;
     var btn = $('btnAgendaDocNextTopicFab');
@@ -395,12 +403,7 @@
       resetAgendaDocNextFabRevealed();
       return;
     }
-    collectAgendaDocScrollRoots().forEach(function (root) {
-      var handler = onAgendaDocScrollFabCheck;
-      root.addEventListener('scroll', handler, { passive: true });
-      agendaDocScrollFabRoots.push({ root: root, handler: handler });
-    });
-    onAgendaDocScrollFabCheck();
+    revealAgendaDocNextFab();
   }
 
   function syncAgendaDocFullscreenLayout() {
@@ -429,53 +432,88 @@
     }
     if (headFs) headFs.style.display = agendaDocFullscreen ? 'none' : '';
     if (!showFab) resetAgendaDocNextFabRevealed();
-    else bindAgendaDocScrollFab();
+    else revealAgendaDocNextFab();
+  }
+
+  function syncRailForScene(scene) {
+    if (window.HostMeetingRail) HostMeetingRail.syncForScene(scene);
+  }
+
+  function syncRailViewerMode() {
+    if (window.HostMeetingRail) HostMeetingRail.syncViewerMode(viewerMode);
+  }
+
+  function finishAgendaDocFullscreenRestore(card, btn) {
+    if (card.__fsAnchor && card.__fsAnchor.parentNode) {
+      card.__fsAnchor.parentNode.insertBefore(card, card.__fsAnchor);
+      card.__fsAnchor.remove();
+      card.__fsAnchor = null;
+    }
+    card.classList.remove('agenda-doc-fullscreen');
+    card.classList.remove('agenda-doc-fs-ready');
+    document.body.classList.remove('agenda-doc-fullscreen-lock');
+    var reportBody = $('progressReportBody');
+    if (reportBody) {
+      reportBody.style.overflowY = reportBody.dataset.fsPrevOverflow || 'auto';
+      reportBody.style.minHeight = '';
+      reportBody.style.maxHeight = '';
+      reportBody.style.flex = '';
+      delete reportBody.dataset.fsPrevOverflow;
+      clearAgendaDocFullscreenLayout();
+      unbindAgendaDocScrollFab();
+    }
+    syncAgendaDocFullscreenControls();
+    if (btn) {
+      btn.setAttribute('aria-pressed', 'false');
+      btn.title = '进入全屏';
+      btn.setAttribute('aria-label', btn.title);
+    }
   }
 
   function setAgendaDocFullscreen(on) {
     var card = $('agendaDocCard');
     var btn = $('btnAgendaDocFullscreen');
-    if (!card || card.style.display === 'none') return;
-    agendaDocFullscreen = !!on;
-    if (agendaDocFullscreen) {
-      if (!card.__fsAnchor) {
-        var anchor = document.createComment('agendaDocCard-fs-anchor');
-        card.parentNode.insertBefore(anchor, card);
-        card.__fsAnchor = anchor;
+    if (!card) return;
+    var wantOn = !!on;
+    if (wantOn && card.style.display === 'none') return;
+    if (!wantOn && agendaDocFullscreen) {
+      agendaDocFullscreen = false;
+      if (window.AgendaFsPresent) {
+        AgendaFsPresent.playExit(card, function () {
+          finishAgendaDocFullscreenRestore(card, btn);
+        });
+      } else {
+        finishAgendaDocFullscreenRestore(card, btn);
       }
-      document.body.appendChild(card);
-    } else if (card.__fsAnchor && card.__fsAnchor.parentNode) {
-      card.__fsAnchor.parentNode.insertBefore(card, card.__fsAnchor);
-      card.__fsAnchor.remove();
-      card.__fsAnchor = null;
+      return;
     }
-    card.classList.toggle('agenda-doc-fullscreen', agendaDocFullscreen);
-    document.body.classList.toggle('agenda-doc-fullscreen-lock', agendaDocFullscreen);
+    if (!wantOn) return;
+    agendaDocFullscreen = true;
+    if (window.HostMeetingRail) HostMeetingRail.onFullscreenEnter();
+    if (!card.__fsAnchor) {
+      var anchor = document.createComment('agendaDocCard-fs-anchor');
+      card.parentNode.insertBefore(anchor, card);
+      card.__fsAnchor = anchor;
+    }
+    document.body.appendChild(card);
+    card.classList.add('agenda-doc-fullscreen');
+    document.body.classList.add('agenda-doc-fullscreen-lock');
     var reportBody = $('progressReportBody');
     if (reportBody) {
-      if (agendaDocFullscreen) {
-        reportBody.dataset.fsPrevOverflow = reportBody.style.overflowY || '';
-        reportBody.style.overflowY = 'hidden';
-        reportBody.style.minHeight = '0';
-        reportBody.style.maxHeight = 'none';
-        reportBody.style.flex = '1';
-        syncAgendaDocFullscreenLayout();
-      } else {
-        reportBody.style.overflowY = reportBody.dataset.fsPrevOverflow || 'auto';
-        reportBody.style.minHeight = '';
-        reportBody.style.maxHeight = '';
-        reportBody.style.flex = '';
-        delete reportBody.dataset.fsPrevOverflow;
-        clearAgendaDocFullscreenLayout();
-        unbindAgendaDocScrollFab();
-      }
+      reportBody.dataset.fsPrevOverflow = reportBody.style.overflowY || '';
+      reportBody.style.overflowY = 'hidden';
+      reportBody.style.minHeight = '0';
+      reportBody.style.maxHeight = 'none';
+      reportBody.style.flex = '1';
+      syncAgendaDocFullscreenLayout();
     }
     syncAgendaDocFullscreenControls();
     if (btn) {
-      btn.setAttribute('aria-pressed', agendaDocFullscreen ? 'true' : 'false');
-      btn.title = agendaDocFullscreen ? '退出全屏' : '进入全屏';
+      btn.setAttribute('aria-pressed', 'true');
+      btn.title = '退出全屏';
       btn.setAttribute('aria-label', btn.title);
     }
+    if (window.AgendaFsPresent) AgendaFsPresent.playEnter(card);
   }
 
   function renderAgendaDoc(show, topicIdx) {
@@ -497,6 +535,7 @@
     if (titleEl) {
       titleEl.innerHTML = '<svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8l6 6z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg> 当前议题资料 · ' + (topic.title || '');
     }
+    if (agendaDocFullscreen && window.AgendaFsPresent) AgendaFsPresent.updateChromeText();
     var body = $('progressReportBody');
     if (body) renderMarkdown(body, agendaDocMarkdownForIndex(topicIdx), 'transcript-box host-main-doc-body');
     var link = $('agendaDocExternalLink');
@@ -504,7 +543,6 @@
       link.style.display = agendaDocFullscreen ? 'none' : 'block';
       link.innerHTML = '飞书文档：<a href="#" onclick="return false">示例 Wiki 链接（预览占位）</a>';
     }
-    resetAgendaDocNextFabRevealed();
     if (agendaDocFullscreen) syncAgendaDocFullscreenLayout();
     syncAgendaDocFullscreenControls();
   }
@@ -535,8 +573,8 @@
     if (agendaDocFullscreen) {
       var reportBody = $('progressReportBody');
       if (reportBody) reportBody.scrollTop = 0;
-      resetAgendaDocNextFabRevealed();
       syncAgendaDocFullscreenLayout();
+      revealAgendaDocNextFab();
     }
   }
 
@@ -588,6 +626,35 @@
       setAgendaDocFullscreen(false);
     }
     syncAgendaDocFullscreenControls();
+    syncPreviewDockButtons();
+    syncRailViewerMode();
+  }
+
+  function sceneToMeetingDockActive(scene) {
+    if (scene === 'idle') return 'btnSceneIdle';
+    if (scene === 'paused') return 'btnScenePaused';
+    if (scene === 'rollcall') return 'btnSceneRollcall';
+    if (scene === 'transcript') return 'btnSceneTranscript';
+    return 'btnSceneLive';
+  }
+
+  function setDockBtnState(el, active) {
+    if (!el) return;
+    el.classList.remove('ui-btn-primary', 'ui-btn-frosted', 'ui-btn-secondary', 'ui-btn-soft');
+    el.classList.add(active ? 'ui-btn-primary' : 'ui-btn-frosted');
+  }
+
+  function syncPreviewDockButtons() {
+    var activeSceneBtn = sceneToMeetingDockActive(currentScene);
+    PREVIEW_SCENE_BTNS.forEach(function (id) {
+      setDockBtnState($(id), id === activeSceneBtn);
+    });
+    setDockBtnState($('btnSceneViewer'), viewerMode);
+    PREVIEW_EFFECT_BTNS.forEach(function (id) {
+      var sceneKey = id === 'btnSceneSpeak' ? 'speaking' : 'lip';
+      setDockBtnState($(id), currentScene === sceneKey);
+    });
+    document.body.classList.toggle('scene-idle', currentScene === 'idle');
   }
 
   function setControlButtons(scene) {
@@ -638,8 +705,10 @@
     } else {
       setMeetingBadge('进行中', 'success');
     }
-    $('topicTimer').textContent = '议题剩余 ' + fmtMs(topicLeft);
-    $('meetTimer').textContent = '会议剩余 ' + fmtMs(meetLeft);
+    var topicTimer = $('topicTimer');
+    var meetTimer = $('meetTimer');
+    if (topicTimer) topicTimer.textContent = '议题剩余 ' + fmtMs(topicLeft);
+    if (meetTimer) meetTimer.textContent = '会议剩余 ' + fmtMs(meetLeft);
     renderTopics(topics, previewCurrentIdx, false);
     renderCurrentAgenda(topics, previewCurrentIdx);
     var onRollCall = String(MOCK_TOPICS[previewCurrentIdx].title || '').indexOf('检点') >= 0;
@@ -671,8 +740,10 @@
       setAgendaDocFullscreen(false);
       previewCurrentIdx = 1;
       setMeetingBadge('未开始', 'neutral');
-      $('topicTimer').textContent = '议题剩余 —:—';
-      $('meetTimer').textContent = '会议剩余 —:—';
+      var topicTimerIdle = $('topicTimer');
+      var meetTimerIdle = $('meetTimer');
+      if (topicTimerIdle) topicTimerIdle.textContent = '议题剩余 —:—';
+      if (meetTimerIdle) meetTimerIdle.textContent = '会议剩余 —:—';
       $('currentAgendaPanel').style.display = 'none';
       renderTopics(MOCK_TOPICS, -1, true);
       renderAgendaDoc(false);
@@ -680,6 +751,8 @@
       setRecordingUi('idle');
       setAvatarState('idle', '等待开始会议…');
       setControlButtons('idle');
+      syncPreviewDockButtons();
+      syncRailForScene('idle');
       return;
     }
 
@@ -694,6 +767,8 @@
     else startRecTimer(754);
 
     refreshLiveUi();
+    syncPreviewDockButtons();
+    syncRailForScene(scene);
   }
 
   function wireDemoButtons() {
@@ -729,7 +804,14 @@
       previewGoNextTopic();
     });
     document.addEventListener('keydown', function (e) {
-      if (e.key === 'Escape' && agendaDocFullscreen) setAgendaDocFullscreen(false);
+      if (e.key !== 'Escape') return;
+      if (agendaDocFullscreen) {
+        setAgendaDocFullscreen(false);
+        return;
+      }
+      if (window.HostMeetingRail && HostMeetingRail.handleEscapeKey(false)) {
+        e.preventDefault();
+      }
     });
   }
 
@@ -786,6 +868,7 @@
     $('titleLine').textContent = '主持人：张明 · 预计 90 分钟 · 预览数据';
     wireDemoButtons();
     wireSceneButtons();
+    if (window.HostMeetingRail) HostMeetingRail.init();
     renderTranscript();
     applyScene('live');
     waitForStrandsThen(function () {

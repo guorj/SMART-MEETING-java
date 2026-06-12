@@ -20,8 +20,10 @@
   <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-32">
   <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-32">
   <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-2">
+  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260611-fs-bitable">
+  <link rel="stylesheet" href="static/styles/host-meeting-rail.css?v=sm-ui-20260611-rail3">
+  <link rel="stylesheet" href="static/styles/host-agenda-fs-present.css?v=sm-ui-20260611-fs-bitable">
+  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-rail2">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script src="ui-kit/icons.js?v=sm-ui-20260610-32"></script>
   <script src="ui-kit/motion.js?v=sm-ui-20260610-32"></script>
@@ -29,13 +31,13 @@
   <script type="module" src="static/host-strands-avatar.js?v=sm-ui-20260610-32"></script>
   <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
-<body class="host-page">
+<body class="host-page host-rail-layout">
   <header class="host-header">
     <div class="host-header-main">
       <h1 id="meetingTitleH1"><svg class="icon-sm" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4.913 2.659C5.694 2.224 6.557 2 7.43 2c.656 0 1.306.13 1.915.384M4.913 2.659C4.087 3.089 3.5 3.9 3.5 4.857v.308c0 .784-.266 1.544-.752 2.15L2.25 8.078a1.117 1.117 0 0 0 .215 1.636l.44.293a1.117 1.117 0 0 0 1.312-.067l.218-.178A1.117 1.117 0 0 1 6 9.43V20.5a1.5 1.5 0 0 0 1.5 1.5h9a1.5 1.5 0 0 0 1.5-1.5V9.43c0-.444.198-.864.565-1.137l.218.178c.37.303.9.33 1.312.067l.44-.293a1.117 1.117 0 0 0 .215-1.636l-.498-.713A3.474 3.474 0 0 1 20.5 5.165v-.308c0-.957-.587-1.768-1.413-2.198"/><path d="M16.5 2.659C15.718 2.224 14.855 2 13.983 2c-.657 0-1.307.13-1.916.384"/></svg> 加载中…</h1>
       <span class="ui-badge ui-badge-neutral" id="meetingStatusBadge">未开始</span>
     </div>
-    <p class="sub" id="titleLine">加载中…</p>
+    <p class="sub" id="titleLine" hidden>加载中…</p>
     <p class="ios-banner ui-banner-warn" id="iosNoticeHost" style="display:none">iOS：请保持屏幕常亮，勿切换到其他应用</p>
   </header>
   <div class="err ui-banner-err" id="err" style="display:none"></div>
@@ -43,79 +45,47 @@
     旁观模式：会序与资料同步更新，操作按钮已隐藏。如需主控请使用操作员链接。
   </p>
 
-  <div class="host-workspace blur-fade">
-    <div class="host-col-left">
-      <div id="currentAgendaPanel" class="current-agenda-panel" style="display:none" aria-live="polite">
-        <h3><svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 当前议程</h3>
+  <div class="host-rail-shell blur-fade">
+    <main class="host-rail-main">
+      <div id="currentAgendaPanel" class="current-agenda-panel host-rail-agenda-strip" style="display:none" aria-live="polite">
+        <div class="current-agenda-panel-head">
+          <div class="current-agenda-panel-head-left">
+            <h3><svg class="icon-sm" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 当前议程</h3>
+            <div class="host-header-timers current-agenda-timers" aria-live="polite">
+              <div class="timer ui-timer" id="topicTimer">议题剩余 —:—</div>
+              <div class="timer ui-timer" id="meetTimer">会议剩余 —:—</div>
+            </div>
+          </div>
+          <div class="current-agenda-recording-mount">
+            <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
+              <div class="host-recording-chip">
+                <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
+                  <div class="rec-status-row">
+                    <svg class="icon-rec" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg><span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
+                    <span class="rec-status-main" id="recStatusMain">未开始</span>
+                    <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
+                  </div>
+                  <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
+                </div>
+              </div>
+              <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
+                <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
+                <div class="transcript-inner" id="transcriptHost">
+                  <div class="transcript-host-viewport" id="transcriptViewport">
+                    <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
         <p id="currentAgendaTitle" class="current-agenda-title"></p>
         <p id="currentAgendaMeta" class="current-agenda-meta"></p>
         <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
       </div>
-      <section class="card-light card-agenda-progress blur-fade" aria-label="主持模块">
-        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/></svg> 会议控制</h2>
-        <div class="control-primary-sticky">
-          <div class="control-primary">
-            <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 开始会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暂停会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 继续会议</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.544 10.456a4.368 4.368 0 0 0-6.176 0l-2.912 2.912a4.368 4.368 0 0 0 6.176 6.176l.813-.813"/><path d="M10.456 13.544a4.368 4.368 0 0 0 6.176 0l2.912-2.912a4.368 4.368 0 0 0-6.176-6.176l-.813.813"/></svg> 复制旁观链接</button>
-          </div>
-          <div class="host-recording-widget ui-recording-bar" id="hostRecordingWidget" role="region" aria-label="录音模块">
-            <div class="host-recording-chip">
-              <div id="recordingStatusPanel" class="recording-status-panel" aria-live="polite" title="离线录音 · 音频持续保存，会后自动转写">
-                <div class="rec-status-row">
-                  <svg class="icon-rec" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg><span class="rec-status-dot idle" id="recStatusDot" aria-hidden="true"></span>
-                  <span class="rec-status-main" id="recStatusMain">未开始</span>
-                  <span class="rec-status-timer" id="recStatusTimer">00:00:00</span>
-                </div>
-                <p class="rec-status-sub" id="recStatusSub">离线录音 · 音频持续保存，会后自动转写</p>
-              </div>
-            </div>
-            <div id="transcriptPanel" class="transcript-panel-hidden host-recording-transcript-flyout">
-              <p class="host-recording-transcript-label" id="recordingDockSubtitle">实时字幕</p>
-              <div class="transcript-inner" id="transcriptHost">
-                <div class="transcript-host-viewport" id="transcriptViewport">
-                  <div id="transcriptListHost"><p class="muted placeholder-muted" style="border:none;padding:0">灰色斜体为识别中，定稿后变为正常样式。</p></div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="control-secondary row">
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> 下一议题</button>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过议题</button>
-        </div>
-        <div class="control-secondary row row-extend">
-          <span class="extend-label" id="extendTopicLabel">议题加时</span>
-          <select id="extendMinutesSelect" class="extend-select" disabled aria-labelledby="extendTopicLabel">
-            <option value="1" selected>1 分钟</option>
-            <option value="3">3 分钟</option>
-            <option value="5">5 分钟</option>
-            <option value="10">10 分钟</option>
-          </select>
-          <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
-        </div>
-        <div class="timers timers-display">
-          <div class="timer ui-timer" id="topicTimer">议题剩余 —:—</div>
-          <div class="timer ui-timer" id="meetTimer">会议剩余 —:—</div>
-        </div>
-        <div class="control-danger-zone">
-          <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
-        </div>
-        <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
-          <h3>会议检点</h3>
-          <details class="ui-help">
-            <summary>检点说明</summary>
-            <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
-          </details>
-          <div class="row" style="margin-top:0">
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg> 开始检点</button>
-            <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过当前</button>
-          </div>
-          <div class="rc-countdown" id="rollCallCountdown"></div>
-          <div class="rc-list" id="rollCallList"></div>
-        </div>
-      </section>
+      <div class="host-rail-idle-hint card-light" id="hostRailIdleHint" hidden>
+        <p class="muted">会议尚未开始。移入屏幕右侧或点击右下角图标打开主持面板，然后选择「开始会议」。</p>
+      </div>
       <section class="card-light card-matter blur-fade" id="agendaDocCard" style="display:none" aria-label="会序模块">
         <div class="agenda-doc-panel-head">
           <h2 class="panel-title" id="agendaDocPanelTitle"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8l6 6z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg> 当前议题资料</h2>
@@ -131,28 +101,90 @@
           <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-next-fab" id="btnAgendaDocNextTopicFab" title="下一议题" aria-label="下一议题"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
         </div>
       </section>
-    </div>
-    <aside class="host-col-right">
-      <section class="card-light card-avatar blur-fade" aria-label="主持模块">
-        <div class="avatar-card-top">
-          <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> AI 主持</h2>
-          <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
-        </div>
-        <div class="avatar-stage" id="avatarStage" data-state="idle">
-          <div class="avatar-figure avatar-figure--css-fallback" aria-hidden="true">
-            <div id="avatarStrands" class="avatar-strands-mount"></div>
-            <div class="avatar-mouth-slot">
-              <div id="avatarMouth"></div>
+    </main>
+
+    <aside class="host-rail-drawer" id="hostRailDrawer" aria-hidden="true" aria-label="主持面板">
+      <div class="host-rail-drawer-scroll" id="hostRailDrawerScroll">
+        <section class="host-rail-drawer-section host-rail-drawer-section--control" id="hostRailSectionControl">
+          <section class="card-light card-agenda-progress blur-fade" aria-label="主持模块">
+            <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6V2H8"/><path d="m8 18-4 4V8a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2Z"/></svg> 会议控制</h2>
+            <div class="control-primary-sticky">
+              <div class="control-primary">
+                <button class="btn-primary ui-btn ui-btn-primary" type="button" id="btnStartMeeting"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 开始会议</button>
+                <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnPauseMeeting" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg> 暂停会议</button>
+                <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnResumeMeeting" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 3 20 12 6 21 6 3"/></svg> 继续会议</button>
+                <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnCopyViewerLink" style="display:none"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.544 10.456a4.368 4.368 0 0 0-6.176 0l-2.912 2.912a4.368 4.368 0 0 0 6.176 6.176l.813-.813"/><path d="M10.456 13.544a4.368 4.368 0 0 0 6.176 0l2.912-2.912a4.368 4.368 0 0 0-6.176-6.176l-.813.813"/></svg> 复制旁观链接</button>
+              </div>
+              <div class="host-recording-reconnect-banner" id="hostRecordingReconnectBanner" hidden>
+                <p class="muted">主持会话已恢复。录音需重新授权麦克风，请点击下方按钮重连。</p>
+                <button type="button" class="ui-btn ui-btn-secondary" id="btnReconnectRecording">重连录音</button>
+              </div>
             </div>
-          </div>
-          <p class="avatar-caption" id="avatarCaption">等待中</p>
-        </div>
-      </section>
-      <section class="card-light card-agenda-detail blur-fade" aria-label="会序模块">
-        <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> 议程列表</h2>
-        <div id="topics" class="agenda-detail-body"></div>
-      </section>
+            <div class="control-secondary row">
+              <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnNext"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg> 下一议题</button>
+              <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnSkip"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过议题</button>
+            </div>
+            <div class="control-secondary row row-extend">
+              <span class="extend-label" id="extendTopicLabel">议题加时</span>
+              <select id="extendMinutesSelect" class="extend-select" disabled aria-labelledby="extendTopicLabel">
+                <option value="1" selected>1 分钟</option>
+                <option value="3">3 分钟</option>
+                <option value="5">5 分钟</option>
+                <option value="10">10 分钟</option>
+              </select>
+              <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
+            </div>
+            <div class="control-danger-zone">
+              <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
+            </div>
+            <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
+              <h3>会议检点</h3>
+              <details class="ui-help">
+                <summary>检点说明</summary>
+                <p class="muted" style="font-size:12px;margin-bottom:8px">单麦流程：会序（host_agenda）中须有标题含<strong>「检点」</strong>的会序项，且已配置应到名单（参会人表或预设 participants_names）时，开场播完后将<strong>自动</strong>进入检点；否则不会自动检点。主持仅依次播报名字，请被点到者靠近主持麦用语音答到（如「答到」「在」）。检点进行中若需切到下一项会序，点<strong>下一议题</strong>或<strong>跳过议题</strong>均可（会同时结束检点）。检点自然结束后若当前议题为「检点」类，将自动进入下一项。</p>
+              </details>
+              <div class="row" style="margin-top:0">
+                <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallStart" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M9 14l2 2 4-4"/></svg> 开始检点</button>
+                <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnRollCallSkip" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="17 3 7 12 17 21 17 3"/><line x1="7" y1="3" x2="7" y2="21"/></svg> 跳过当前</button>
+              </div>
+              <div class="rc-countdown" id="rollCallCountdown"></div>
+              <div class="rc-list" id="rollCallList"></div>
+            </div>
+          </section>
+        </section>
+
+        <section class="host-rail-drawer-section host-rail-drawer-section--avatar" id="hostRailSectionAvatar">
+          <section class="card-light card-avatar blur-fade" aria-label="主持模块">
+            <div class="avatar-card-top">
+              <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="22"/></svg> AI 主持</h2>
+              <span class="avatar-badge" id="avatarBadge" data-badge="idle">等待中</span>
+            </div>
+            <div class="avatar-stage" id="avatarStage" data-state="idle">
+              <div class="avatar-figure avatar-figure--css-fallback" aria-hidden="true">
+                <div id="avatarStrands" class="avatar-strands-mount"></div>
+                <div class="avatar-mouth-slot">
+                  <div id="avatarMouth"></div>
+                </div>
+              </div>
+              <p class="avatar-caption" id="avatarCaption">等待中</p>
+            </div>
+          </section>
+        </section>
+
+        <section class="host-rail-drawer-section host-rail-drawer-section--agenda" id="hostRailSectionAgenda">
+          <section class="card-light card-agenda-detail blur-fade" aria-label="会序模块">
+            <h2 class="panel-title"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg> 议程列表</h2>
+            <div id="topics" class="agenda-detail-body"></div>
+          </section>
+        </section>
+      </div>
     </aside>
+
+    <div class="host-rail-edge" id="hostRailEdge" aria-hidden="true"></div>
+
+    <button type="button" class="host-rail-mobile-toggle ui-btn ui-btn-secondary" id="hostRailMobileToggle" aria-controls="hostRailDrawer" aria-expanded="false" aria-label="打开主持面板" title="主持面板">
+      <svg class="icon-sm" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M15 3v18"/><path d="M8 8h.01"/><path d="M8 12h.01"/><path d="M8 16h.01"/></svg>
+    </button>
   </div>
 
   <div class="magic-bento-global-spotlight" id="hostMagicSpotlight" aria-hidden="true"></div>
@@ -163,10 +195,13 @@
   <script src="static/meeting-context.js?v=sm-20260525-1"></script>
   <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
-  <script src="static/recorder.js?v=sm-20260608-2"></script>
-  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
+  <script src="static/recorder.js?v=sm-ui-20260611-reconnect"></script>
+  <script src="static/host-meeting-rail.js?v=sm-ui-20260611-rail3"></script>
+  <script src="static/host-agenda-fs-present.js?v=sm-ui-20260611-fs-bitable"></script>
+  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-rail2"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
+      if (window.HostMeetingRail) HostMeetingRail.init();
       if (!window.MagicBento || !window.gsap) return;
 
       MagicBento.enhance(
@@ -175,7 +210,7 @@
           glowColor: '0, 47, 167',
           spotlightRadius: 300,
           spotlightEl: '#hostMagicSpotlight',
-          scopeEl: '.host-workspace',
+          scopeEl: '.host-rail-shell',
           enableTilt: false,
           enableMagnetism: false,
           enableStars: false,
@@ -213,7 +248,7 @@
         if (notice) notice.style.display = 'block';
         ['btnStartMeeting', 'btnPauseMeeting', 'btnResumeMeeting', 'btnEnd',
           'btnNext', 'btnSkip', 'btnExtendTopic', 'btnRollCallStart', 'btnRollCallSkip',
-          'btnCopyViewerLink', 'btnAgendaDocFullscreenFab', 'btnAgendaDocNextTopicFab'].forEach(function (id) {
+          'btnCopyViewerLink', 'btnAgendaDocFullscreenFab', 'btnAgendaDocNextTopicFab', 'btnReconnectRecording'].forEach(function (id) {
           var el = document.getElementById(id);
           if (el) { el.style.display = 'none'; el.disabled = true; }
         });
@@ -221,6 +256,9 @@
         if (extSel) extSel.disabled = true;
         var recWidget = document.getElementById('hostRecordingWidget');
         if (recWidget) recWidget.style.display = 'none';
+        var recBanner = document.getElementById('hostRecordingReconnectBanner');
+        if (recBanner) recBanner.hidden = true;
+        if (window.HostMeetingRail) HostMeetingRail.syncMeetingState({ readOnly: true });
       }
 
       function syncReadOnlyFromState(obj) {
@@ -256,6 +294,11 @@
       let recTimerAccumSec = 0;
       let recTimerRunning = false;
       let meetingLive = false;
+      /** 本场是否已启动主持会话（POST /start 或 adopt active）；结束前不重置 */
+      let hostSessionStarted = false;
+      let startInFlight = false;
+      let reconnectInFlight = false;
+      let lastHostStateObj = null;
       /** 从会议/预设解析；未开始时右侧议程详情为预览，开始后为实时状态 */
       let plannedTopicsCache = [];
       /** 已成功渲染会序资料/通报的会序下标；-1 表示尚无正文 */
@@ -630,6 +673,14 @@
         if (!fileId || !meetingId) return '';
         return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
             + '/agenda-materials/proxy-file-image?fileId=' + encodeURIComponent(fileId)
+            + '&page=' + encodeURIComponent(page)
+            + '&token=' + encodeURIComponent(token || ''));
+      }
+
+      function proxyRasterImageUrl(cacheKey, page) {
+        if (!cacheKey || !meetingId) return '';
+        return meetingApi('/api/v1/meetings/' + encodeURIComponent(meetingId)
+            + '/agenda-materials/proxy-raster-image?cacheKey=' + encodeURIComponent(cacheKey)
             + '&page=' + encodeURIComponent(page)
             + '&token=' + encodeURIComponent(token || ''));
       }
@@ -1765,6 +1816,9 @@
 
       function renderStructuredContent(el, part, opts) {
         opts = opts || {};
+        var partOpts = Object.assign({}, opts);
+        if (part && part.fileId) partOpts.fileId = part.fileId;
+        if (part && part.rasterCacheKey) partOpts.rasterCacheKey = part.rasterCacheKey;
         var sc = part.structuredContent;
         var ct = part.contentType;
         if (!sc || !ct) return false;
@@ -1791,10 +1845,10 @@
           case 'bitable_records': renderBitableStructured(mount, sc, opts); break;
           case 'task_list': renderTaskListStructured(mount, sc, opts); break;
           case 'sheet_cells': renderSheetStructured(mount, sc, opts); break;
-          case 'excel_workbook': renderExcelWorkbook(mount, sc, opts); break;
-          case 'ppt_slides': renderPptSlides(mount, sc, opts); break;
-          case 'pdf_pages': renderPdfPages(mount, sc, opts); break;
-          case 'image_gallery': renderImageGallery(mount, sc, opts); break;
+          case 'excel_workbook': renderExcelWorkbook(mount, sc, partOpts); break;
+          case 'ppt_slides': renderPptSlides(mount, sc, partOpts); break;
+          case 'pdf_pages': renderPdfPages(mount, sc, partOpts); break;
+          case 'image_gallery': renderImageGallery(mount, sc, partOpts); break;
           case 'html': renderHtmlStructured(mount, sc); break;
           default: return false;
         }
@@ -2435,19 +2489,20 @@
         });
       }
 
-      function resolveSlideImageSrc(item, idx, fileId) {
+      function resolveSlideImageSrc(item, idx, opts) {
+        opts = opts || {};
         var page = item && item.index != null ? item.index : idx;
         if (item && item.imageUrl && String(item.imageUrl).indexOf('/agenda-materials/') >= 0) {
           return item.imageUrl;
         }
-        if (fileId) return proxyFileImageUrl(fileId, page);
+        if (opts.fileId) return proxyFileImageUrl(opts.fileId, page);
+        if (opts.rasterCacheKey) return proxyRasterImageUrl(opts.rasterCacheKey, page);
         if (item && item.imageUrl) return item.imageUrl;
         return '';
       }
 
       function renderSlideLikeDeck(el, items, opts, label) {
         if (!items || !items.length) return;
-        var fileId = opts && opts.fileId ? opts.fileId : '';
         var isPdf = label === 'PDF 页面';
         var wrap = document.createElement('div');
         wrap.className = 'structured-slide-deck' + (isPdf ? ' structured-pdf-deck' : '');
@@ -2480,13 +2535,14 @@
         var thumbEls = [];
         var scrollPageEls = [];
         var slideSrcs = items.map(function (item, i) {
-          return resolveSlideImageSrc(item, i, fileId);
+          return resolveSlideImageSrc(item, i, opts);
         });
 
         function ensureSlideImageLoaded(targetImg, src) {
-          if (!targetImg || !src || targetImg.dataset.loaded === '1') return;
+          if (!targetImg || !src) return;
+          if (targetImg.dataset.loadedSrc === src) return;
           targetImg.src = src;
-          targetImg.dataset.loaded = '1';
+          targetImg.dataset.loadedSrc = src;
         }
 
         function preloadSlideWindow(center) {
@@ -2950,6 +3006,11 @@
         return true;
       }
 
+      function revealAgendaDocNextFab() {
+        agendaDocNextFabRevealed = true;
+        setAgendaDocNextFabVisible(true);
+      }
+
       function resetAgendaDocNextFabRevealed() {
         agendaDocNextFabRevealed = false;
         var btn = document.getElementById('btnAgendaDocNextTopicFab');
@@ -2985,13 +3046,7 @@
           resetAgendaDocNextFabRevealed();
           return;
         }
-        var roots = collectAgendaDocScrollRoots();
-        roots.forEach(function (root) {
-          var handler = onAgendaDocScrollFabCheck;
-          root.addEventListener('scroll', handler, { passive: true });
-          agendaDocScrollFabRoots.push({ root: root, handler: handler });
-        });
-        onAgendaDocScrollFabCheck();
+        revealAgendaDocNextFab();
       }
 
       function syncAgendaDocFullscreenControls() {
@@ -3008,12 +3063,11 @@
         if (!showFab) {
           resetAgendaDocNextFabRevealed();
         } else {
-          bindAgendaDocScrollFab();
+          revealAgendaDocNextFab();
         }
       }
 
       function finalizeAgendaDocPanel(panel) {
-        resetAgendaDocNextFabRevealed();
         stampAgendaDocPartIndices(panel);
         syncAgendaDocFullscreenLayout();
         ensureAgendaDocScrollSentinel(panel);
@@ -3099,51 +3153,76 @@
         }
       }
 
-      function setAgendaDocFullscreen(on) {
-        var card = document.getElementById('agendaDocCard');
-        var btn = document.getElementById('btnAgendaDocFullscreen');
-        if (!card) return;
-        agendaDocFullscreen = !!on;
-        if (agendaDocFullscreen) {
-          if (!card.__fsAnchor) {
-            var anchor = document.createComment('agendaDocCard-fs-anchor');
-            card.parentNode.insertBefore(anchor, card);
-            card.__fsAnchor = anchor;
-          }
-          document.body.appendChild(card);
-        } else if (card.__fsAnchor && card.__fsAnchor.parentNode) {
+      function finishAgendaDocFullscreenRestore(card, btn) {
+        if (card.__fsAnchor && card.__fsAnchor.parentNode) {
           card.__fsAnchor.parentNode.insertBefore(card, card.__fsAnchor);
           card.__fsAnchor.remove();
           card.__fsAnchor = null;
         }
-        card.classList.toggle('agenda-doc-fullscreen', agendaDocFullscreen);
-        document.body.classList.toggle('agenda-doc-fullscreen-lock', agendaDocFullscreen);
+        card.classList.remove('agenda-doc-fullscreen');
+        card.classList.remove('agenda-doc-fs-ready');
+        document.body.classList.remove('agenda-doc-fullscreen-lock');
         var reportBody = document.getElementById('progressReportBody');
         if (reportBody) {
-          if (agendaDocFullscreen) {
-            reportBody.dataset.fsPrevOverflow = reportBody.style.overflowY || '';
-            reportBody.style.overflowY = 'hidden';
-            reportBody.style.minHeight = '0';
-            reportBody.style.maxHeight = 'none';
-            reportBody.style.flex = '1';
-          } else {
-            reportBody.style.overflowY = reportBody.dataset.fsPrevOverflow || 'auto';
-            reportBody.style.minHeight = '';
-            reportBody.style.maxHeight = '';
-            reportBody.style.flex = '';
-            delete reportBody.dataset.fsPrevOverflow;
-            clearAgendaDocFullscreenLayout();
-          }
-        }
-        if (agendaDocFullscreen) {
-          syncAgendaDocFullscreenLayout();
+          reportBody.style.overflowY = reportBody.dataset.fsPrevOverflow || 'auto';
+          reportBody.style.minHeight = '';
+          reportBody.style.maxHeight = '';
+          reportBody.style.flex = '';
+          delete reportBody.dataset.fsPrevOverflow;
+          clearAgendaDocFullscreenLayout();
         }
         syncAgendaDocFullscreenControls();
         if (btn) {
-          btn.setAttribute('aria-pressed', agendaDocFullscreen ? 'true' : 'false');
-          btn.title = agendaDocFullscreen ? '退出全屏' : '进入全屏';
+          btn.setAttribute('aria-pressed', 'false');
+          btn.title = '进入全屏';
           btn.setAttribute('aria-label', btn.title);
         }
+      }
+
+      function setAgendaDocFullscreen(on) {
+        var card = document.getElementById('agendaDocCard');
+        var btn = document.getElementById('btnAgendaDocFullscreen');
+        if (!card) return;
+        var wantOn = !!on;
+        if (wantOn && card.style.display === 'none') return;
+        if (!wantOn && agendaDocFullscreen) {
+          agendaDocFullscreen = false;
+          if (window.AgendaFsPresent) {
+            AgendaFsPresent.playExit(card, function () {
+              finishAgendaDocFullscreenRestore(card, btn);
+            });
+          } else {
+            finishAgendaDocFullscreenRestore(card, btn);
+          }
+          return;
+        }
+        if (!wantOn) return;
+        agendaDocFullscreen = true;
+        if (window.HostMeetingRail) HostMeetingRail.onFullscreenEnter();
+        if (!card.__fsAnchor) {
+          var anchor = document.createComment('agendaDocCard-fs-anchor');
+          card.parentNode.insertBefore(anchor, card);
+          card.__fsAnchor = anchor;
+        }
+        document.body.appendChild(card);
+        card.classList.add('agenda-doc-fullscreen');
+        document.body.classList.add('agenda-doc-fullscreen-lock');
+        var reportBody = document.getElementById('progressReportBody');
+        if (reportBody) {
+          reportBody.dataset.fsPrevOverflow = reportBody.style.overflowY || '';
+          reportBody.style.overflowY = 'hidden';
+          reportBody.style.minHeight = '0';
+          reportBody.style.maxHeight = 'none';
+          reportBody.style.flex = '1';
+        }
+        syncAgendaDocFullscreenLayout();
+        syncAgendaDocFullscreenControls();
+        if (btn) {
+          btn.setAttribute('aria-pressed', 'true');
+          btn.title = '退出全屏';
+          btn.setAttribute('aria-label', btn.title);
+        }
+        if (window.AgendaFsPresent) AgendaFsPresent.playEnter(card);
       }
 
       function syncAgendaDocPanel(topics, curTopicIdx) {
@@ -3172,6 +3251,7 @@
           titleEl.textContent = panelPrefix + (kindLbl ? ('（' + kindLbl + '）') : '') + ' · '
               + (curTopic.title || ('第 ' + (curTopicIdx + 1) + ' 项'));
         }
+        if (agendaDocFullscreen && window.AgendaFsPresent) AgendaFsPresent.updateChromeText();
         var stateKey = agendaDocStateKey(curTopic, curTopicIdx);
         var needReload = stateKey !== agendaDocLastStateKey;
         if (needReload && agendaDocFetchingIndex !== curTopicIdx) {
@@ -3345,6 +3425,155 @@
         if (btn) btn.disabled = !enabled;
       }
 
+      /** 根据 meetingLive / hostSessionStarted / 服务端 paused 同步开始·暂停·继续按钮 */
+      function isRecorderAttached() {
+        return !!(recorder && recorder.isRecording);
+      }
+
+      function clearAudioSessionStorage() {
+        try {
+          sessionStorage.removeItem('sm_audio_session_' + meetingId);
+        } catch (e) { /* ignore */ }
+      }
+
+      function syncRecordingReconnectUi(obj) {
+        var banner = document.getElementById('hostRecordingReconnectBanner');
+        var btnReconnect = document.getElementById('btnReconnectRecording');
+        if (!canOperate || !hostSessionStarted || !meetingLive) {
+          if (banner) banner.hidden = true;
+          if (btnReconnect) btnReconnect.style.display = 'none';
+          return;
+        }
+        var needReconnect = !isRecorderAttached();
+        if (banner) banner.hidden = !needReconnect;
+        if (btnReconnect) {
+          btnReconnect.style.display = needReconnect ? '' : 'none';
+          btnReconnect.disabled = reconnectInFlight || !needReconnect;
+        }
+      }
+
+      function syncLiveMeetingChrome(obj) {
+        if (!canOperate) return;
+        var btnStart = document.getElementById('btnStartMeeting');
+        if (hostSessionStarted || meetingLive) {
+          if (btnStart) {
+            btnStart.disabled = true;
+            btnStart.style.display = 'none';
+            btnStart.textContent = '会议进行中';
+          }
+          if (meetingLive) {
+            var paused = obj && (obj.paused === true || obj.paused === 'true');
+            setMeetingPausedUI(!!paused);
+            showCopyViewerLinkButton();
+          }
+          syncRecordingReconnectUi(obj);
+          return;
+        }
+        if (btnStart) {
+          btnStart.style.display = '';
+          btnStart.disabled = startInFlight;
+          btnStart.textContent = '开始会议';
+        }
+        setMeetingPausedUI(false);
+        syncRecordingReconnectUi(null);
+      }
+
+      function wireRecorderCallbacks() {
+        if (!recorder) return;
+        recorder.onTranscript = handleRecorderWsMessage;
+        recorder.onStatusChange = function (status) {
+          updateRecordingStatusUI(status);
+          if (status === 'recording') {
+            if (!recTimerInterval && recTimerAccumSec === 0 && !recTimerStartMs) {
+              startRecTimer();
+            } else {
+              resumeRecTimer();
+            }
+            syncRecordingReconnectUi(lastHostStateObj);
+          } else if (status === 'paused') {
+            pauseRecTimer();
+          } else if (status === 'stopped') {
+            stopRecTimer();
+            updateRecordingStatusUI('idle');
+            syncRecordingReconnectUi(lastHostStateObj);
+          }
+        };
+        recorder.onError = function (msg) { showErr(msg); };
+        recorder.onWarning = function (m) { console.warn(m); };
+      }
+
+      async function connectRecorder() {
+        if (isRecorderAttached()) return true;
+        if (recorder && !recorder.isRecording) {
+          try { recorder.stop(); } catch (e) { console.warn(e); }
+          recorder = null;
+        }
+        var wsUrl = meetingWsUrl('/ws/audio/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token));
+        if (!recorder) {
+          recorder = new MeetingRecorder(meetingId, token, wsUrl);
+          wireRecorderCallbacks();
+        }
+        hostTtsAvatar.warmUpAudio();
+        await recorder.rejoin();
+        if (!recorder.isRecording) {
+          throw new Error('录音未能启动（请检查麦克风权限）');
+        }
+        syncRecordingReconnectUi(lastHostStateObj);
+        return true;
+      }
+
+      async function beginHostSession() {
+        if (hostSessionStarted) return null;
+        var st = await hostApi('/start', { method: 'POST' });
+        hostSessionStarted = true;
+        return st;
+      }
+
+      async function reconnectRecordingFlow() {
+        if (!canOperate || reconnectInFlight || !hostSessionStarted) return;
+        reconnectInFlight = true;
+        showErr('');
+        var btn = document.getElementById('btnReconnectRecording');
+        if (btn) {
+          btn.disabled = true;
+          btn.textContent = '连接中…';
+        }
+        try {
+          await connectRecorder();
+          var paused = lastHostStateObj && (lastHostStateObj.paused === true || lastHostStateObj.paused === 'true');
+          if (paused && recorder) {
+            recorder.pause();
+            pauseRecTimer();
+          }
+          showHostToast('录音已重连', 2200);
+        } catch (e) {
+          showErr('录音重连失败：' + (e.message || e));
+          if (recorder && !isRecorderAttached()) {
+            try { recorder.stop(); } catch (err) { console.warn(err); }
+            recorder = null;
+          }
+          syncRecordingReconnectUi(lastHostStateObj);
+        } finally {
+          reconnectInFlight = false;
+          if (btn) {
+            btn.textContent = '重连录音';
+            syncRecordingReconnectUi(lastHostStateObj);
+          }
+        }
+      }
+
+      /** 刷新/重进时服务端会议已在进行，恢复客户端 live 态（无需再次 POST /start） */
+      function adoptLiveMeetingSession(obj) {
+        if (meetingLive) return false;
+        meetingLive = true;
+        hostSessionStarted = true;
+        lastHostStateObj = obj || null;
+        startHostStatePoll();
+        syncLiveMeetingChrome(obj);
+        showHostToast('主持会话已恢复，请点击「重连录音」继续采集麦克风', 5000);
+        return true;
+      }
+
       /**
        * 消费 REST 或 WebSocket 下发的 host_state：计时器、议程列表、当前议程高亮、检点 UI、会序 2 事项通报懒加载。
        * @param {object|null} obj 解析后的 JSON；active=false 时恢复预览态并隐藏检点/当前议程面板
@@ -3353,6 +3582,15 @@
         var active = obj && (obj.active === true || obj.active === 'true');
         var rcw = document.getElementById('rollCallWrap');
         if (!active) {
+          if (meetingLive) {
+            meetingLive = false;
+            hostSessionStarted = false;
+            stopHostStatePoll();
+            syncLiveMeetingChrome(null);
+            clearAudioSessionStorage();
+            syncRecordingReconnectUi(null);
+            if (window.HostMeetingRail) HostMeetingRail.resetMeetingMode();
+          }
           agendaDocRenderedIndex = -1;
           agendaDocFetchingIndex = -1;
           agendaDocLastStateKey = '';
@@ -3367,8 +3605,15 @@
           updateExtendTopicControls(false);
           var stOff = meetingStatusFromState(obj, meetingLive);
           updateMeetingStatusBadge(stOff.label, stOff.tone);
+          if (window.HostMeetingRail) {
+            HostMeetingRail.syncMeetingState({ meetingActive: false, readOnly: readOnlyMode });
+          }
           return;
         }
+        if (!meetingLive) adoptLiveMeetingSession(obj);
+        else syncLiveMeetingChrome(obj);
+        lastHostStateObj = obj;
+        syncRecordingReconnectUi(obj);
         var stOn = meetingStatusFromState(obj, meetingLive);
         updateMeetingStatusBadge(stOn.label, stOn.tone);
         document.getElementById('topicTimer').textContent = '议题剩余 ' + fmtMs(obj.topicLeftMs);
@@ -3456,6 +3701,13 @@
         updateExtendTopicControls(meetingLive && topics.length > 0 && curTopicIdx < topics.length && canOperate);
         syncAgendaDocFullscreenControls();
         syncReadOnlyFromState(obj);
+        if (window.HostMeetingRail) {
+          HostMeetingRail.syncMeetingState({
+            meetingActive: true,
+            transcriptOpen: recordingUiMode === 'realtime',
+            readOnly: readOnlyMode
+          });
+        }
       }
 
       function setRecordingUiMode(mode) {
@@ -3476,6 +3728,13 @@
           if (subtitle) subtitle.textContent = '实时字幕';
           if (sub) sub.textContent = '离线录音 · 音频持续保存，会后自动转写';
           if (statusPanel) statusPanel.title = sub ? sub.textContent : '';
+        }
+        if (window.HostMeetingRail && meetingLive) {
+          HostMeetingRail.syncMeetingState({
+            meetingActive: true,
+            transcriptOpen: recordingUiMode === 'realtime',
+            readOnly: readOnlyMode
+          });
         }
       }
 
@@ -3558,8 +3817,8 @@
           setRecordingUiMode('realtime');
           return;
         }
-        if (t === 'recording_started') {
-          updateRecordingStatusUI('recording');
+        if (t === 'recording_started' || t === 'recording_rejoined') {
+          updateRecordingStatusUI(t === 'recording_rejoined' && msg.state === 'PAUSED' ? 'paused' : 'recording');
           return;
         }
         if (t === 'auto_paused') {
@@ -3758,7 +4017,14 @@
         btnAgendaNextFab.onclick = function () { hostGoNextTopic(); };
       }
       document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && agendaDocFullscreen) setAgendaDocFullscreen(false);
+        if (e.key !== 'Escape') return;
+        if (agendaDocFullscreen) {
+          setAgendaDocFullscreen(false);
+          return;
+        }
+        if (window.HostMeetingRail && HostMeetingRail.handleEscapeKey(false)) {
+          e.preventDefault();
+        }
       });
 
       var btnStartInit = document.getElementById('btnStartMeeting');
@@ -3777,8 +4043,10 @@
         .then(function () { return refreshHostStateFromApi(); })
         .finally(function () {
           if (canOperate) {
-            btnStartInit.disabled = false;
-            btnStartInit.textContent = '开始会议';
+            if (!hostSessionStarted && !meetingLive) {
+              btnStartInit.disabled = false;
+              btnStartInit.textContent = '开始会议';
+            }
             showCopyViewerLinkButton();
           }
         });
@@ -3841,49 +4109,24 @@
       }
 
       document.getElementById('btnStartMeeting').onclick = async function () {
-        if (!canOperate) return;
+        if (!canOperate || startInFlight || hostSessionStarted) return;
         showErr('');
         const btn = document.getElementById('btnStartMeeting');
         btn.disabled = true;
         btn.textContent = '连接中…';
-        const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = meetingWsUrl('/ws/audio/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token));
-        recorder = new MeetingRecorder(meetingId, token, wsUrl);
-        recorder.onTranscript = handleRecorderWsMessage;
-        recorder.onStatusChange = function (status) {
-          updateRecordingStatusUI(status);
-          if (status === 'recording') {
-            if (!recTimerInterval && recTimerAccumSec === 0 && !recTimerStartMs) {
-              startRecTimer();
-            } else {
-              resumeRecTimer();
-            }
-          } else if (status === 'paused') {
-            pauseRecTimer();
-          } else if (status === 'stopped') {
-            stopRecTimer();
-            updateRecordingStatusUI('idle');
-          }
-        };
-        recorder.onError = function (msg) { showErr(msg); };
-        recorder.onWarning = function (m) { console.warn(m); };
+        startInFlight = true;
         try {
-          hostTtsAvatar.warmUpAudio();
-          await recorder.start();
-          if (!recorder.isRecording) {
-            throw new Error('录音未能启动（请检查麦克风权限）');
-          }
-          var st = await hostApi('/start', {
-            method: 'POST'
-          });
+          await connectRecorder();
+          var st = await beginHostSession();
           if (st && st.topics && st.topics.length) {
             plannedTopicsCache = st.topics.map(hostTopicToCacheItem);
           }
           meetingLive = true;
+          lastHostStateObj = st;
           renderHostState(st);
           showCopyViewerLinkButton();
           startHostStatePoll();
-          setMeetingPausedUI(false);
+          syncLiveMeetingChrome(st);
           btn.textContent = '会议进行中';
         } catch (e) {
           showErr('会议启动失败：' + (e.message || e));
@@ -3894,12 +4137,22 @@
           stopRecTimer();
           updateRecordingStatusUI('idle');
           meetingLive = false;
+          hostSessionStarted = false;
+          clearAudioSessionStorage();
           stopHostStatePoll();
           btn.disabled = false;
           btn.textContent = '开始会议';
           setMeetingPausedUI(false);
+          syncRecordingReconnectUi(null);
+        } finally {
+          startInFlight = false;
         }
       };
+
+      var btnReconnectInit = document.getElementById('btnReconnectRecording');
+      if (btnReconnectInit) {
+        btnReconnectInit.onclick = function () { reconnectRecordingFlow(); };
+      }
 
       document.getElementById('btnPauseMeeting').onclick = async function () {
         if (!meetingLive) return;
@@ -4000,6 +4253,7 @@
           }
           stopRecTimer();
           updateRecordingStatusUI('idle');
+          clearAudioSessionStorage();
           try { hostTtsAvatar.dispose(); } catch (e2) { /* ignore */ }
           try {
             if (window.hostAvatarStrands && typeof window.hostAvatarStrands.dispose === 'function') {
@@ -4013,7 +4267,10 @@
           const j = await res.json();
           if (!res.ok || j.code !== 0) throw new Error(j.message || '结束失败');
           meetingLive = false;
+          hostSessionStarted = false;
+          lastHostStateObj = null;
           stopHostStatePoll();
+          syncRecordingReconnectUi(null);
           document.getElementById('btnStartMeeting').disabled = true;
           document.getElementById('btnEnd').disabled = true;
           setMeetingPausedUI(false);

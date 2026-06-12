@@ -6,20 +6,21 @@
   <title>会议管理后台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/ui-kit/tokens.css?v=sm-ui-20260610-10"/>
-  <link rel="stylesheet" href="/static/ui-kit/components.css?v=sm-ui-20260610-10"/>
-  <link rel="stylesheet" href="/static/ui-kit/icons.css?v=sm-ui-20260610-10"/>
-  <link rel="stylesheet" href="/static/ui-kit/motion.css?v=sm-ui-20260610-10"/>
-  <link rel="stylesheet" href="/static/admin/admin.css?v=sm-ui-20260610-10"/>
-  <link rel="stylesheet" href="/static/admin/admin-layout.css?v=sm-ui-20260610-10"/>
+  <link rel="stylesheet" href="/static/ui-kit/tokens.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/ui-kit/components.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/ui-kit/icons.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/ui-kit/motion.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/admin/admin.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/admin/admin-layout.css?v=sm-ui-20260612-4"/>
+  <link rel="stylesheet" href="/static/admin/admin-ui-bridge.css?v=sm-ui-20260612-4"/>
 </head>
 <body class="admin-shell">
-<div id="login-panel" class="panel">
+<div id="login-panel" class="ui-card card admin-card">
   <h1>会议管理后台</h1>
-  <p>Smart Meeting Admin · 端口 8766</p>
+  <p class="muted">Smart Meeting Admin · 端口 8766</p>
   <label for="token-input">Admin Token</label>
   <input id="token-input" type="password" autocomplete="off" placeholder="dev-admin-token"/>
-  <button id="login-btn" type="button" class="primary">进入后台</button>
+  <button id="login-btn" type="button" class="ui-btn ui-btn-primary">进入后台</button>
   <p class="login-foot"><a id="feishu-login-link" href="/admin/oauth/feishu/start">飞书 OAuth 登录</a>（需配置启用）</p>
 </div>
 <div id="app" class="hidden">
@@ -32,11 +33,11 @@
     <div id="module-root"></div>
   </main>
 </div>
-<script src="/static/ui-kit/icons.js?v=sm-ui-20260610-10"></script>
+<script src="/static/ui-kit/icons.js?v=sm-ui-20260612-4"></script>
 <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return'<span class="sidebar-icon-fallback" aria-hidden="true">•</span>'}};}</script>
-<script src="/static/ui-kit/motion.js?v=sm-ui-20260610-10"></script>
-<script src="/static/admin/admin-form-hints.js?v=sm-ui-20260610-10"></script>
-<script src="/static/admin/admin-form.js?v=sm-ui-20260610-10"></script>
-<script src="/static/admin/admin.js?v=sm-ui-20260610-10"></script>
+<script src="/static/ui-kit/motion.js?v=sm-ui-20260612-4"></script>
+<script src="/static/admin/admin-form-hints.js?v=sm-ui-20260612-4"></script>
+<script src="/static/admin/admin-form.js?v=sm-ui-20260612-4"></script>
+<script src="/static/admin/admin.js?v=sm-ui-20260612-4"></script>
 </body>
 </html>

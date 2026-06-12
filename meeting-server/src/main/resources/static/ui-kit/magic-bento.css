@@ -342,7 +342,7 @@ body.dashboard-page .meeting-item {
   );
 }
 
-#agendaDocCard.agenda-doc-fullscreen.magic-bento-enhanced {
+#agendaDocCard.agenda-doc-fullscreen.magic-bento-enhanced:not(.agenda-doc-fs-ready) {
   transform: none !important;
 }
 

@@ -119,13 +119,22 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             }
         }
 
-        // 开始录音
-        try {
-            String audioPath = recordingService.startRecording(meetingId);
-            sendText(session, "{\"type\":\"recording_started\",\"audioPath\":\"" + audioPath + "\"}");
-        } catch (Exception e) {
-            log.warn("Failed to start recording via service: {}", e.getMessage());
-            // 不阻塞，继续运行
+        // 开始或重连录音：已在 RECORDING/PAUSED 时不重复 startRecording
+        RecordingService.RecordingState existingState = recordingService.getRecordingState(meetingId);
+        if (existingState == RecordingService.RecordingState.RECORDING) {
+            sendText(session, "{\"type\":\"recording_rejoined\",\"meetingId\":\"" + meetingId
+                    + "\",\"state\":\"RECORDING\"}");
+        } else if (existingState == RecordingService.RecordingState.PAUSED) {
+            pausedMeetings.put(meetingId, true);
+            sendText(session, "{\"type\":\"recording_rejoined\",\"meetingId\":\"" + meetingId
+                    + "\",\"state\":\"PAUSED\"}");
+        } else {
+            try {
+                String audioPath = recordingService.startRecording(meetingId);
+                sendText(session, "{\"type\":\"recording_started\",\"audioPath\":\"" + audioPath + "\"}");
+            } catch (Exception e) {
+                log.warn("Failed to start recording via service: {}", e.getMessage());
+            }
         }
     }
 

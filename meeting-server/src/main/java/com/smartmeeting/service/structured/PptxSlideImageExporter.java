@@ -36,11 +36,12 @@ public final class PptxSlideImageExporter {
             List<SlideDto> slides = new ArrayList<>();
             int idx = 0;
             for (XSLFSlide slide : ppt.getSlides()) {
+                PptxSlideRenderSupport.normalizeSlideFonts(slide);
                 BufferedImage img = new BufferedImage(pgSize.width, pgSize.height, BufferedImage.TYPE_INT_RGB);
                 Graphics2D g = img.createGraphics();
                 g.setPaint(Color.WHITE);
                 g.fill(new Rectangle(pgSize.width, pgSize.height));
-                g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+                PptxSlideRenderSupport.applyRenderHints(g);
                 slide.draw(g);
                 g.dispose();
                 ImageIO.write(img, "PNG", AgendaMaterialGeneratedImages.slideImage(outputDir, idx).toFile());
