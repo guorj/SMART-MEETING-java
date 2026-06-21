@@ -13,6 +13,7 @@ import com.smartmeeting.entity.Participant;
 import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.enums.AttendanceMode;
 import com.smartmeeting.enums.CheckInSource;
+import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.exception.BusinessException;
@@ -22,6 +23,7 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
 import com.smartmeeting.service.PresetAgendaDocService;
+import com.smartmeeting.service.MeetingService;
 import com.smartmeeting.config.agenda.AgendaBindingConverter;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
@@ -70,6 +72,12 @@ public class MeetingHostSessionService {
     private final MeetingRuntimeConfig runtimeConfig;
     private final MeetingHostRuntimeProperties hostRuntime;
     private final MeetingAudioProperties audioProperties;
+    private final MeetingService meetingService;
+
+    /** 未开始状态：主持页 start 前须保持草稿 */
+    private static final Set<String> NOT_STARTED = Set.of(
+            MeetingStatus.ISSUE_COLLECTING.name(),
+            MeetingStatus.INVITED.name());
 
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
@@ -96,7 +104,9 @@ public class MeetingHostSessionService {
      * @param presetAgendaDocService  预设会序飞书资料配置合并
      * @param hostWebSocketHandler    主持端 WebSocket，推送 host_state 与 TTS 帧
      * @param ttsSynthesizeService    讯飞在线合成，产出 16k s16le PCM
-     * @param objectMapper            JSON 序列化（状态、TTS 消息体）
+     * @param hostRuntime             主持运行时配置（TTS 尾音等）
+     * @param audioProperties         音频采样等配置
+     * @param meetingService          会议生命周期（主持 start 时触发 DB STARTED）
      */
     public MeetingHostSessionService(MeetingMapper meetingMapper,
                                      ParticipantMapper participantMapper,
@@ -107,7 +117,8 @@ public class MeetingHostSessionService {
                                      ObjectMapper objectMapper,
                                      MeetingRuntimeConfig runtimeConfig,
                                      MeetingHostRuntimeProperties hostRuntime,
-                                     MeetingAudioProperties audioProperties) {
+                                     MeetingAudioProperties audioProperties,
+                                     @Lazy MeetingService meetingService) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.presetMapper = presetMapper;
@@ -118,6 +129,7 @@ public class MeetingHostSessionService {
         this.runtimeConfig = runtimeConfig;
         this.hostRuntime = hostRuntime;
         this.audioProperties = audioProperties;
+        this.meetingService = meetingService;
     }
 
     /**
@@ -248,6 +260,10 @@ public class MeetingHostSessionService {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
             throw new BusinessException(404, "会议不存在: " + meetingId);
+        }
+        if (meeting.getStatus() != null && NOT_STARTED.contains(meeting.getStatus())) {
+            meetingService.startMeeting(meetingId);
+            meeting = meetingMapper.selectById(meetingId);
         }
         List<HostTopic> topics = resolveTopics(meeting, body);
         if (topics.isEmpty()) {

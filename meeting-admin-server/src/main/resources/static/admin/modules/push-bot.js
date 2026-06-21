@@ -11,13 +11,15 @@ AdminModules.register({
         <div class="toolbar">
           <button type="button" class="primary" id="pb-tab-tasks">推送任务</button>
           <button type="button" id="pb-tab-logs">推送日志</button>
+          <button type="button" id="pb-tab-detail">任务详情</button>
           <button type="button" id="pb-reload">同步 Quartz</button>
           <span class="toolbar-note" title="${AdminHints.pushBot.syncQuartz.replace(/"/g, '&quot;')}">ⓘ 同步 Quartz：重载 INTERNAL 任务 Cron</span>
           <span id="pb-msg" class="msg hidden"></span>
         </div>
       </div>
       <div id="pb-tasks-panel"></div>
-      <div id="pb-logs-panel" class="hidden"></div>`;
+      <div id="pb-logs-panel" class="hidden"></div>
+      <div id="pb-detail-panel" class="hidden"></div>`;
 
     const showMsg = (text, isErr) => {
       const el = document.getElementById('pb-msg');
@@ -52,14 +54,18 @@ AdminModules.register({
       tab = name;
       document.getElementById('pb-tasks-panel').classList.toggle('hidden', name !== 'tasks');
       document.getElementById('pb-logs-panel').classList.toggle('hidden', name !== 'logs');
+      document.getElementById('pb-detail-panel').classList.toggle('hidden', name !== 'detail');
       document.getElementById('pb-tab-tasks').classList.toggle('primary', name === 'tasks');
       document.getElementById('pb-tab-logs').classList.toggle('primary', name === 'logs');
+      document.getElementById('pb-tab-detail').classList.toggle('primary', name === 'detail');
       if (name === 'tasks') loadTasks();
-      else loadLogs();
+      else if (name === 'logs') loadLogs();
+      else loadDetail();
     };
 
     document.getElementById('pb-tab-tasks').onclick = () => setTab('tasks');
     document.getElementById('pb-tab-logs').onclick = () => setTab('logs');
+    document.getElementById('pb-tab-detail').onclick = () => setTab('detail');
     document.getElementById('pb-reload').onclick = async () => {
       try {
         await AdminApi.fetch('/api/v1/admin/bot/reload-schedule', { method: 'POST' });
@@ -337,6 +343,166 @@ AdminModules.register({
         }
       };
       document.getElementById('pb-log-search').click();
+    }
+
+    async function loadDetail() {
+      const panel = document.getElementById('pb-detail-panel');
+      panel.innerHTML = `
+        <div class="panel">
+          <p class="module-intro">管理推送任务的子表：多接收方、额外推送日、排除推送日。输入任务 ID 后加载子表数据。</p>
+          <div class="toolbar">
+            <input id="pb-dt-task-id" type="text" placeholder="推送任务 ID" style="min-width:20rem"/>
+            <button class="primary" id="pb-dt-load">加载</button>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>多接收方（int_scheduled_push_task_target）</h3>
+          <div class="toolbar" style="gap:0.4rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+            <select id="pb-dt-t-type"><option value="USER">USER</option><option value="GROUP">GROUP</option></select>
+            <input id="pb-dt-t-id" type="text" placeholder="目标 receive_id" style="min-width:16rem"/>
+            <input id="pb-dt-t-order" type="number" value="0" placeholder="顺序" style="min-width:6rem"/>
+            <button class="secondary" id="pb-dt-t-add">添加接收方</button>
+          </div>
+          <table><thead><tr><th>排序</th><th>类型</th><th>目标ID</th><th>操作</th></tr></thead><tbody id="pb-dt-t-body"></tbody></table>
+        </div>
+        <div class="panel">
+          <h3>额外推送日（int_scheduled_task_extra_date）</h3>
+          <div class="toolbar" style="gap:0.4rem;margin-bottom:0.5rem;">
+            <input id="pb-dt-ex-date" type="date"/>
+            <button class="secondary" id="pb-dt-ex-add">添加</button>
+          </div>
+          <table><thead><tr><th>日期</th><th>操作</th></tr></thead><tbody id="pb-dt-ex-body"></tbody></table>
+        </div>
+        <div class="panel">
+          <h3>排除推送日（int_scheduled_task_exclude_date）</h3>
+          <div class="toolbar" style="gap:0.4rem;margin-bottom:0.5rem;">
+            <input id="pb-dt-xc-date" type="date"/>
+            <button class="secondary" id="pb-dt-xc-add">添加</button>
+          </div>
+          <table><thead><tr><th>日期</th><th>操作</th></tr></thead><tbody id="pb-dt-xc-body"></tbody></table>
+        </div>
+        <div class="panel">
+          <h3>推送日志已读明细</h3>
+          <p class="form-hint">输入推送日志 ID 查看该条消息的已读用户列表。</p>
+          <div class="toolbar" style="gap:0.4rem;margin-bottom:0.5rem;">
+            <input id="pb-dt-ru-log" type="text" placeholder="推送日志 ID" style="min-width:16rem"/>
+            <button class="secondary" id="pb-dt-ru-load">查询</button>
+          </div>
+          <table><thead><tr><th>用户ID</th><th>姓名</th><th>已读时间</th></tr></thead><tbody id="pb-dt-ru-body"></tbody></table>
+        </div>
+      `;
+
+      let currentTaskId = '';
+
+      const loadTargets = async () => {
+        if (!currentTaskId) return;
+        try {
+          const rows = await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/targets');
+          document.getElementById('pb-dt-t-body').innerHTML = (rows || []).length ? rows.map(t => `
+            <tr><td>${t.sortOrder || 0}</td><td>${t.targetType || ''}</td><td>${t.targetId || ''}</td>
+            <td><button type="button" class="danger pb-dt-t-del" data-id="${t.id}">删除</button></td></tr>
+          `).join('') : '<tr><td colspan="4" class="form-hint">暂无</td></tr>';
+          document.querySelectorAll('button.pb-dt-t-del').forEach(btn => {
+            btn.onclick = async () => {
+              await AdminApi.fetch('/api/v1/admin/push-sub/targets/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+              loadTargets();
+            };
+          });
+        } catch (e) { document.getElementById('pb-dt-t-body').innerHTML = '<tr><td colspan="4" class="msg msg-err">' + e.message + '</td></tr>'; }
+      };
+
+      const loadExtraDates = async () => {
+        if (!currentTaskId) return;
+        try {
+          const rows = await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/extra-dates');
+          document.getElementById('pb-dt-ex-body').innerHTML = (rows || []).length ? rows.map(d => `
+            <tr><td>${d.extraDate || ''}</td><td><button type="button" class="danger pb-dt-ex-del" data-id="${d.id}">删除</button></td></tr>
+          `).join('') : '<tr><td colspan="2" class="form-hint">暂无</td></tr>';
+          document.querySelectorAll('button.pb-dt-ex-del').forEach(btn => {
+            btn.onclick = async () => {
+              await AdminApi.fetch('/api/v1/admin/push-sub/extra-dates/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+              loadExtraDates();
+            };
+          });
+        } catch (e) { document.getElementById('pb-dt-ex-body').innerHTML = '<tr><td colspan="2" class="msg msg-err">' + e.message + '</td></tr>'; }
+      };
+
+      const loadExcludeDates = async () => {
+        if (!currentTaskId) return;
+        try {
+          const rows = await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/exclude-dates');
+          document.getElementById('pb-dt-xc-body').innerHTML = (rows || []).length ? rows.map(d => `
+            <tr><td>${d.excludeDate || ''}</td><td><button type="button" class="danger pb-dt-xc-del" data-id="${d.id}">删除</button></td></tr>
+          `).join('') : '<tr><td colspan="2" class="form-hint">暂无</td></tr>';
+          document.querySelectorAll('button.pb-dt-xc-del').forEach(btn => {
+            btn.onclick = async () => {
+              await AdminApi.fetch('/api/v1/admin/push-sub/exclude-dates/' + encodeURIComponent(btn.dataset.id), { method: 'DELETE' });
+              loadExcludeDates();
+            };
+          });
+        } catch (e) { document.getElementById('pb-dt-xc-body').innerHTML = '<tr><td colspan="2" class="msg msg-err">' + e.message + '</td></tr>'; }
+      };
+
+      document.getElementById('pb-dt-load').onclick = async () => {
+        currentTaskId = document.getElementById('pb-dt-task-id').value.trim();
+        if (!currentTaskId) return;
+        await Promise.all([loadTargets(), loadExtraDates(), loadExcludeDates()]);
+      };
+
+      document.getElementById('pb-dt-t-add').onclick = async () => {
+        if (!currentTaskId) return showMsg('请先输入任务ID', true);
+        const targetType = document.getElementById('pb-dt-t-type').value;
+        const targetId = document.getElementById('pb-dt-t-id').value.trim();
+        const sortOrder = Number(document.getElementById('pb-dt-t-order').value || '0');
+        if (!targetId) return showMsg('目标ID必填', true);
+        try {
+          await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/targets', {
+            method: 'POST', body: JSON.stringify({ targetType, targetId, sortOrder })
+          });
+          document.getElementById('pb-dt-t-id').value = '';
+          await loadTargets();
+          showMsg('接收方已添加', false);
+        } catch (e) { showMsg('添加失败: ' + e.message, true); }
+      };
+
+      document.getElementById('pb-dt-ex-add').onclick = async () => {
+        if (!currentTaskId) return showMsg('请先输入任务ID', true);
+        const date = document.getElementById('pb-dt-ex-date').value;
+        if (!date) return showMsg('日期必填', true);
+        try {
+          await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/extra-dates', {
+            method: 'POST', body: JSON.stringify({ date })
+          });
+          await loadExtraDates();
+          showMsg('额外推送日已添加', false);
+        } catch (e) { showMsg('添加失败: ' + e.message, true); }
+      };
+
+      document.getElementById('pb-dt-xc-add').onclick = async () => {
+        if (!currentTaskId) return showMsg('请先输入任务ID', true);
+        const date = document.getElementById('pb-dt-xc-date').value;
+        if (!date) return showMsg('日期必填', true);
+        try {
+          await AdminApi.fetch('/api/v1/admin/push-sub/tasks/' + encodeURIComponent(currentTaskId) + '/exclude-dates', {
+            method: 'POST', body: JSON.stringify({ date })
+          });
+          await loadExcludeDates();
+          showMsg('排除推送日已添加', false);
+        } catch (e) { showMsg('添加失败: ' + e.message, true); }
+      };
+
+      document.getElementById('pb-dt-ru-load').onclick = async () => {
+        const logId = document.getElementById('pb-dt-ru-log').value.trim();
+        if (!logId) return showMsg('请输入推送日志ID', true);
+        try {
+          const rows = await AdminApi.fetch('/api/v1/admin/push-sub/logs/' + encodeURIComponent(logId) + '/read-users');
+          document.getElementById('pb-dt-ru-body').innerHTML = (rows || []).length ? rows.map(u => `
+            <tr><td>${u.userId || ''}</td><td>${u.userName || ''}</td><td>${(u.readAt || '').replace('T', ' ').slice(0, 19)}</td></tr>
+          `).join('') : '<tr><td colspan="3" class="form-hint">暂无已读记录</td></tr>';
+        } catch (e) {
+          document.getElementById('pb-dt-ru-body').innerHTML = '<tr><td colspan="3" class="msg msg-err">' + e.message + '</td></tr>';
+        }
+      };
     }
 
     setTab(tab);

@@ -39,6 +39,7 @@ public class MeetingTypePresetService {
     private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
     private final PresetAgendaDocService presetAgendaDocService;
+    private final FeishuUserIdResolver feishuUserIdResolver;
 
     /**
      * 列出全部会议类型预设，按 code 升序。
@@ -121,7 +122,8 @@ public class MeetingTypePresetService {
             }
             MeetingCreateRequest.ParticipantEntry e = new MeetingCreateRequest.ParticipantEntry();
             e.setName(name);
-            e.setUserId("vp_" + UUID.randomUUID().toString().replace("-", ""));
+            e.setUserId(feishuUserIdResolver.resolveByUserName(name)
+                    .orElseGet(() -> "vp_" + UUID.randomUUID().toString().replace("-", "")));
             entries.add(e);
         }
         request.setParticipants(entries);

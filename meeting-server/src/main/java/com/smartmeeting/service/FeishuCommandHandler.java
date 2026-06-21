@@ -65,6 +65,7 @@ public class FeishuCommandHandler {
     private final TranscriptMapper transcriptMapper;
     private final PostMeetingOrchestrator postMeetingOrchestrator;
     private final DashboardGrantService dashboardGrantService;
+    private final TodoService todoService;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
@@ -196,8 +197,34 @@ public class FeishuCommandHandler {
             String campaignId = value.path("campaignId").asText("");
             JsonNode form = value.path("formValue");
             handleAgendaFillInlineSubmit(openId, chatId, campaignId, form);
+        } else if ("todo-action".equals(cmd)) {
+            handleTodoCardAction(openId, value);
         } else {
             log.warn("卡片回调未知 cmd: {}", cmd);
+        }
+    }
+
+    private void handleTodoCardAction(String openId, JsonNode value) {
+        String todoId = value.path("todoId").asText("");
+        String decision = value.path("decision").asText("");
+        if (todoId.isBlank() || decision.isBlank() || openId == null || openId.isBlank()) {
+            return;
+        }
+        try {
+            com.smartmeeting.api.dto.TodoStatusUpdateRequest req = new com.smartmeeting.api.dto.TodoStatusUpdateRequest();
+            if ("complete_todo".equalsIgnoreCase(decision)) {
+                req.setStatus("COMPLETED");
+            } else if ("block_todo".equalsIgnoreCase(decision)) {
+                req.setStatus("BLOCKED");
+                req.setBlockReason("飞书卡片挂起");
+            } else {
+                return;
+            }
+            todoService.updateStatusByAssigneeCallback(todoId, req, openId);
+            feishuService.sendMessageToUserId(openId, "待办状态已更新为：" + req.getStatus());
+        } catch (Exception e) {
+            log.warn("todo card action failed: todoId={}, openId={}, err={}", todoId, openId, e.getMessage());
+            feishuService.sendMessageToUserId(openId, "操作失败：" + e.getMessage());
         }
     }
 

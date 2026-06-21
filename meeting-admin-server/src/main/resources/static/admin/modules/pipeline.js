@@ -141,7 +141,7 @@ AdminModules.register({
           </div>
           ${AdminForm.field('orderNo', '<input id="pl-f-step-order" type="number" value="1"/>', '执行顺序，数字越小越先执行；建议连续编号。拖拽/上下移动会自动重排。')}
           ${AdminForm.field('timeoutSeconds', '<input id="pl-f-step-timeout" type="number" value="120"/>', '单步骤超时秒数，超时后记录失败并进入重试/失败分支。')}
-          ${AdminForm.field('configJson', '<textarea id="pl-f-step-config" rows="4">{}</textarea>', '步骤配置 JSON。支持 condition 分支，例如 {"condition":{"key":"meeting.status","equals":"INVITED"}}。')}
+          ${AdminForm.field('configJson', '<textarea id="pl-f-step-config" rows="4">{}</textarea>', '步骤配置 JSON。pre-calendar-create 示例：{"roomHint":"3楼大会议室","durationMinutes":60,"attendeeSource":"participants_and_creator","calendarMode":"upsert","startTimeSource":"scheduled_time","vchat":{"enabled":true,"vcType":"vc","joinMeetingPermission":"only_event_attendees"}}（关闭 VC：vchat.enabled=false 或 vcType=no_meeting；third_party 填 meetingUrl）。')}
           <div class="form-check-row">
             <label class="check-label"><input id="pl-f-step-enabled" type="checkbox" checked/> 启用步骤</label>
           </div>

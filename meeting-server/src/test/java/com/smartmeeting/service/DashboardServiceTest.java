@@ -2,6 +2,7 @@ package com.smartmeeting.service;
 
 import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.entity.Meeting;
+import com.smartmeeting.entity.Participant;
 import com.smartmeeting.entity.UserMapping;
 import com.smartmeeting.entity.Voiceprint;
 import com.smartmeeting.repository.MeetingMapper;
@@ -39,6 +40,7 @@ class DashboardServiceTest {
     @Mock private FeishuService feishuService;
     @Mock private VoiceprintRegisterService voiceprintRegisterService;
     @Mock private MeetingService meetingService;
+    @Mock private MeetingCalendarSyncService meetingCalendarSyncService;
     @Mock private JwtUtil jwtUtil;
     @Mock private MeetingVoiceprintLifecycleProperties lifecycleProperties;
     @Mock private com.smartmeeting.util.MeetingWebPageUrls meetingWebPageUrls;
@@ -58,6 +60,7 @@ class DashboardServiceTest {
                 feishuService,
                 voiceprintRegisterService,
                 meetingService,
+                meetingCalendarSyncService,
                 jwtUtil,
                 lifecycleProperties,
                 meetingWebPageUrls
@@ -105,6 +108,31 @@ class DashboardServiceTest {
         List<DashboardService.MeetingSummary> list = dashboardService.getRecentMeetings("feishu_user_id_3", 10);
         assertEquals(1, list.size());
         assertEquals("m1", list.get(0).getId());
+    }
+
+    @Test
+    void getRecentMeetings_shouldUnionCreatorAndParticipantMeetings() {
+        Participant participant = new Participant();
+        participant.setMeetingId("m-participant");
+        when(participantMapper.selectList(any())).thenReturn(List.of(participant));
+
+        Meeting creatorOnly = new Meeting();
+        creatorOnly.setId("m-creator");
+        creatorOnly.setTitle("Creator draft");
+        creatorOnly.setStatus("ISSUE_COLLECTING");
+        creatorOnly.setCreatedAt(LocalDateTime.now().minusMinutes(1));
+
+        Meeting asParticipant = new Meeting();
+        asParticipant.setId("m-participant");
+        asParticipant.setTitle("Old joined");
+        asParticipant.setStatus("COMPLETED");
+        asParticipant.setCreatedAt(LocalDateTime.now().minusHours(2));
+
+        when(meetingMapper.selectList(any())).thenReturn(List.of(creatorOnly, asParticipant));
+
+        List<DashboardService.MeetingSummary> list = dashboardService.getRecentMeetings("feishu_user_id_4", 10);
+        assertEquals(2, list.size());
+        assertEquals("m-creator", list.get(0).getId());
     }
 
     @Test

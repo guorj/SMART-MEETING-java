@@ -132,10 +132,21 @@ public class TodoExtractionService {
             // 匹配责任人 userId
             String assigneeId = nameToUserId.get(item.assigneeName);
             if (assigneeId == null) {
-                // 尝试模糊匹配（名字的一部分）
                 assigneeId = fuzzyMatchAssignee(item.assigneeName, nameToUserId);
             }
             todo.setAssigneeId(assigneeId != null ? assigneeId : "unknown");
+
+            String operatorName = item.operatorName != null && !item.operatorName.isBlank()
+                    ? item.operatorName.trim() : item.assigneeName;
+            todo.setOperatorName(operatorName);
+            String operatorId = nameToUserId.get(operatorName);
+            if (operatorId == null) {
+                operatorId = fuzzyMatchAssignee(operatorName, nameToUserId);
+            }
+            if (operatorId == null && assigneeId != null) {
+                operatorId = assigneeId;
+            }
+            todo.setOperatorId(operatorId != null ? operatorId : todo.getAssigneeId());
 
             todo.setStatus(TodoStatus.PENDING.name());
             todo.setPriority(item.priority != null ? item.priority : Priority.MEDIUM.name());
@@ -233,6 +244,7 @@ public class TodoExtractionService {
   {
     "content": "待办内容",
     "assigneeName": "责任人姓名（必须是参会人名单中的姓名）",
+    "operatorName": "经办人姓名（参会人名单中的姓名，可与责任人相同或留空）",
     "priority": "HIGH|MEDIUM|LOW",
     "deadline": "截止日期（YYYY-MM-DD格式，如无明确日期则留空）"
   }
@@ -295,6 +307,7 @@ public class TodoExtractionService {
             TodoItem item = new TodoItem();
             item.content = node.path("content").asText("");
             item.assigneeName = node.path("assigneeName").asText("");
+            item.operatorName = node.path("operatorName").asText("");
             String priority = node.path("priority").asText("MEDIUM");
             item.priority = priority.toUpperCase();
             String deadline = node.path("deadline").asText("");
@@ -402,6 +415,7 @@ public class TodoExtractionService {
     private static class TodoItem {
         String content;
         String assigneeName;
+        String operatorName;
         String priority;
         LocalDateTime deadline;
     }

@@ -19,8 +19,11 @@ meeting:
       - push-bot
       - users
       - meetings
+      - todos
       - pipeline
       - settings
+      - observability
+      - event-outbox
       - integrations
     agenda-config:
       file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}

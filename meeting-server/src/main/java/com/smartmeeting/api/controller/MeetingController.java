@@ -6,6 +6,8 @@ import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MinuteResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingResponse;
+import com.smartmeeting.api.dto.MeetingScheduleRequest;
+import com.smartmeeting.api.dto.MeetingScheduleResponse;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.TodoBoardResponse;
 import com.smartmeeting.service.FeishuMeetingStartCoordinator;
@@ -15,6 +17,7 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.service.MeetingMinuteQueryService;
 import com.smartmeeting.service.MeetingRecordingSessionEndService;
+import com.smartmeeting.service.MeetingScheduleService;
 import com.smartmeeting.service.MeetingService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.config.agenda.AgendaMaterialDiskStorage;
@@ -54,6 +57,7 @@ import java.util.Optional;
 public class MeetingController {
 
     private final MeetingService meetingService;
+    private final MeetingScheduleService meetingScheduleService;
     private final TodoService todoService;
     private final JwtUtil jwtUtil;
     private final FeishuMeetingStartCoordinator feishuMeetingStartCoordinator;
@@ -116,6 +120,16 @@ public class MeetingController {
     @PostMapping("/{id}/end")
     public ApiResponse<MeetingResponse> endMeeting(@PathVariable String id) {
         return ApiResponse.ok(meetingService.endMeeting(id));
+    }
+
+    /**
+     * 改期：更新计划开始时间，可选同步飞书日历。
+     */
+    @PatchMapping("/{id}/schedule")
+    public ApiResponse<MeetingScheduleResponse> reschedule(
+            @PathVariable String id,
+            @RequestBody MeetingScheduleRequest request) {
+        return ApiResponse.ok(meetingScheduleService.reschedule(id, request));
     }
 
     /**

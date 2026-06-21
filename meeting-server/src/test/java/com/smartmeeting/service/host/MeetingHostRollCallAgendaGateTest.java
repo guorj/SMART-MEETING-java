@@ -12,6 +12,8 @@ import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.config.MeetingHostRuntimeProperties;
 import com.smartmeeting.config.MeetingAudioProperties;
 import com.smartmeeting.config.MeetingRuntimeConfig;
+import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.service.MeetingService;
 import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -45,6 +47,8 @@ class MeetingHostRollCallAgendaGateTest {
     private MeetingHostWebSocketHandler hostWebSocketHandler;
     @Mock
     private XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
+    @Mock
+    private MeetingService meetingService;
 
     private MeetingHostSessionService service;
     private MeetingRuntimeConfig runtimeConfig;
@@ -67,7 +71,8 @@ class MeetingHostRollCallAgendaGateTest {
                 new ObjectMapper(),
                 runtimeConfig,
                 new MeetingHostRuntimeProperties(),
-                new MeetingAudioProperties());
+                new MeetingAudioProperties(),
+                meetingService);
     }
 
     private HostStartRequest agendaWithoutRollCall() {
@@ -87,6 +92,7 @@ class MeetingHostRollCallAgendaGateTest {
         meeting.setId(meetingId);
         meeting.setChatId("chat-1");
         meeting.setPresetTypeCode(1);
+        meeting.setStatus(MeetingStatus.STARTED.name());
         when(meetingMapper.selectById(eq(meetingId))).thenReturn(meeting);
 
         service.start(meetingId, agendaWithoutRollCall());

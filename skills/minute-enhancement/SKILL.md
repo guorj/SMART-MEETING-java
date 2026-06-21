@@ -80,6 +80,7 @@ rawMinuteLength=3500
       "content": "完成XX项目验收",
       "priority": "HIGH",
       "assignee": "张三",
+      "operator": "李四",
       "deadline": "2026-05-25"
     }
   ]

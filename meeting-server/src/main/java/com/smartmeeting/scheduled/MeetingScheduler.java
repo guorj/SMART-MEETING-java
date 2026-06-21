@@ -42,7 +42,7 @@ public class MeetingScheduler {
         List<Meeting> meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
                 .isNotNull(Meeting::getScheduledTime)
                 .between(Meeting::getScheduledTime, now, upper)
-                .in(Meeting::getStatus, List.of("ISSUE_COLLECTING", "INVITED", "STARTED"))
+                .in(Meeting::getStatus, List.of("ISSUE_COLLECTING", "INVITED"))
                 .last("LIMIT 200"));
         for (Meeting meeting : meetings) {
             // 兼容旧配置：未提供双时点模板时，沿用“会前 24h 单次触发 PRE”

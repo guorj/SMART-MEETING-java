@@ -12,8 +12,12 @@ public class MeetingAdminSummaryDto {
     private String title;
     private String status;
     private Integer presetTypeCode;
+    private String company;
+    private String creatorId;
+    private String chatId;
     private LocalDateTime scheduledTime;
     private LocalDateTime actualStartTime;
     private LocalDateTime actualEndTime;
     private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
 }

@@ -15,6 +15,7 @@ import com.smartmeeting.config.agenda.HostAgendaDocBinding;
 import com.smartmeeting.config.agenda.HostAgendaItem;
 import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
 import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
+import com.smartmeeting.config.agenda.PresetScheduleConfigCodec;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -94,11 +95,92 @@ public class AgendaConfigService {
     }
 
     public void savePreset(AgendaPresetSnapshot snapshot) {
+        if (snapshot == null || snapshot.getPresetTypeCode() <= 0) {
+            throw new BusinessException("invalid presetTypeCode");
+        }
+        mergePresetSnapshotFromDb(snapshot);
         if (snapshot.getHostAgendaJson() != null && !snapshot.getHostAgendaJson().isBlank()) {
             hostAgendaJsonHelper.parseItems(snapshot.getHostAgendaJson());
         }
+        if (snapshot.getScheduleConfig() != null && !snapshot.getScheduleConfig().isBlank()) {
+            List<String> scheduleIssues = PresetScheduleConfigCodec.validate(
+                    objectMapper, snapshot.getScheduleConfig());
+            if (!scheduleIssues.isEmpty()) {
+                throw new BusinessException(String.join("; ", scheduleIssues));
+            }
+        }
+        presetProvider.loadPreset(snapshot.getPresetTypeCode()).ifPresent(existing -> {
+            String oldName = existing.getDisplayName();
+            String newName = snapshot.getDisplayName();
+            if (oldName != null && newName != null && !oldName.trim().equals(newName.trim())) {
+                log.info("preset display_name changed: code={} old={} new={}",
+                        snapshot.getPresetTypeCode(), oldName.trim(), newName.trim());
+            }
+        });
         presetProvider.savePreset(snapshot);
         refreshPresetCacheBestEffort(snapshot.getPresetTypeCode());
+    }
+
+    /**
+     * 仅更新 host_agenda JSON，不触碰 display_name 等基础信息（供 JSON 高级保存，避免误带隐藏 meta 表单）。
+     */
+    public void saveHostAgendaJsonOnly(int presetTypeCode, String hostAgendaJson) {
+        AgendaPresetSnapshot snap = presetProvider.loadPreset(presetTypeCode)
+                .orElseThrow(() -> new BusinessException("preset not found"));
+        if (hostAgendaJson != null && !hostAgendaJson.isBlank()) {
+            hostAgendaJsonHelper.parseItems(hostAgendaJson);
+        }
+        snap.setHostAgendaJson(hostAgendaJson);
+        presetProvider.savePreset(snap);
+        refreshPresetCacheBestEffort(presetTypeCode);
+    }
+
+    /**
+     * 部分 PUT（如仅基础信息 meta、或仅 agenda-bundle）时保留库内已有字段，避免被空值或陈旧快照覆盖。
+     * <p>
+     * 前端约定：meta 自动保存不传 hostAgendaJson / scheduleConfig（除非用户改过排期）；
+     * agenda-bundle 保存只改 host_agenda，meta 从库内 load 后整行写回。
+     */
+    private void mergePresetSnapshotFromDb(AgendaPresetSnapshot incoming) {
+        presetProvider.loadPreset(incoming.getPresetTypeCode()).ifPresent(existing -> {
+            if (isBlank(incoming.getDisplayName())) {
+                incoming.setDisplayName(existing.getDisplayName());
+            }
+            if (isBlank(incoming.getCompany())) {
+                incoming.setCompany(existing.getCompany());
+            }
+            if (incoming.getDepartment() == null) {
+                incoming.setDepartment(existing.getDepartment());
+            }
+            if (isBlank(incoming.getGroupName())) {
+                incoming.setGroupName(existing.getGroupName());
+            }
+            if (incoming.getScheduleNote() == null) {
+                incoming.setScheduleNote(existing.getScheduleNote());
+            }
+            if (incoming.getScheduleConfig() == null || incoming.getScheduleConfig().isBlank()) {
+                incoming.setScheduleConfig(existing.getScheduleConfig());
+            }
+            if (incoming.getAgendaSummary() == null) {
+                incoming.setAgendaSummary(existing.getAgendaSummary());
+            }
+            if (incoming.getOrganizerName() == null) {
+                incoming.setOrganizerName(existing.getOrganizerName());
+            }
+            if (incoming.getLeaderName() == null) {
+                incoming.setLeaderName(existing.getLeaderName());
+            }
+            if (incoming.getParticipantsNames() == null) {
+                incoming.setParticipantsNames(existing.getParticipantsNames());
+            }
+            if (incoming.getHostAgendaJson() == null || incoming.getHostAgendaJson().isBlank()) {
+                incoming.setHostAgendaJson(existing.getHostAgendaJson());
+            }
+        });
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 
     public List<HostAgendaItemRowDto> parseAgendaItems(String hostAgendaJson) {
@@ -107,6 +189,98 @@ public class AgendaConfigService {
 
     public List<String> validateAgenda(String hostAgendaJson) {
         return hostAgendaJsonHelper.validate(hostAgendaJson);
+    }
+
+    /**
+     * 校验已落库的会序 bundle（含资料绑定规则，与 saveAgendaBundle 同源但不写库）。
+     */
+    public List<String> validateAgendaBundle(int presetTypeCode) {
+        presetProvider.loadPreset(presetTypeCode)
+                .orElseThrow(() -> new BusinessException("preset not found: " + presetTypeCode));
+        AgendaPresetSnapshot preset = loadBundle(presetTypeCode);
+        List<String> issues = new ArrayList<>(hostAgendaJsonHelper.validate(preset.getHostAgendaJson()));
+        List<HostAgendaBundleItemDto> items = loadAgendaBundle(presetTypeCode);
+        Set<String> configNames = new HashSet<>();
+        for (int i = 0; i < items.size(); i++) {
+            HostAgendaBundleItemDto item = items.get(i);
+            int seq = i + 1;
+            if (item.getTitle() == null || item.getTitle().isBlank()) {
+                issues.add("会序 " + seq + ": 标题不能为空");
+                continue;
+            }
+            if (item.getMinutes() == null || item.getMinutes() <= 0) {
+                issues.add("会序 " + seq + "「" + item.getTitle().trim() + "」: 时长须大于 0");
+            }
+            if (item.getBindings() == null || item.getBindings().isEmpty()) {
+                continue;
+            }
+            Set<Integer> slots = new HashSet<>();
+            for (AgendaDocBindingSnapshot b : item.getBindings()) {
+                int slot = b.getResourceSlot() != null ? b.getResourceSlot() : 0;
+                if (!slots.add(slot)) {
+                    issues.add("会序 " + seq + " 存在重复 resource_slot=" + slot);
+                }
+                issues.addAll(validateBindingSnapshot(seq, b, configNames));
+            }
+        }
+        issues.addAll(findCrossPresetConfigNameConflicts(presetTypeCode, configNames));
+        return issues;
+    }
+
+    private List<String> validateBindingSnapshot(int agendaSeq, AgendaDocBindingSnapshot b, Set<String> configNames) {
+        List<String> issues = new ArrayList<>();
+        if (b == null) {
+            return issues;
+        }
+        boolean local = "LOCAL".equalsIgnoreCase(String.valueOf(b.getStorageKind()).trim());
+        boolean hasFeishu = b.getFeishuDocUrl() != null && !b.getFeishuDocUrl().isBlank();
+        boolean hasLocal = b.getFileId() != null && !b.getFileId().isBlank();
+        boolean hasContent = local ? hasLocal : hasFeishu;
+        String configName = b.getConfigName() != null ? b.getConfigName().trim() : "";
+        if (!hasContent && configName.isEmpty()) {
+            return issues;
+        }
+        if (configName.isEmpty()) {
+            issues.add("会序 " + agendaSeq + " 资料槽位 "
+                    + (b.getResourceSlot() != null ? b.getResourceSlot() : 0) + ": config_name 不能为空");
+        } else if (!configNames.add(configName)) {
+            issues.add("config_name 重复: " + configName);
+        }
+        if (local) {
+            if (!hasLocal) {
+                issues.add("会序 " + agendaSeq + " 资料「" + configName + "」: LOCAL 模式须已上传 fileId");
+            }
+        } else if (!hasFeishu) {
+            issues.add("会序 " + agendaSeq + " 资料「" + configName + "」: FEISHU 模式须填写飞书链接");
+        }
+        return issues;
+    }
+
+    private List<String> findCrossPresetConfigNameConflicts(int editingPreset, Set<String> namesInPayload) {
+        List<String> issues = new ArrayList<>();
+        if (namesInPayload.isEmpty()) {
+            return issues;
+        }
+        for (Integer code : listPresetCodes()) {
+            if (code == null || code == editingPreset) {
+                continue;
+            }
+            presetProvider.loadPreset(code).ifPresent(p -> {
+                for (AgendaDocBindingSnapshot b : PresetAgendaMergeEngine.extractBindingsFromHostAgenda(
+                        code, p.getHostAgendaJson(), objectMapper)) {
+                    if (b.getConfigName() == null || !namesInPayload.contains(b.getConfigName().trim())) {
+                        continue;
+                    }
+                    int agenda = b.getAgendaIndex() != null ? b.getAgendaIndex() + 1 : 0;
+                    String display = p.getDisplayName() != null && !p.getDisplayName().isBlank()
+                            ? p.getDisplayName().trim() : ("会务类型" + code);
+                    issues.add(String.format(
+                            "config_name「%s」与会务类型 %d（%s）会序 %d 的资料冲突",
+                            b.getConfigName().trim(), code, display, agenda));
+                }
+            });
+        }
+        return issues;
     }
 
     public void saveAgendaItems(int presetTypeCode, List<HostAgendaItemRowDto> items) {
@@ -201,8 +375,7 @@ public class AgendaConfigService {
         AgendaPresetSnapshot snap = presetProvider.loadPreset(presetTypeCode)
                 .orElseThrow(() -> new BusinessException("preset not found"));
         snap.setHostAgendaJson(HostAgendaJsonCodec.toJson(objectMapper, coreItems));
-        presetProvider.savePreset(snap);
-        refreshPresetCacheBestEffort(presetTypeCode);
+        savePreset(snap);
     }
 
     private void refreshPresetCacheBestEffort(int presetTypeCode) {

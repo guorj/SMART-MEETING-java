@@ -43,6 +43,7 @@
       agendaMinutes: '单项会序预计时长（分钟）。',
       agendaOwners: '负责人飞书 user_id，多个用英文逗号分隔。',
       hostAgendaJson: 'host_agenda_json 原始 JSON；仅在高级模式手工编辑。',
+      scheduleConfig: 'schedule_config 机器可读排期（weekly/fixed/at_start）；驱动 Dashboard 快速开始的 scheduled_time。schedule_note 仅人读展示。',
       configName: '资料 config_name，须与会务预设内唯一；weekly-jobs 按此引用。',
       resourceSlot: '资料槽位序号，同会序内从 0 递增。',
       feishuUrl: '飞书 docx / bitable / sheet 链接；保存后用于会中拉取与对比任务。',

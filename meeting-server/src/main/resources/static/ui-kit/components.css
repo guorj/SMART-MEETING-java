@@ -331,6 +331,39 @@ body.dashboard-page #app {
 body.dashboard-page .loading-skeleton-wrap .ui-card {
   max-width: 100%;
 }
+body.dashboard-page .detected-meeting-row {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  text-align: center;
+}
+body.dashboard-page .detected-meeting-row .detected-meeting-text {
+  flex: 0 1 auto;
+}
+body.dashboard-page .detected-meeting-row .detected-meeting-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+body.dashboard-page .detected-meeting-row .dashboard-inline-btn {
+  flex-shrink: 0;
+  min-height: 24px;
+  padding: 2px 8px;
+  font-size: 12px;
+  line-height: 1.2;
+}
+body.dashboard-page .detected-meetings-stack .detected-meeting-row {
+  margin: 0;
+}
+body.dashboard-page .detected-meetings-stack .detected-meeting-row + .detected-meeting-row {
+  border-top: 1px solid var(--color-border);
+  margin-top: 8px;
+  padding-top: 8px;
+}
 .user-bar {
   display: flex;
   align-items: center;

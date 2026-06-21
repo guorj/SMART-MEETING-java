@@ -41,6 +41,7 @@ public class PresetTableAgendaConfigProvider implements AgendaConfigProvider {
                 .department(p.getDepartment())
                 .groupName(p.getGroupName())
                 .scheduleNote(p.getScheduleNote())
+                .scheduleConfig(p.getScheduleConfig())
                 .agendaSummary(p.getAgendaSummary())
                 .organizerName(p.getOrganizerName())
                 .leaderName(p.getLeaderName())
@@ -67,6 +68,7 @@ public class PresetTableAgendaConfigProvider implements AgendaConfigProvider {
         row.setDepartment(opt(snapshot.getDepartment()));
         row.setGroupName(req(snapshot.getGroupName(), "未设置会议组"));
         row.setScheduleNote(opt(snapshot.getScheduleNote()));
+        row.setScheduleConfig(optJson(snapshot.getScheduleConfig()));
         row.setAgendaSummary(opt(snapshot.getAgendaSummary()));
         row.setOrganizerName(opt(snapshot.getOrganizerName()));
         row.setLeaderName(opt(snapshot.getLeaderName()));
@@ -89,5 +91,12 @@ public class PresetTableAgendaConfigProvider implements AgendaConfigProvider {
 
     private static String opt(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String optJson(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

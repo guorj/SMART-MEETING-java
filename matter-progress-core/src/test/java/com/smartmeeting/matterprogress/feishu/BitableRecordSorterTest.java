@@ -26,8 +26,8 @@ class BitableRecordSorterTest {
         BitableRecordSorter.sort(items);
 
         assertThat(items.get(0).path("record_id").asText()).isEqualTo("r1");
-        assertThat(items.get(1).path("record_id").asText()).isEqualTo("r5");
-        assertThat(items.get(2).path("record_id").asText()).isEqualTo("r4");
+        assertThat(items.get(1).path("record_id").asText()).isEqualTo("r4");
+        assertThat(items.get(2).path("record_id").asText()).isEqualTo("r5");
         assertThat(items.get(3).path("record_id").asText()).isEqualTo("r2");
         assertThat(items.get(4).path("record_id").asText()).isEqualTo("r3");
     }
@@ -182,6 +182,20 @@ class BitableRecordSorterTest {
     }
 
     @Test
+    void inProgressCategory_sortedByDeadlineAsc_first() {
+        List<com.fasterxml.jackson.databind.JsonNode> items = new ArrayList<>();
+        items.add(record("late", "进行中", "还有50天到期", daysAgo(5), daysAgo(5), daysFromNow(50)));
+        items.add(record("early", "进行中", "还有10天到期", daysAgo(5), daysAgo(5), daysFromNow(10)));
+        items.add(record("mid", "未完成", "还有30天到期", daysAgo(5), daysAgo(5), daysFromNow(30)));
+
+        BitableRecordSorter.sort(items);
+
+        assertThat(items.get(0).path("record_id").asText()).isEqualTo("early");
+        assertThat(items.get(1).path("record_id").asText()).isEqualTo("mid");
+        assertThat(items.get(2).path("record_id").asText()).isEqualTo("late");
+    }
+
+    @Test
     void parseDaysFromText_overdue() {
         assertThat(BitableRecordSorter.parseDaysFromText("逾期 9 天")).isEqualTo(-9L);
         assertThat(BitableRecordSorter.parseDaysFromText("🕑还有221天到期")).isEqualTo(221L);
@@ -207,5 +221,9 @@ class BitableRecordSorterTest {
 
     private static long daysAgo(int days) {
         return System.currentTimeMillis() - days * 24L * 60 * 60 * 1000;
+    }
+
+    private static long daysFromNow(int days) {
+        return System.currentTimeMillis() + days * 24L * 60 * 60 * 1000;
     }
 }

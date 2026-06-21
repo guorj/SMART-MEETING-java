@@ -1,7 +1,7 @@
 ﻿(function () {
   const TOKEN_KEY = 'sm-admin-token';
   const LAST_ROUTE_KEY = 'sm-admin-last-route';
-  const STATIC_ASSET_VERSION = 'sm-ui-20260612-4';
+  const STATIC_ASSET_VERSION = 'sm-ui-20260612-5';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;
@@ -54,7 +54,116 @@
     register: function (def) { this.registry[def.route] = def; }
   };
 
+  let resultModalEl = null;
+  let resultModalBackdrop = null;
+  let resultModalEscHandler = null;
+  let resultModalConfirmResolve = null;
+
+  function ensureResultModal() {
+    if (resultModalEl) return resultModalEl;
+    const el = document.createElement('div');
+    el.id = 'admin-result-modal';
+    el.className = 'ui-card card admin-card hidden';
+    el.innerHTML = '<h3 id="admin-result-modal-title"></h3>'
+      + '<div id="admin-result-modal-body-wrap"><pre id="admin-result-modal-body" class="admin-result-body"></pre></div>'
+      + '<div class="admin-result-modal-actions admin-actions-row" id="admin-result-modal-actions"></div>';
+    document.body.appendChild(el);
+    resultModalEl = el;
+    return el;
+  }
+
+  function teardownResultModal() {
+    if (resultModalEscHandler) {
+      document.removeEventListener('keydown', resultModalEscHandler);
+      resultModalEscHandler = null;
+    }
+    if (resultModalBackdrop && resultModalBackdrop.parentNode) {
+      resultModalBackdrop.parentNode.removeChild(resultModalBackdrop);
+    }
+    resultModalBackdrop = null;
+    if (resultModalEl) {
+      resultModalEl.classList.add('hidden');
+      resultModalEl.classList.remove('admin-editor-modal');
+    }
+    if (!document.querySelector('.admin-editor-modal')) {
+      document.body.classList.remove('admin-modal-lock');
+    }
+    resultModalConfirmResolve = null;
+  }
+
   window.AdminUi = {
+    openResultModal: function (opts) {
+      opts = opts || {};
+      const el = ensureResultModal();
+      teardownResultModal();
+      const titleEl = document.getElementById('admin-result-modal-title');
+      const bodyWrap = document.getElementById('admin-result-modal-body-wrap');
+      const actions = document.getElementById('admin-result-modal-actions');
+      titleEl.textContent = opts.title || (opts.isError ? '操作失败' : '操作结果');
+      titleEl.className = opts.isError ? 'admin-result-title admin-result-title-err' : 'admin-result-title';
+      if (opts.preformatted === false) {
+        bodyWrap.innerHTML = '<div id="admin-result-modal-body" class="admin-result-body admin-result-html"></div>';
+        document.getElementById('admin-result-modal-body').innerHTML = opts.body || '';
+      } else {
+        bodyWrap.innerHTML = '<pre id="admin-result-modal-body" class="admin-result-body"></pre>';
+        document.getElementById('admin-result-modal-body').textContent = opts.body == null ? '' : String(opts.body);
+      }
+      actions.innerHTML = '<button type="button" class="ui-btn ui-btn-primary" id="admin-result-modal-close">关闭</button>';
+      document.getElementById('admin-result-modal-close').onclick = () => this.closeResultModal();
+      const backdrop = document.createElement('div');
+      backdrop.className = 'admin-editor-backdrop';
+      backdrop.onclick = () => this.closeResultModal();
+      resultModalBackdrop = backdrop;
+      resultModalEscHandler = (e) => {
+        if (e.key === 'Escape') this.closeResultModal();
+      };
+      document.addEventListener('keydown', resultModalEscHandler);
+      document.body.appendChild(backdrop);
+      el.classList.remove('hidden');
+      el.classList.add('admin-editor-modal');
+      document.body.classList.add('admin-modal-lock');
+    },
+    closeResultModal: function () {
+      teardownResultModal();
+    },
+    openConfirmModal: function (opts) {
+      opts = opts || {};
+      return new Promise((resolve) => {
+        const el = ensureResultModal();
+        teardownResultModal();
+        resultModalConfirmResolve = resolve;
+        const titleEl = document.getElementById('admin-result-modal-title');
+        const bodyWrap = document.getElementById('admin-result-modal-body-wrap');
+        const actions = document.getElementById('admin-result-modal-actions');
+        titleEl.textContent = opts.title || '请确认';
+        titleEl.className = 'admin-result-title';
+        bodyWrap.innerHTML = '<pre id="admin-result-modal-body" class="admin-result-body"></pre>';
+        document.getElementById('admin-result-modal-body').textContent = opts.body == null ? '' : String(opts.body);
+        actions.innerHTML = '<button type="button" class="ui-btn ui-btn-primary" id="admin-result-modal-ok">'
+          + (opts.okLabel || '确认') + '</button>'
+          + '<button type="button" class="ui-btn ui-btn-secondary" id="admin-result-modal-cancel">'
+          + (opts.cancelLabel || '取消') + '</button>';
+        const finish = (ok) => {
+          const cb = resultModalConfirmResolve;
+          teardownResultModal();
+          if (cb) cb(ok);
+        };
+        document.getElementById('admin-result-modal-ok').onclick = () => finish(true);
+        document.getElementById('admin-result-modal-cancel').onclick = () => finish(false);
+        const backdrop = document.createElement('div');
+        backdrop.className = 'admin-editor-backdrop';
+        backdrop.onclick = () => finish(false);
+        resultModalBackdrop = backdrop;
+        resultModalEscHandler = (e) => {
+          if (e.key === 'Escape') finish(false);
+        };
+        document.addEventListener('keydown', resultModalEscHandler);
+        document.body.appendChild(backdrop);
+        el.classList.remove('hidden');
+        el.classList.add('admin-editor-modal');
+        document.body.classList.add('admin-modal-lock');
+      });
+    },
     openEditor: function (editorEl) {
       if (!editorEl) return;
       this.closeEditor(editorEl);

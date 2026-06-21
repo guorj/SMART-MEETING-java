@@ -15,6 +15,13 @@ AdminModules.register({
     let metaSaveTimer = null;
     let saving = false;
     let metaSaving = false;
+    let metaSavePending = false;
+    let loadedScheduleConfig = null;
+    let scheduleConfigDirty = false;
+    let metaHydrating = false;
+    /** 切换会务类型时递增，作废进行中的 meta 自动保存，避免错写 display_name */
+    let metaSaveEpoch = 0;
+    let metaSavePendingCode = null;
     let skipInlineCommit = false;
     let uploadInProgress = false;
     let inlineCommitTimer = null;
@@ -125,12 +132,7 @@ AdminModules.register({
         btn.onclick = async () => {
           const next = Number(btn.dataset.code);
           if (Number.isNaN(next) || next === Number(code)) return;
-          await flushPendingInlineCommit();
-          code = next;
-          sel.value = String(code);
-          await loadBundle();
-          render();
-          setMetaSaveStatus('idle', '修改后自动保存');
+          await switchPresetCode(next);
         };
       });
     };
@@ -288,8 +290,118 @@ AdminModules.register({
     };
 
     const refreshUserPickers = () => {
-      if (tab === 'basic') syncMetaForm();
+      if (tab === 'basic') withMetaHydration(() => syncMetaForm());
       if (tab === 'table') renderAgendaTable();
+    };
+
+    const withMetaHydration = fn => {
+      metaHydrating = true;
+      try {
+        fn();
+      } finally {
+        metaHydrating = false;
+      }
+    };
+
+    const isMetaFormDirty = () => {
+      const form = collectMetaForm();
+      const keys = [
+        'displayName', 'company', 'department', 'groupName', 'scheduleNote',
+        'agendaSummary', 'organizerName', 'leaderName', 'participantsNames'
+      ];
+      for (const k of keys) {
+        if (text(form[k]) !== text(presetMeta[k])) return true;
+      }
+      return scheduleConfigDirty;
+    };
+
+    const waitForMetaSaveIdle = () => new Promise(resolve => {
+      const start = Date.now();
+      const tick = () => {
+        if (!metaSaving) return resolve();
+        if (Date.now() - start > 12000) return resolve();
+        setTimeout(tick, 50);
+      };
+      tick();
+    });
+
+    const flushPendingMetaSave = async () => {
+      const hadTimer = metaSaveTimer != null;
+      clearTimeout(metaSaveTimer);
+      metaSaveTimer = null;
+      const savingCode = code;
+      const epoch = metaSaveEpoch;
+      let formSnapshot = null;
+      if (hadTimer || isMetaFormDirty()) {
+        formSnapshot = collectMetaForm();
+      }
+      if (formSnapshot) {
+        await saveMeta(true, { forCode: savingCode, epoch, formSnapshot });
+      }
+      await waitForMetaSaveIdle();
+      metaSavePending = false;
+      metaSavePendingCode = null;
+    };
+
+    const switchPresetCode = async next => {
+      await flushPendingInlineCommit();
+      await flushPendingAgendaSave();
+      await flushPendingMetaSave();
+      metaSaveEpoch += 1;
+      metaSavePending = false;
+      metaSavePendingCode = null;
+      code = next;
+      const sel = document.getElementById('preset-code');
+      if (sel) sel.value = String(code);
+      await loadBundle();
+      render();
+      setMetaSaveStatus('idle', '修改后自动保存');
+    };
+
+    const flushPendingAgendaSave = async () => {
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        await saveBundleImmediate();
+      } else if (saving) {
+        await waitForAutosaveIdle();
+      }
+    };
+
+    const syncHostAgendaJsonTextarea = () => {
+      const jsonEl = document.getElementById('host-agenda-json');
+      if (jsonEl) jsonEl.value = hostAgendaJson || '';
+    };
+
+    const refreshHostAgendaJsonFromServer = async () => {
+      const preset = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code);
+      hostAgendaJson = preset.hostAgendaJson || '';
+      syncHostAgendaJsonTextarea();
+    };
+
+    const waitForAutosaveIdle = () => new Promise((resolve, reject) => {
+      const start = Date.now();
+      const tick = () => {
+        if (!saving && !saveTimer) return resolve();
+        if (Date.now() - start > 12000) return reject(new Error('自动保存超时，请稍后重试'));
+        setTimeout(tick, 80);
+      };
+      tick();
+    });
+
+    const ensureBundleSyncedForAction = async () => {
+      await flushPendingInlineCommit();
+      if (saveTimer) {
+        clearTimeout(saveTimer);
+        saveTimer = null;
+        await saveBundleImmediate();
+      } else if (saving) {
+        await waitForAutosaveIdle();
+      } else if (tab === 'table') {
+        syncAgendaFieldsFromDom();
+        await saveBundleImmediate();
+      }
+      await refreshHostAgendaJsonFromServer();
     };
 
     const autoSaveBundle = () => {
@@ -304,6 +416,7 @@ AdminModules.register({
           });
           const fresh = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
           bundleItems = fresh;
+          await refreshHostAgendaJsonFromServer();
           setAutosaveStatus('saved', '已自动保存');
           renderAgendaTable();
         } catch (e) {
@@ -449,6 +562,7 @@ AdminModules.register({
           method: 'PUT', body: JSON.stringify(buildPayload())
         });
         bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
+        await refreshHostAgendaJsonFromServer();
         setAutosaveStatus('saved', '已自动保存');
       } catch (e) {
         setAutosaveStatus('error', '保存失败: ' + (e.message || ''));
@@ -948,6 +1062,76 @@ AdminModules.register({
       pumpThumbs();
     };
 
+    const parseScheduleConfig = (raw) => {
+      if (!raw) return { type: 'at_start', weekday: 1, hour: 9, minute: 0, at: '', preferNextIfPast: true };
+      try {
+        const o = typeof raw === 'string' ? JSON.parse(raw) : raw;
+        return {
+          type: (o.type || 'at_start').trim(),
+          weekday: o.weekday != null ? Number(o.weekday) : 1,
+          hour: o.hour != null ? Number(o.hour) : 9,
+          minute: o.minute != null ? Number(o.minute) : 0,
+          at: o.at ? String(o.at).replace('T', ' ').slice(0, 16) : '',
+          preferNextIfPast: o.preferNextIfPast !== false
+        };
+      } catch (_) {
+        return { type: 'at_start', weekday: 1, hour: 9, minute: 0, at: '', preferNextIfPast: true };
+      }
+    };
+
+    const collectScheduleConfigForm = () => {
+      const typeEl = document.getElementById('meta-schedule-type');
+      const type = typeEl ? typeEl.value : 'at_start';
+      if (type === 'at_start') {
+        return { type: 'at_start' };
+      }
+      const cfg = { type };
+      if (type === 'weekly') {
+        cfg.weekday = parseInt(document.getElementById('meta-schedule-weekday')?.value || '1', 10);
+        const timeVal = document.getElementById('meta-schedule-time')?.value || '09:00';
+        const parts = timeVal.split(':');
+        cfg.hour = parseInt(parts[0] || '9', 10);
+        cfg.minute = parseInt(parts[1] || '0', 10);
+        cfg.preferNextIfPast = document.getElementById('meta-schedule-prefer-next')?.checked !== false;
+      } else if (type === 'fixed') {
+        const atLocal = document.getElementById('meta-schedule-at')?.value || '';
+        if (atLocal) {
+          cfg.at = atLocal.length === 16 ? atLocal + ':00' : atLocal;
+        }
+      }
+      return cfg;
+    };
+
+    const syncScheduleConfigVisibility = () => {
+      const type = document.getElementById('meta-schedule-type')?.value || 'at_start';
+      const weekly = document.getElementById('meta-schedule-weekly-fields');
+      const fixed = document.getElementById('meta-schedule-fixed-fields');
+      if (weekly) weekly.classList.toggle('hidden', type !== 'weekly');
+      if (fixed) fixed.classList.toggle('hidden', type !== 'fixed');
+    };
+
+    const syncScheduleConfigForm = (cfg) => {
+      const parsed = parseScheduleConfig(cfg);
+      const set = (id, v) => {
+        const el = document.getElementById(id);
+        if (el) el.value = v;
+      };
+      set('meta-schedule-type', parsed.type || 'at_start');
+      set('meta-schedule-weekday', String(parsed.weekday || 1));
+      const hh = String(parsed.hour != null ? parsed.hour : 9).padStart(2, '0');
+      const mm = String(parsed.minute != null ? parsed.minute : 0).padStart(2, '0');
+      set('meta-schedule-time', hh + ':' + mm);
+      if (parsed.at) {
+        const atVal = parsed.at.replace('T', ' ').slice(0, 16);
+        set('meta-schedule-at', atVal.replace(' ', 'T'));
+      } else {
+        set('meta-schedule-at', '');
+      }
+      const preferEl = document.getElementById('meta-schedule-prefer-next');
+      if (preferEl) preferEl.checked = parsed.preferNextIfPast !== false;
+      syncScheduleConfigVisibility();
+    };
+
     const loadBundle = async () => {
       code = parseInt(document.getElementById('preset-code').value, 10);
       if (!code || code <= 0) {
@@ -966,11 +1150,14 @@ AdminModules.register({
         participantsNames: text(preset.participantsNames)
       };
       hostAgendaJson = preset.hostAgendaJson || '';
+      loadedScheduleConfig = preset.scheduleConfig || null;
+      scheduleConfigDirty = false;
+      withMetaHydration(() => syncScheduleConfigForm(loadedScheduleConfig));
       bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
       editingDocKey = null;
       const jsonEl = document.getElementById('host-agenda-json');
       if (jsonEl) jsonEl.value = hostAgendaJson;
-      syncMetaForm();
+      withMetaHydration(() => syncMetaForm());
     };
 
     const syncMetaForm = () => {
@@ -1009,6 +1196,18 @@ AdminModules.register({
       };
     };
 
+    const buildMetaSaveBody = (opts = {}) => {
+      const savingCode = opts.forCode != null ? opts.forCode : code;
+      const body = Object.assign({ presetTypeCode: savingCode }, collectMetaForm());
+      if (opts.includeHostAgenda) {
+        body.hostAgendaJson = opts.hostAgendaJson != null ? opts.hostAgendaJson : hostAgendaJson;
+      }
+      if (opts.includeSchedule || scheduleConfigDirty) {
+        body.scheduleConfig = collectScheduleConfigForm();
+      }
+      return body;
+    };
+
     const setupNameSelect = (id, currentName, placeholder) => {
       const el = document.getElementById(id);
       if (!el) return;
@@ -1038,27 +1237,95 @@ AdminModules.register({
       ).join('');
     };
 
-    const saveMeta = async (silent) => {
-      presetMeta = collectMetaForm();
-      if (metaSaving) return;
+    const applyPresetMetaFromForm = form => {
+      presetMeta = {
+        displayName: text(form.displayName),
+        company: text(form.company),
+        department: text(form.department),
+        groupName: text(form.groupName),
+        scheduleNote: text(form.scheduleNote),
+        agendaSummary: text(form.agendaSummary),
+        organizerName: text(form.organizerName),
+        leaderName: text(form.leaderName),
+        participantsNames: text(form.participantsNames)
+      };
+    };
+
+    const saveMeta = async (silent, opts = {}) => {
+      const savingCode = opts.forCode != null ? opts.forCode : code;
+      const epoch = opts.epoch != null ? opts.epoch : metaSaveEpoch;
+      const formSnapshot = opts.formSnapshot || null;
+      if (epoch !== metaSaveEpoch) return;
+      if (formSnapshot == null && savingCode !== code) return;
+      if (formSnapshot != null && savingCode !== code) return;
+
+      if (formSnapshot) {
+        applyPresetMetaFromForm(formSnapshot);
+      } else {
+        presetMeta = collectMetaForm();
+      }
+      if (metaSaving) {
+        metaSavePending = true;
+        metaSavePendingCode = savingCode;
+        return;
+      }
       metaSaving = true;
       setMetaSaveStatus('saving', '保存中…');
       try {
-        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code, {
+        const body = formSnapshot
+          ? Object.assign({ presetTypeCode: savingCode }, formSnapshot)
+          : buildMetaSaveBody(Object.assign({}, opts, { forCode: savingCode }));
+        if (opts.includeSchedule || scheduleConfigDirty) {
+          body.scheduleConfig = collectScheduleConfigForm();
+        }
+        if (epoch !== metaSaveEpoch || savingCode !== code) return;
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + savingCode, {
           method: 'PUT',
-          body: JSON.stringify(Object.assign({ presetTypeCode: code, hostAgendaJson }, presetMeta))
+          body: JSON.stringify(body)
         });
+        if (body.scheduleConfig != null) {
+          loadedScheduleConfig = typeof body.scheduleConfig === 'string'
+            ? body.scheduleConfig
+            : JSON.stringify(body.scheduleConfig);
+          scheduleConfigDirty = false;
+        }
+        if (formSnapshot) {
+          applyPresetMetaFromForm(formSnapshot);
+        } else {
+          applyPresetMetaFromForm(collectMetaForm());
+        }
         setMetaSaveStatus('saved', silent ? '已自动保存' : '已保存');
       } catch (e) {
         setMetaSaveStatus('error', '保存失败: ' + (e.message || ''));
       } finally {
         metaSaving = false;
+        if (metaSavePending && metaSavePendingCode === savingCode && epoch === metaSaveEpoch && savingCode === code) {
+          metaSavePending = false;
+          const pendingCode = metaSavePendingCode;
+          metaSavePendingCode = null;
+          await saveMeta(true, { forCode: pendingCode, epoch });
+        } else {
+          metaSavePending = false;
+          metaSavePendingCode = null;
+        }
       }
     };
 
     const autoSaveMeta = () => {
+      if (metaHydrating) return;
       clearTimeout(metaSaveTimer);
-      metaSaveTimer = setTimeout(() => saveMeta(true), 550);
+      const scheduledCode = code;
+      const scheduledEpoch = metaSaveEpoch;
+      const formSnapshot = collectMetaForm();
+      metaSaveTimer = setTimeout(() => {
+        metaSaveTimer = null;
+        saveMeta(true, { forCode: scheduledCode, epoch: scheduledEpoch, formSnapshot });
+      }, 550);
+    };
+
+    const markScheduleConfigDirty = () => {
+      scheduleConfigDirty = true;
+      autoSaveMeta();
     };
 
     const bindMetaEvents = () => {
@@ -1068,6 +1335,19 @@ AdminModules.register({
         el.addEventListener('input', autoSaveMeta);
         el.addEventListener('blur', autoSaveMeta);
         el.addEventListener('change', autoSaveMeta);
+      });
+      const scheduleTypeEl = document.getElementById('meta-schedule-type');
+      if (scheduleTypeEl) {
+        scheduleTypeEl.addEventListener('change', () => {
+          syncScheduleConfigVisibility();
+          markScheduleConfigDirty();
+        });
+      }
+      ['meta-schedule-weekday', 'meta-schedule-time', 'meta-schedule-at', 'meta-schedule-prefer-next'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.addEventListener('change', markScheduleConfigDirty);
+        el.addEventListener('input', markScheduleConfigDirty);
       });
       const addBtn = document.getElementById('meta-participant-add');
       const sel = document.getElementById('meta-participant-select');
@@ -1171,7 +1451,12 @@ AdminModules.register({
       document.getElementById('agenda-json-panel').classList.toggle('hidden', tab !== 'json');
       document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
       renderPresetOptions();
-      if (tab === 'basic') syncMetaForm();
+      if (tab === 'basic') {
+        withMetaHydration(() => {
+          syncMetaForm();
+          syncScheduleConfigForm(loadedScheduleConfig);
+        });
+      }
       if (tab === 'table') renderAgendaTable();
     };
 
@@ -1219,7 +1504,28 @@ AdminModules.register({
           </div>
           <div class="preset-meta-stack">
             ${AdminForm.field('参会人（多选）', '<div class="meta-participant-picker"><select id="meta-participant-select"></select><button type="button" class="secondary" id="meta-participant-add">添加</button></div><div id="meta-participant-chips" class="agenda-owner-chips"></div>', '对应 int_meeting_type_preset.participants_names')}
-            ${AdminForm.field('排期备注', '<textarea id="meta-schedule-note" rows="2" class="code-area" placeholder="如 每周一 9:30"></textarea>', '对应 int_meeting_type_preset.schedule_note')}
+            ${AdminForm.field('排期备注', '<textarea id="meta-schedule-note" rows="2" class="code-area" placeholder="如 每周一 9:30"></textarea>', '对应 int_meeting_type_preset.schedule_note（人读展示）')}
+            ${AdminForm.field('计划排期', `<div class="preset-schedule-config">
+              <select id="meta-schedule-type" class="ui-input" style="max-width:14rem;margin-bottom:8px">
+                <option value="at_start">at_start — 快速开始时 scheduled_time = 实际开始时刻</option>
+                <option value="weekly">weekly — 每周固定星期与时间</option>
+                <option value="fixed">fixed — 单次固定时刻</option>
+              </select>
+              <div id="meta-schedule-weekly-fields" class="hidden">
+                <label class="muted" style="font-size:12px">星期</label>
+                <select id="meta-schedule-weekday" class="ui-input" style="max-width:10rem;margin:4px 8px 8px 0">
+                  <option value="1">周一</option><option value="2">周二</option><option value="3">周三</option>
+                  <option value="4">周四</option><option value="5">周五</option><option value="6">周六</option><option value="7">周日</option>
+                </select>
+                <label class="muted" style="font-size:12px">时间</label>
+                <input id="meta-schedule-time" type="time" class="ui-input" style="max-width:8rem;margin:4px 0 8px"/>
+                <label class="muted" style="font-size:12px;display:block"><input type="checkbox" id="meta-schedule-prefer-next" checked/> 本周场次已过时取下一周</label>
+              </div>
+              <div id="meta-schedule-fixed-fields" class="hidden">
+                <label class="muted" style="font-size:12px">固定时刻</label>
+                <input id="meta-schedule-at" type="datetime-local" class="ui-input" style="max-width:18rem;margin-top:4px"/>
+              </div>
+            </div>`, AdminHints.presets.scheduleConfig || '对应 int_meeting_type_preset.schedule_config；驱动 Dashboard 快速开始的 scheduled_time')}
             ${AdminForm.field('议题摘要', '<textarea id="meta-agenda-summary" rows="3" class="code-area" placeholder="如 集团综合职能事务汇报"></textarea>', '对应 int_meeting_type_preset.agenda_summary')}
           </div>
           <p class="preset-meta-actions"><button type="button" class="ui-btn ui-btn-secondary" id="save-meta">立即保存</button></p>
@@ -1231,8 +1537,6 @@ AdminModules.register({
           <p style="margin-top:0.75rem"><button type="button" class="ui-btn ui-btn-primary" id="save-json">保存 JSON</button></p>
         </div>
       </div>
-      <pre id="preview-out" class="ui-card card admin-card hidden"></pre>
-      <pre id="validate-out" class="ui-card card admin-card hidden"></pre>
       <div class="ui-card card admin-card hidden form-editor" id="preset-create-editor">
         <h3>新增会务类型</h3>
         <p class="form-hint">一次填写后提交。编号可留空自动分配。</p>
@@ -1259,20 +1563,24 @@ AdminModules.register({
     root.querySelectorAll('.tabs button').forEach(b => {
       b.onclick = async () => {
         await flushPendingInlineCommit();
+        await flushPendingAgendaSave();
+        await flushPendingMetaSave();
+        metaSaveEpoch += 1;
         tab = b.dataset.tab;
         render();
       };
     });
     document.getElementById('save-meta').onclick = async () => { await saveMeta(false); };
     document.getElementById('preset-code').onchange = async () => {
-      clearTimeout(metaSaveTimer);
-      await flushPendingInlineCommit();
-      await loadBundle();
-      render();
-      setMetaSaveStatus('idle', '修改后自动保存');
+      const next = parseInt(document.getElementById('preset-code').value, 10);
+      if (!next || next === code) return;
+      await switchPresetCode(next);
     };
     document.getElementById('load-preset').onclick = async () => {
       await flushPendingInlineCommit();
+      await flushPendingAgendaSave();
+      await flushPendingMetaSave();
+      metaSaveEpoch += 1;
       await loadBundle();
       render();
       setAutosaveStatus('idle', '已加载');
@@ -1361,39 +1669,92 @@ AdminModules.register({
       }
     };
     document.getElementById('save-json').onclick = async () => {
-      if (!confirm('仅保存会序 JSON，资料 agenda_index 不会联动。继续？')) return;
-      await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code, {
-        method: 'PUT', body: JSON.stringify({ presetTypeCode: code, hostAgendaJson: document.getElementById('host-agenda-json').value })
+      const ok = await AdminUi.openConfirmModal({
+        title: '保存 JSON',
+        body: '仅保存会序 JSON，资料 agenda_index 不会联动。继续？'
       });
-      alert('JSON 已保存');
-      await loadBundle();
-      render();
+      if (!ok) return;
+      try {
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/host-agenda-json', {
+          method: 'PUT',
+          body: JSON.stringify({
+            hostAgendaJson: document.getElementById('host-agenda-json').value
+          })
+        });
+        await loadBundle();
+        render();
+        AdminUi.openResultModal({ title: '保存 JSON', body: 'JSON 已保存（未修改显示名称等基础信息）' });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '保存 JSON', body: e.message || '保存失败', isError: true });
+      }
     };
     document.getElementById('validate-preset').onclick = async () => {
-      const issues = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/validate-agenda', {
-        method: 'POST', body: JSON.stringify({ hostAgendaJson: document.getElementById('host-agenda-json').value })
-      });
-      const vo = document.getElementById('validate-out');
-      vo.classList.remove('hidden');
-      vo.textContent = issues.length ? issues.join('\n') : '校验通过';
+      try {
+        let issues;
+        if (tab === 'json') {
+          issues = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/validate-agenda', {
+            method: 'POST',
+            body: JSON.stringify({ hostAgendaJson: document.getElementById('host-agenda-json').value })
+          });
+        } else {
+          await ensureBundleSyncedForAction();
+          issues = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/validate-agenda', {
+            method: 'POST',
+            body: '{}'
+          });
+        }
+        AdminUi.openResultModal({
+          title: '校验会序',
+          body: issues.length ? issues.join('\n') : '校验通过',
+          isError: issues.length > 0
+        });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '校验会序', body: e.message || '校验失败', isError: true });
+      }
     };
     document.getElementById('preview-preset').onclick = async () => {
-      const out = document.getElementById('preview-out');
-      out.classList.remove('hidden');
-      out.textContent = (await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/preview', { method: 'POST' })).join('\n');
+      try {
+        await ensureBundleSyncedForAction();
+        const lines = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/preview', { method: 'POST' });
+        AdminUi.openResultModal({ title: '合并预览', body: (lines || []).join('\n') });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '合并预览', body: e.message || '预览失败', isError: true });
+      }
     };
     document.getElementById('refresh-cache').onclick = async () => {
-      await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-cache', { method: 'POST' });
-      alert('已通知 meeting-server 刷新 preset 缓存');
+      try {
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-cache', { method: 'POST' });
+        AdminUi.openResultModal({ title: '刷新 preset 缓存', body: '已通知 meeting-server 刷新 preset 缓存' });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '刷新 preset 缓存', body: e.message || '刷新失败', isError: true });
+      }
     };
     document.getElementById('refresh-meetings-dry').onclick = async () => {
-      const r = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-meetings-host-agenda?dryRun=true', { method: 'POST' });
-      alert('将刷新 ' + r.count + ' 场\n' + (r.meetingIds || []).join('\n'));
+      try {
+        await ensureBundleSyncedForAction();
+        const r = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-meetings-host-agenda?dryRun=true', { method: 'POST' });
+        const ids = (r && r.meetingIds) ? r.meetingIds : [];
+        AdminUi.openResultModal({
+          title: '预览刷新未开会',
+          body: '将刷新 ' + (r.count || 0) + ' 场\n' + (ids.length ? ids.join('\n') : '(无匹配会议)')
+        });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '预览刷新未开会', body: e.message || '预览失败', isError: true });
+      }
     };
     document.getElementById('refresh-meetings').onclick = async () => {
-      if (!confirm('写回未开始会议 host_agenda？')) return;
-      const r = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-meetings-host-agenda?dryRun=false', { method: 'POST' });
-      alert('已刷新 ' + r.count + ' 场');
+      const ok = await AdminUi.openConfirmModal({
+        title: '执行刷新未开会',
+        body: '写回未开始会议 host_agenda？'
+      });
+      if (!ok) return;
+      try {
+        await ensureBundleSyncedForAction();
+        const r = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/refresh-meetings-host-agenda?dryRun=false', { method: 'POST' });
+        AdminUi.openResultModal({ title: '执行刷新未开会', body: '已刷新 ' + (r.count || 0) + ' 场' });
+      } catch (e) {
+        AdminUi.openResultModal({ title: '执行刷新未开会', body: e.message || '刷新失败', isError: true });
+      }
     };
 
     if (window.__presetsOutsideCommitHandler) {

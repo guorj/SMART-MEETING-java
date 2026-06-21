@@ -4,21 +4,21 @@ import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.TodoAssignRequest;
 import com.smartmeeting.api.dto.TodoStatusUpdateRequest;
+import com.smartmeeting.service.DashboardGrantService;
 import com.smartmeeting.service.TodoService;
+import com.smartmeeting.util.JwtUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 待办项 REST 控制器。
- * <p>
- * 基础路径 {@code /api/v1/todos}，提供单条待办的状态更新与责任人指派。
- *
- * @see TodoService
+ * 待办项 REST 控制器（Dashboard token 鉴权）。
  */
 @RestController
 @RequestMapping("/api/v1/todos")
@@ -26,32 +26,42 @@ import org.springframework.web.bind.annotation.RestController;
 public class TodoController {
 
     private final TodoService todoService;
+    private final JwtUtil jwtUtil;
+    private final DashboardGrantService dashboardGrantService;
 
-    /**
-     * 更新待办状态（含完成说明、卡点原因等）。
-     *
-     * @param tid     待办 ID
-     * @param request 状态及可选备注
-     * @return 更新后的待办详情
-     */
+  @GetMapping("/my")
+  public ApiResponse<java.util.List<MeetingTodoResponse>> myTodos(@RequestParam("token") String token) {
+    JwtUtil.FeishuWebDashboardEntry entry = parseDashboardEntry(token);
+    return ApiResponse.ok(todoService.listMyTodos(entry.feishuUserId()));
+  }
+
+    @GetMapping("/{tid}")
+    public ApiResponse<MeetingTodoResponse> getTodo(
+            @PathVariable String tid,
+            @RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = parseDashboardEntry(token);
+        return ApiResponse.ok(todoService.getTodo(tid, entry.feishuUserId()));
+    }
+
     @PutMapping("/{tid}/status")
     public ApiResponse<MeetingTodoResponse> updateStatus(
             @PathVariable String tid,
+            @RequestParam("token") String token,
             @Valid @RequestBody TodoStatusUpdateRequest request) {
-        return ApiResponse.ok(todoService.updateStatus(tid, request));
+        JwtUtil.FeishuWebDashboardEntry entry = parseDashboardEntry(token);
+        return ApiResponse.ok(todoService.updateStatus(tid, request, entry.feishuUserId()));
     }
 
-    /**
-     * 指派或变更待办责任人。
-     *
-     * @param tid     待办 ID
-     * @param request 新责任人 ID 与可选姓名
-     * @return 更新后的待办详情
-     */
     @PutMapping("/{tid}/assign")
     public ApiResponse<MeetingTodoResponse> assign(
             @PathVariable String tid,
             @Valid @RequestBody TodoAssignRequest request) {
         return ApiResponse.ok(todoService.assign(tid, request));
+    }
+
+    private JwtUtil.FeishuWebDashboardEntry parseDashboardEntry(String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
+        return entry;
     }
 }

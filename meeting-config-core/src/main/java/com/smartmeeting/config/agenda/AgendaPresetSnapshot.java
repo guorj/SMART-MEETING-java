@@ -1,5 +1,6 @@
 package com.smartmeeting.config.agenda;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
@@ -18,6 +19,9 @@ public class AgendaPresetSnapshot {
     private String department;
     private String groupName;
     private String scheduleNote;
+    /** JSON: PresetScheduleConfig */
+    @JsonDeserialize(using = ScheduleConfigJsonDeserializer.class)
+    private String scheduleConfig;
     private String agendaSummary;
     private String organizerName;
     private String leaderName;

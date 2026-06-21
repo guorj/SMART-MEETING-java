@@ -3,6 +3,7 @@ package com.smartmeeting.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartmeeting.entity.MeetingTodo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -25,6 +26,49 @@ public class FeishuCardBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    /**
+     * 构建「会议已创建」通知卡片：快速开始仅建草稿，须进入主持页点击「开始会议」。
+     *
+     * @param meetingId    会议 ID
+     * @param title        会议主题
+     * @param recordingUrl 会议主页操作员入口链接 /rec（可为 null）
+     * @return 卡片 JSON 字符串
+     */
+    public String buildMeetingCreatedNotifyCard(String meetingId, String title, String recordingUrl) {
+        ObjectNode card = objectMapper.createObjectNode();
+
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "📋 智能会议已创建");
+        header.put("template", "blue");
+
+        ArrayNode elements = card.putArray("elements");
+
+        addMarkdownElement(elements, "**📋 主题**：" + title);
+        addMarkdownElement(elements, "**🆔 会议ID**：" + meetingId);
+        addDividerElement(elements);
+        addMarkdownElement(elements,
+                "**📱 下一步**：请打开 **会议主页**，在 **会议控制** 区点击 **「开始会议」** 以授权麦克风并正式开始议程主持。");
+        addDividerElement(elements);
+        if (recordingUrl != null && !recordingUrl.isBlank()) {
+            addActionButton(elements, "打开会议主页（直达）", recordingUrl, "primary");
+            addDividerElement(elements);
+        }
+
+        ArrayList<String> notes = new ArrayList<>();
+        notes.add("📌 会议创建后处于待开始状态，主持页开始前不会计入「进行中」");
+        if (recordingUrl != null && !recordingUrl.isBlank()) {
+            notes.add("✋ 会议主页链接（操作员入口 /rec）：" + recordingUrl);
+        }
+        addNoteElement(elements, notes);
+
+        return card.toString();
+    }
 
     /**
      * 构建「会议已开始」通知卡片（无「开始录音」按钮；发起人在 Web 会议主页拾音）。
@@ -459,6 +503,53 @@ public class FeishuCardBuilder {
         callback.set("value", value);
         // 历史字段：部分旧版客户端仍读取根级 value
         button.set("value", value);
+    }
+
+    /**
+     * 构建待办操作卡片（责任人可完成/挂起）。
+     */
+    public String buildTodoActionCard(MeetingTodo todo) {
+        ObjectNode card = objectMapper.createObjectNode();
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "📌 会议待办");
+        header.put("template", "blue");
+
+        ArrayNode elements = card.putArray("elements");
+        addMarkdownElement(elements, "**待办**：" + safe(todo.getContent()));
+        addMarkdownElement(elements, "**责任人**：" + safe(todo.getAssigneeName()));
+        if (todo.getOperatorName() != null && !todo.getOperatorName().equals(todo.getAssigneeName())) {
+            addMarkdownElement(elements, "**经办人**：" + safe(todo.getOperatorName()));
+        }
+        if (todo.getDeadline() != null) {
+            addMarkdownElement(elements, "**截止**：" + todo.getDeadline().format(TIME_FMT));
+        }
+        addMarkdownElement(elements, "**状态**：" + safe(todo.getStatus()));
+        addDividerElement(elements);
+
+        ObjectNode completeValue = objectMapper.createObjectNode();
+        completeValue.put("cmd", "todo-action");
+        completeValue.put("decision", "complete_todo");
+        completeValue.put("todoId", todo.getId());
+        completeValue.put("meetingId", todo.getMeetingId());
+        addCallbackButtonRow(elements, "完成", completeValue, "primary");
+
+        ObjectNode blockValue = objectMapper.createObjectNode();
+        blockValue.put("cmd", "todo-action");
+        blockValue.put("decision", "block_todo");
+        blockValue.put("todoId", todo.getId());
+        blockValue.put("meetingId", todo.getMeetingId());
+        addCallbackButtonRow(elements, "挂起", blockValue, "default");
+
+        return card.toString();
+    }
+
+    private String safe(String s) {
+        return s == null ? "" : s;
     }
 
     private void addNoteElement(ArrayNode elements, List<String> notes) {

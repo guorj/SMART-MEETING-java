@@ -22,6 +22,8 @@ public class MeetingTodoResponse {
     private String content;
     private String assigneeId;
     private String assigneeName;
+    private String operatorId;
+    private String operatorName;
     /** {@link com.smartmeeting.enums.TodoStatus} 枚举名 */
     private String status;
     private String priority;

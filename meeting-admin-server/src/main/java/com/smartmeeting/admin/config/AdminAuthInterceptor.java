@@ -2,6 +2,7 @@ package com.smartmeeting.admin.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.admin.api.dto.ApiResponse;
+import com.smartmeeting.admin.auth.AdminAuthSupport;
 import com.smartmeeting.admin.auth.AdminSessionStore;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -35,6 +36,9 @@ public class AdminAuthInterceptor implements HandlerInterceptor {
             return true;
         }
         if (sessionStore.isValid(token)) {
+            sessionStore.userId(token).ifPresent(userId ->
+                    request.setAttribute(AdminAuthSupport.ATTR_OPERATOR_ID, userId));
+            request.setAttribute(AdminAuthSupport.ATTR_OPERATOR_NAME, "oauth-admin");
             return true;
         }
         writeError(response, 401, "invalid admin token");

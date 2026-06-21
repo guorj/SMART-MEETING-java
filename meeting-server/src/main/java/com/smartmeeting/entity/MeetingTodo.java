@@ -27,6 +27,10 @@ public class MeetingTodo {
     private String assigneeId;
     /** 责任人姓名（展示用） */
     private String assigneeName;
+    /** 经办人用户 ID */
+    private String operatorId;
+    /** 经办人姓名（展示用） */
+    private String operatorName;
     /** 待办状态，对应 {@link com.smartmeeting.enums.TodoStatus} 枚举名 */
     private String status;
     /** 优先级，对应 {@link com.smartmeeting.enums.Priority} 枚举名 */

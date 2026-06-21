@@ -12,6 +12,8 @@ import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.repository.ParticipantMapper;
+import com.smartmeeting.enums.MeetingStatus;
+import com.smartmeeting.service.MeetingService;
 import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.tts.XfyunOnlineTtsSynthesizeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,6 +28,8 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -46,6 +50,8 @@ class MeetingHostSessionStartIdempotentTest {
     private MeetingHostWebSocketHandler hostWebSocketHandler;
     @Mock
     private XfyunOnlineTtsSynthesizeService ttsSynthesizeService;
+    @Mock
+    private MeetingService meetingService;
 
     private MeetingHostSessionService service;
     private MeetingRuntimeConfig runtimeConfig;
@@ -66,7 +72,8 @@ class MeetingHostSessionStartIdempotentTest {
                 new ObjectMapper(),
                 runtimeConfig,
                 new MeetingHostRuntimeProperties(),
-                new MeetingAudioProperties());
+                new MeetingAudioProperties(),
+                meetingService);
     }
 
     private HostStartRequest sampleAgenda() {
@@ -86,6 +93,7 @@ class MeetingHostSessionStartIdempotentTest {
         meeting.setId(meetingId);
         meeting.setChatId("chat-1");
         meeting.setPresetTypeCode(1);
+        meeting.setStatus(MeetingStatus.STARTED.name());
         when(meetingMapper.selectById(eq(meetingId))).thenReturn(meeting);
 
         HostStartRequest body = sampleAgenda();
@@ -95,5 +103,28 @@ class MeetingHostSessionStartIdempotentTest {
         JsonNode state = service.getStateJson(meetingId);
         assertTrue(state.get("active").asBoolean());
         assertEquals(0, state.get("currentTopicIndex").asInt());
+        verify(meetingService, never()).startMeeting(meetingId);
+    }
+
+    @Test
+    @DisplayName("草稿会议主持 start 时触发 DB startMeeting")
+    void start_triggersDbStartForDraftMeeting() {
+        String meetingId = "m-draft-start";
+        Meeting draft = new Meeting();
+        draft.setId(meetingId);
+        draft.setChatId("chat-1");
+        draft.setPresetTypeCode(2);
+        draft.setStatus(MeetingStatus.ISSUE_COLLECTING.name());
+        Meeting started = new Meeting();
+        started.setId(meetingId);
+        started.setChatId("chat-1");
+        started.setPresetTypeCode(2);
+        started.setStatus(MeetingStatus.STARTED.name());
+        when(meetingMapper.selectById(eq(meetingId))).thenReturn(draft, started);
+
+        service.start(meetingId, sampleAgenda());
+
+        verify(meetingService).startMeeting(meetingId);
+        assertTrue(service.isActive(meetingId));
     }
 }

@@ -29,13 +29,6 @@ import java.util.stream.Collectors;
 
 /**
  * 会议待办（Todo）查询与状态维护服务。
- *
- * <p>提供按会议列出待办、看板聚合统计、状态流转与责任人指派；状态变为已完成时
- * 同步调整参会人 {@code completedCount}。
- *
- * <p>主要协作：{@link com.smartmeeting.repository.MeetingMapper}、
- * {@link com.smartmeeting.repository.TodoMapper}、
- * {@link com.smartmeeting.repository.ParticipantMapper}。
  */
 @Slf4j
 @Service
@@ -46,6 +39,7 @@ public class TodoService {
     private final TodoMapper todoMapper;
     private final ParticipantMapper participantMapper;
     private final MeetingStateMachineService meetingStateMachineService;
+    private final TodoPermissionService todoPermissionService;
 
     private static final List<String> STATUS_SORT_ORDER = List.of(
             TodoStatus.PENDING.name(),
@@ -56,13 +50,20 @@ public class TodoService {
             TodoStatus.COMPLETED.name()
     );
 
-    /**
-     * 列出指定会议的全部待办（按状态、截止日、创建时间排序）。
-     *
-     * @param meetingId 会议 ID
-     * @return 待办 DTO 列表
-     * @throws BusinessException 会议不存在时（404）
-     */
+    public MeetingTodo requireTodo(String todoId) {
+        MeetingTodo todo = todoMapper.selectById(todoId);
+        if (todo == null) {
+            throw new BusinessException(404, "待办不存在: " + todoId);
+        }
+        return todo;
+    }
+
+    public MeetingTodoResponse getTodo(String todoId, String feishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireAssigneeOrOperator(todo, feishuUserId);
+        return toResponse(todo);
+    }
+
     public List<MeetingTodoResponse> listTodosByMeeting(String meetingId) {
         requireMeeting(meetingId);
         List<MeetingTodo> rows = selectTodosForMeeting(meetingId);
@@ -70,13 +71,16 @@ public class TodoService {
         return rows.stream().map(this::toResponse).collect(Collectors.toList());
     }
 
-    /**
-     * 获取会议待办看板（含各状态计数与排序后的待办列表）。
-     *
-     * @param meetingId 会议 ID
-     * @return 看板响应
-     * @throws BusinessException 会议不存在时（404）
-     */
+    public List<MeetingTodoResponse> listMyTodos(String feishuUserId) {
+        LambdaQueryWrapper<MeetingTodo> w = new LambdaQueryWrapper<>();
+        w.and(q -> q.eq(MeetingTodo::getAssigneeId, feishuUserId)
+                .or().eq(MeetingTodo::getOperatorId, feishuUserId))
+                .ne(MeetingTodo::getStatus, TodoStatus.COMPLETED.name());
+        List<MeetingTodo> rows = todoMapper.selectList(w);
+        sortTodos(rows);
+        return rows.stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
     public TodoBoardResponse getTodoBoard(String meetingId) {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
@@ -101,21 +105,37 @@ public class TodoService {
                 .build();
     }
 
+    @Transactional
+    public MeetingTodoResponse updateStatus(String todoId, TodoStatusUpdateRequest request, String feishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireAssignee(todo, feishuUserId);
+        return applyStatusChange(todo, request);
+    }
+
     /**
-     * 更新待办状态及完成说明、阻塞原因等附属字段。
-     *
-     * @param todoId  待办 ID
-     * @param request 含目标状态及可选备注
-     * @return 更新后的待办 DTO
-     * @throws BusinessException 待办不存在（404）或状态非法（400）
+     * 飞书卡片或 Pipeline 回调更新状态（校验责任人）。
      */
     @Transactional
-    public MeetingTodoResponse updateStatus(String todoId, TodoStatusUpdateRequest request) {
-        MeetingTodo todo = todoMapper.selectById(todoId);
-        if (todo == null) {
-            throw new BusinessException(404, "待办不存在: " + todoId);
-        }
+    public MeetingTodoResponse updateStatusByAssigneeCallback(String todoId, TodoStatusUpdateRequest request,
+                                                              String operatorFeishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireAssignee(todo, operatorFeishuUserId);
+        return applyStatusChange(todo, request);
+    }
 
+    @Transactional
+    public MeetingTodoResponse assign(String todoId, TodoAssignRequest request) {
+        MeetingTodo todo = requireTodo(todoId);
+        todo.setAssigneeId(request.getAssigneeId().trim());
+        if (request.getAssigneeName() != null) {
+            todo.setAssigneeName(request.getAssigneeName());
+        }
+        todoMapper.updateById(todo);
+        log.info("Todo assignee updated: id={}, assigneeId={}", todoId, todo.getAssigneeId());
+        return toResponse(todo);
+    }
+
+    private MeetingTodoResponse applyStatusChange(MeetingTodo todo, TodoStatusUpdateRequest request) {
         final TodoStatus newStatus;
         try {
             newStatus = TodoStatus.valueOf(request.getStatus().trim());
@@ -124,6 +144,8 @@ public class TodoService {
         }
 
         String oldStatus = todo.getStatus();
+        todoPermissionService.validateAssigneeStatusTransition(oldStatus, newStatus);
+
         todo.setStatus(newStatus.name());
 
         if (newStatus == TodoStatus.COMPLETED) {
@@ -152,31 +174,41 @@ public class TodoService {
         }
         markAllDoneIfNeeded(meetingId);
 
-        log.info("Todo status updated: id={}, {} -> {}", todoId, oldStatus, newStatus.name());
+        log.info("Todo status updated: id={}, {} -> {}", todo.getId(), oldStatus, newStatus.name());
         return toResponse(todo);
     }
 
     /**
-     * 指派或变更待办责任人。
-     *
-     * @param todoId  待办 ID
-     * @param request 含 {@code assigneeId} 及可选 {@code assigneeName}
-     * @return 更新后的待办 DTO
-     * @throws BusinessException 待办不存在时（404）
+     * Admin 强制改状态（无权限校验，由 Admin 层写审计后调用）。
      */
     @Transactional
-    public MeetingTodoResponse assign(String todoId, TodoAssignRequest request) {
-        MeetingTodo todo = todoMapper.selectById(todoId);
-        if (todo == null) {
-            throw new BusinessException(404, "待办不存在: " + todoId);
+    public MeetingTodoResponse forceUpdateStatus(String todoId, TodoStatusUpdateRequest request) {
+        MeetingTodo todo = requireTodo(todoId);
+        final TodoStatus newStatus;
+        try {
+            newStatus = TodoStatus.valueOf(request.getStatus().trim());
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(400, "无效的待办状态: " + request.getStatus());
         }
-        todo.setAssigneeId(request.getAssigneeId().trim());
-        if (request.getAssigneeName() != null) {
-            todo.setAssigneeName(request.getAssigneeName());
+        if (newStatus == TodoStatus.OVERDUE) {
+            throw new BusinessException(400, "OVERDUE 状态由系统维护，不可手动设置");
         }
-        todoMapper.updateById(todo);
-        log.info("Todo assignee updated: id={}, assigneeId={}", todoId, todo.getAssigneeId());
-        return toResponse(todo);
+        return applyStatusChange(todo, request);
+    }
+
+    public void adjustParticipantCompletedCount(String meetingId, String assigneeId, int delta) {
+        if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
+            return;
+        }
+        LambdaQueryWrapper<Participant> w = new LambdaQueryWrapper<>();
+        w.eq(Participant::getMeetingId, meetingId).eq(Participant::getUserId, assigneeId);
+        Participant p = participantMapper.selectOne(w);
+        if (p == null) {
+            return;
+        }
+        int cc = p.getCompletedCount() == null ? 0 : p.getCompletedCount();
+        p.setCompletedCount(Math.max(0, cc + delta));
+        participantMapper.updateById(p);
     }
 
     private void requireMeeting(String meetingId) {
@@ -204,35 +236,15 @@ public class TodoService {
         return i < 0 ? 999 : i;
     }
 
-    /**
-     * 按待办完成状态变化增减参会人已完成待办计数。
-     *
-     * @param meetingId  会议 ID
-     * @param assigneeId 责任人用户 ID（空或 unknown 时忽略）
-     * @param delta      增量（+1 或 -1）
-     */
-    private void adjustParticipantCompletedCount(String meetingId, String assigneeId, int delta) {
-        if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
-            return;
-        }
-        LambdaQueryWrapper<Participant> w = new LambdaQueryWrapper<>();
-        w.eq(Participant::getMeetingId, meetingId).eq(Participant::getUserId, assigneeId);
-        Participant p = participantMapper.selectOne(w);
-        if (p == null) {
-            return;
-        }
-        int cc = p.getCompletedCount() == null ? 0 : p.getCompletedCount();
-        p.setCompletedCount(Math.max(0, cc + delta));
-        participantMapper.updateById(p);
-    }
-
-    private MeetingTodoResponse toResponse(MeetingTodo t) {
+    public MeetingTodoResponse toResponse(MeetingTodo t) {
         return MeetingTodoResponse.builder()
                 .id(t.getId())
                 .meetingId(t.getMeetingId())
                 .content(t.getContent())
                 .assigneeId(t.getAssigneeId())
                 .assigneeName(t.getAssigneeName())
+                .operatorId(t.getOperatorId())
+                .operatorName(t.getOperatorName())
                 .status(t.getStatus())
                 .priority(t.getPriority())
                 .deadline(t.getDeadline())

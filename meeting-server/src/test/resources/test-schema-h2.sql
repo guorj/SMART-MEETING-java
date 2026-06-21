@@ -54,6 +54,7 @@ CREATE TABLE int_meeting_type_preset (
     department          VARCHAR(200) NULL,
     group_name          VARCHAR(200) NOT NULL,
     schedule_note       VARCHAR(500) NULL,
+    schedule_config     VARCHAR(8000) NULL,
     agenda_summary      VARCHAR(1000) NULL,
     organizer_name      VARCHAR(100) NULL,
     leader_name         VARCHAR(100) NULL,

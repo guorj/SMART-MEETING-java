@@ -23,13 +23,31 @@
 5. 结束会议请使用 **会议控制** 底部独立的「结束会议」按钮（与「下一议题」等操作分离），避免误触。
 6. 结束会议后按开关触发会后链路：离线转写（`meeting.asr.offline-enabled`）与纪要生成（`meeting.minute.generation-enabled`）**相互独立**；两者皆开时先离线转写入库，再生成纪要。**开关维护**：Admin → **系统参数**（热加载）。生效顺序：**DB > Java 出厂默认 > infra YAML/env**；新装/空库须执行 `schema-seed/meeting-runtime-defaults-prod.sql`（生产策略）；Admin「恢复默认」回 Java 出厂值，非 seed 值。
 
+### 2.0.2 计划时间、改期与飞书日历
+
+| 模式 | 入口 | `scheduled_time` |
+|------|------|------------------|
+| **快速开始** | Dashboard「快速开始」Tab / Bot / 飞书 Web create-and-start | 仅创建草稿（`ISSUE_COLLECTING`）；`scheduled_time` 由 preset **`schedule_config`** 解析写入；**`actual_start_time` 与 DB「进行中」须在主持页点击「开始会议」后写入** |
+| **预约未来** | Dashboard「预约会议」Tab / `POST /api/v1/meetings` | **必填**，须为未来时间 |
+
+**草稿上限（2026-06-14）**：每用户 **每模板最多 1 场未开始**（`ISSUE_COLLECTING` / `INVITED`），**模板 99 除外可无限新建**；**最多 1 场真正进行中**（`STARTED` / `RECORDING` / `PAUSED`，须主持页开始后）。工作台 Chroma 网格按模板展示「待开始 / 进行中」（模板 99 卡片始终可点创建）；顶部横幅仅对进行中会议显示「恢复」「结束」。
+| **即时补日历** | Admin 手动触发 `pre-calendar-create` | 步骤 config `startTimeSource=trigger_plus_minutes` |
+
+- **preset 排期字段**：`schedule_note` 仅人读展示；`schedule_config`（JSON：`weekly` / `fixed` / `at_start`）驱动快速开始的 `scheduled_time`。
+
+- **改期**：`PATCH /api/v1/meetings/{id}/schedule`（或 Dashboard/Admin 桥接）；更新 DB 后若 `room_id` 已有飞书 event_id 则 PATCH 日历（`need_notification` 通知参会人）。
+- **会前日历** 步骤 `pre-calendar-create`：`calendarMode=upsert`（有 event 则更新）；预约型默认读 `scheduled_time`。
+- **飞书视频会议**：Dashboard 预约与流水线创建日历时，**默认**绑定飞书原生 VC（`vchat.vcType=vc`，日历详情出现 `vc.feishu.cn/j/...` 与「发起视频会议」）。Admin 步骤 config 可关闭（`vchat.enabled=false`）或改为 `third_party`（填 `meetingUrl` 指向智能会议录音页）。
+- 步骤 config 示例：`{"roomHint":"3楼会议室","durationMinutes":60,"attendeeSource":"participants_and_creator","calendarMode":"upsert","startTimeSource":"scheduled_time","vchat":{"enabled":true,"vcType":"vc"}}`。
+- **Admin 会议管理**：全字段可读；未开始会议可编辑基本信息/议程/改期；`roomId` 展示为飞书 calendar event_id（只读）。
+
 ### 2.0.1 前台与后台 UI（2026-06-10 ui-kit）
 
 前后台共用 **`ui-kit/`**（Swiss 浅色 + Iconsax Linear 图标 + Shimmer/BlurFade 动效），静态资源版本号 `sm-ui-20260610-2`。修改设计令牌后运行 `ui-kit/sync-ui-kit.ps1` 同步到 `meeting-server` 与 `meeting-admin-server`。
 
 | 区域 | 说明 |
 |------|------|
-| **工作台**（`/dashboard`） | 创建会议、恢复/结束进行中会议、声纹注册、近期会议列表；状态以中文 Badge 展示（录音中/进行中/纪要生成中等） |
+| **工作台**（`/dashboard`） | **快速开始**（模板 Chroma 网格，按模板显示待开始/进行中）与 **预约会议** 独立 Tab；`GET /draft-meetings` 拉取草稿；进行中横幅内联 **恢复** / **结束** 两字按钮；恢复/结束进行中会议、声纹注册、近期会议列表 |
 | **会议控制** | 开始/暂停/继续、全宽**离线录音状态条**（红点 + 计时）、下一议题/跳过/加时、议题与会议倒计时 |
 | **当前议题资料** | 当前会序绑定的飞书文档/本地上传资料 |
 | **AI 主持** | 虚拟主持形象与 TTS 播报状态 |
@@ -157,6 +175,12 @@
 1. 用户是否在工作台白名单（`dashboard.user_grants`）且 `enabled=true`；未授权时仅收到文字拒绝提示。
 2. 飞书回调是否上送 `user_id`（日志 `user_id empty, apply temp open_id fallback` 表示命中临时兜底）。
 3. `meeting-server` 日志是否有 `发送会议前台入口卡片失败` 或飞书 API 报错（如 `meeting.base-url` 不可达）。
+
+### 5.4 待办责任人 / 经办人权限
+
+- **责任人**：飞书卡片可「完成」「挂起」；智能会议前台「我的待办」同样可操作。
+- **经办人**：仅可在前台更新进度、上传附件，**不能**完成或挂起。
+- **Admin 待办追踪**：强制改状态/删除须填写原因，写入 `int_meeting_todo_audit`；可查看进度与附件列表。
 
 ---
 

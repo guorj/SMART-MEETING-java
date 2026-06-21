@@ -124,6 +124,10 @@ meeting:
   todo:
     # [冷启动] 待办到期提醒 Cron；Admin 只读 mirror
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
+    # [冷启动] 待办附件本地存储目录
+    attachment-dir: ${MEETING_TODO_ATTACHMENT_DIR:data/todo-attachments}
+    # [冷启动] 单附件最大字节数，默认 10MB
+    attachment-max-bytes: ${MEETING_TODO_ATTACHMENT_MAX_BYTES:10485760}
   notification:
     # [部署/密钥] scheduled-bot 服务根 URL
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}

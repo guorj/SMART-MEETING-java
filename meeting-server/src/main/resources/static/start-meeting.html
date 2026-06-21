@@ -47,6 +47,9 @@
     <label for="preset">会议类型</label>
     <select id="preset"></select>
 
+    <label for="scheduledTime">计划开始时间（可选，create-only 测试路径）</label>
+    <input id="scheduledTime" type="datetime-local">
+
     <div class="preview" id="preview">请选择类型…</div>
 
     <button type="button" class="ui-btn ui-btn-primary" id="btn" onclick="submitCreate()">创建并返回会议 ID</button>
@@ -59,7 +62,7 @@
       if(btn) btn.insertAdjacentHTML('afterbegin', Iconsax.render('video')+' ');
     }
     </script>
-    <p class="sub" style="margin-top:24px">飞书入口提交后将打开录音页 <code>/rec/会议ID?token=…</code>（不自动开始拾音）；群内推送「会议已开始」通知。</p>
+    <p class="sub" style="margin-top:24px">飞书入口提交后将打开录音页 <code>/rec/会议ID?token=…</code>（不自动开始拾音）；群内推送「会议已创建」通知，须在主持页点击「开始会议」后正式进入进行中。</p>
 
     <script src="static/meeting-context.js?v=sm-20260525-1"></script>
     <script>
@@ -118,6 +121,10 @@
             }
             body.creatorId = creatorId;
             body.chatId = chatId;
+            const stRaw = document.getElementById('scheduledTime').value.trim();
+            if (stRaw) {
+                body.scheduledTime = stRaw.length === 16 ? stRaw + ':00' : stRaw;
+            }
         }
 
         document.getElementById('btn').disabled = true;
@@ -142,7 +149,10 @@
     if (webEntryToken) {
         document.getElementById('manualIds').classList.add('hidden');
         document.getElementById('feishuBanner').classList.remove('hidden');
-        document.getElementById('intro').textContent = '飞书入口：点「开始会议」后将跳转主持/录音页，并向本群推送「会议已开始」通知；进入页面后请点击「开始会议」以授权麦克风并开启议程主持。';
+        const stLabel = document.querySelector('label[for="scheduledTime"]');
+        if (stLabel) stLabel.style.display = 'none';
+        document.getElementById('scheduledTime').style.display = 'none';
+        document.getElementById('intro').textContent = '飞书入口：点「开始会议」后将跳转主持/录音页，并向本群推送「会议已创建」通知；进入页面后请点击「开始会议」以授权麦克风并正式开始议程主持。';
         document.getElementById('btn').textContent = '开始会议';
     }
 

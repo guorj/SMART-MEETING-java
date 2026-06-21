@@ -140,6 +140,9 @@ public class MeetingService {
         meeting.setSourceAudioUrl(request.getSourceAudioUrl());
         meeting.setPreviousMeetingId(request.getPreviousMeetingId());
         meeting.setChatId(request.getChatId());
+        if (request.getScheduledTime() != null && !request.getScheduledTime().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(400, "计划开始时间须晚于当前时刻");
+        }
         meeting.setScheduledTime(request.getScheduledTime());
 
         meetingMapper.insert(meeting);
@@ -195,6 +198,31 @@ public class MeetingService {
         meetingMapper.updateById(meeting);
 
         log.info("Meeting started: id={}, status={}", meetingId, meeting.getStatus());
+        return toResponse(meeting);
+    }
+
+    /**
+     * 取消未开始会议（议题收集中 / 已邀约）。
+     *
+     * @param meetingId 会议 ID
+     * @return 更新后的会议响应 DTO
+     * @throws BusinessException 会议不存在（404）或状态不可取消（400）
+     */
+    @Transactional
+    public MeetingResponse cancelDraftMeeting(String meetingId) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + meetingId);
+        }
+        String status = meeting.getStatus();
+        if (!MeetingStatus.ISSUE_COLLECTING.name().equals(status)
+                && !MeetingStatus.INVITED.name().equals(status)) {
+            throw new BusinessException(400, "仅可取消未开始的会议: " + status);
+        }
+        meetingStateMachineService.apply(meetingId, MeetingEvent.CANCEL_MEETING);
+        meeting.setStatus(MeetingStatus.CANCELLED.name());
+        meetingMapper.updateById(meeting);
+        log.info("Meeting draft cancelled: id={}", meetingId);
         return toResponse(meeting);
     }
 

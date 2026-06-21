@@ -25,7 +25,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -35,6 +38,10 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class DashboardService {
+
+    private static final Set<String> NOT_STARTED = Set.of(
+            MeetingStatus.ISSUE_COLLECTING.name(),
+            MeetingStatus.INVITED.name());
 
     private final UserMappingMapper userMappingMapper;
     private final VoiceprintMapper voiceprintMapper;
@@ -46,6 +53,7 @@ public class DashboardService {
     private final FeishuService feishuService;
     private final VoiceprintRegisterService voiceprintRegisterService;
     private final MeetingService meetingService;
+    private final MeetingCalendarSyncService meetingCalendarSyncService;
     private final JwtUtil jwtUtil;
     private final MeetingVoiceprintLifecycleProperties lifecycleProperties;
     private final MeetingWebPageUrls meetingWebPageUrls;
@@ -107,22 +115,20 @@ public class DashboardService {
     }
 
     public List<MeetingSummary> getRecentMeetings(String feishuUserId, int limit) {
-        List<String> meetingIds = participantMapper.selectList(new LambdaQueryWrapper<Participant>()
+        int safeLimit = Math.max(1, Math.min(limit, 30));
+        List<String> participantMeetingIds = participantMapper.selectList(new LambdaQueryWrapper<Participant>()
                         .eq(Participant::getUserId, feishuUserId))
                 .stream().map(Participant::getMeetingId).distinct().toList();
 
-        List<Meeting> meetings;
-        if (meetingIds.isEmpty()) {
-            meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
-                    .eq(Meeting::getCreatorId, feishuUserId)
-                    .orderByDesc(Meeting::getCreatedAt)
-                    .last("LIMIT " + limit));
-        } else {
-            meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
-                    .in(Meeting::getId, meetingIds)
-                    .orderByDesc(Meeting::getCreatedAt)
-                    .last("LIMIT " + limit));
-        }
+        LambdaQueryWrapper<Meeting> query = new LambdaQueryWrapper<>();
+        query.and(wrapper -> {
+            wrapper.eq(Meeting::getCreatorId, feishuUserId);
+            if (!participantMeetingIds.isEmpty()) {
+                wrapper.or().in(Meeting::getId, participantMeetingIds);
+            }
+        });
+        query.orderByDesc(Meeting::getCreatedAt).last("LIMIT " + safeLimit);
+        List<Meeting> meetings = meetingMapper.selectList(query);
         return meetings.stream().map(this::toMeetingSummary).toList();
     }
 
@@ -142,23 +148,69 @@ public class DashboardService {
         if (active == null) {
             return null;
         }
-        String recordingToken = active.getRecordingToken();
+        return toActiveMeetingResult(active, feishuUserId);
+    }
+
+    /**
+     * 用户未开始草稿（单草稿模板每类最多 1 场；模板 99 返回全部草稿）。
+     */
+    public List<ActiveMeetingResult> getDraftMeetings(String feishuUserId) {
+        List<Meeting> drafts = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, feishuUserId)
+                .in(Meeting::getStatus, NOT_STARTED)
+                .orderByDesc(Meeting::getCreatedAt));
+        Map<Integer, Meeting> latestPerPreset = new LinkedHashMap<>();
+        List<Meeting> unlimitedPresetDrafts = new ArrayList<>();
+        List<Meeting> withoutPreset = new ArrayList<>();
+        for (Meeting m : drafts) {
+            Integer preset = m.getPresetTypeCode();
+            if (PresetDraftPolicy.isUnlimitedDraftPreset(preset)) {
+                unlimitedPresetDrafts.add(m);
+            } else if (preset != null && preset > 0) {
+                latestPerPreset.putIfAbsent(preset, m);
+            } else {
+                withoutPreset.add(m);
+            }
+        }
+        List<Meeting> combined = new ArrayList<>(unlimitedPresetDrafts);
+        combined.addAll(latestPerPreset.values());
+        combined.addAll(withoutPreset);
+        combined.sort((a, b) -> {
+            LocalDateTime at = a.getCreatedAt();
+            LocalDateTime bt = b.getCreatedAt();
+            if (at == null && bt == null) {
+                return 0;
+            }
+            if (at == null) {
+                return 1;
+            }
+            if (bt == null) {
+                return -1;
+            }
+            return bt.compareTo(at);
+        });
+        return combined.stream().map(m -> toActiveMeetingResult(m, feishuUserId)).toList();
+    }
+
+    private ActiveMeetingResult toActiveMeetingResult(Meeting meeting, String feishuUserId) {
+        String recordingToken = meeting.getRecordingToken();
         if (recordingToken == null || recordingToken.isBlank()) {
             String userName = feishuService.getUserNameByUserId(feishuUserId);
             recordingToken = jwtUtil.generateOperatorMeetingToken(
-                    active.getId(), JwtUtil.TYPE_RECORDING, feishuUserId, userName);
+                    meeting.getId(), JwtUtil.TYPE_RECORDING, feishuUserId, userName);
             meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
-                    .eq(Meeting::getId, active.getId())
+                    .eq(Meeting::getId, meeting.getId())
                     .set(Meeting::getRecordingToken, recordingToken));
         }
         String recordingUrl = meetingWebPageUrls.resolveRecordingPageUrl(
-                active.getId(), recordingToken, active.getRecordingUrl());
+                meeting.getId(), recordingToken, meeting.getRecordingUrl());
         ActiveMeetingResult out = new ActiveMeetingResult();
-        out.setId(active.getId());
-        out.setTitle(active.getTitle());
-        out.setStatus(active.getStatus());
+        out.setId(meeting.getId());
+        out.setTitle(meeting.getTitle());
+        out.setStatus(meeting.getStatus());
+        out.setPresetTypeCode(meeting.getPresetTypeCode());
         out.setRecordingUrl(recordingUrl);
-        out.setCreatedAt(active.getCreatedAt());
+        out.setCreatedAt(meeting.getCreatedAt());
         return out;
     }
 
@@ -183,6 +235,20 @@ public class DashboardService {
             throw new BusinessException(400, "当前没有可恢复的进行中会议");
         }
         return active;
+    }
+
+    /**
+     * 取消指定未开始草稿（工作台「结束」待开始会议）。
+     */
+    public MeetingResponse cancelDraftMeeting(String feishuUserId, String meetingId) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null || !feishuUserId.equals(meeting.getCreatorId())) {
+            throw new BusinessException(404, "会议不存在");
+        }
+        if (meeting.getStatus() == null || !NOT_STARTED.contains(meeting.getStatus())) {
+            throw new BusinessException(400, "仅可取消未开始的会议");
+        }
+        return meetingService.cancelDraftMeeting(meetingId);
     }
 
     private String resolveNameFromFeishu(UserMapping mapping, String feishuUserId) {
@@ -234,6 +300,49 @@ public class DashboardService {
         return coordinator.createMeetingStartAndNotifyFeishu(feishuUserId, chatId, request);
     }
 
+    /**
+     * 预约会议（仅创建，不立即开始）；scheduledTime 必填且须为未来时间。
+     */
+    public MeetingResponse scheduleMeeting(String feishuUserId, String chatId, MeetingCreateRequest request) {
+        pendingStore.clear(feishuUserId, chatId);
+        if (request.getScheduledTime() == null) {
+            throw new BusinessException(400, "预约会议须填写计划开始时间");
+        }
+        Integer presetCode = request.getPresetTypeCode();
+        if (PresetDraftPolicy.shouldReuseSingleDraft(presetCode)) {
+            Meeting existing = coordinator.findDraftByPreset(feishuUserId, presetCode);
+            if (existing != null) {
+                log.info("Reused existing draft for schedule: feishuUserId={}, preset={}, meetingId={}",
+                        feishuUserId, presetCode, existing.getId());
+                return meetingService.getMeeting(existing.getId());
+            }
+        }
+        request.setCreatorId(feishuUserId);
+        request.setChatId(chatId);
+        MeetingResponse created = meetingService.createMeeting(request);
+        Meeting meeting = meetingMapper.selectById(created.getId());
+        if (meeting != null) {
+            MeetingCalendarSyncService.SyncResult cal = meetingCalendarSyncService.syncScheduledMeeting(meeting);
+            if (!cal.success()) {
+                log.warn("Dashboard schedule: calendar sync failed meetingId={}, reason={}",
+                        meeting.getId(), cal.message());
+            }
+        }
+        return meetingService.getMeeting(created.getId());
+    }
+
+    public List<MeetingSummary> getScheduledMeetings(String feishuUserId, int limit) {
+        int safeLimit = Math.max(1, Math.min(limit, 30));
+        List<Meeting> meetings = meetingMapper.selectList(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, feishuUserId)
+                .in(Meeting::getStatus, MeetingStatus.ISSUE_COLLECTING.name(), MeetingStatus.INVITED.name())
+                .isNotNull(Meeting::getScheduledTime)
+                .gt(Meeting::getScheduledTime, LocalDateTime.now())
+                .orderByAsc(Meeting::getScheduledTime)
+                .last("LIMIT " + safeLimit));
+        return meetings.stream().map(this::toMeetingSummary).toList();
+    }
+
     public String createVoiceprintSession(String feishuUserId, String userName) {
         String resolvedName = userName;
         if (resolvedName == null || resolvedName.isBlank()) {
@@ -255,6 +364,7 @@ public class DashboardService {
         s.setPresetTypeCode(m.getPresetTypeCode());
         s.setCreatedAt(m.getCreatedAt());
         s.setDocUrl(m.getDocUrl());
+        s.setScheduledTime(m.getScheduledTime());
         return s;
     }
 
@@ -300,6 +410,7 @@ public class DashboardService {
         private String status;
         private Integer presetTypeCode;
         private LocalDateTime createdAt;
+        private LocalDateTime scheduledTime;
         private String docUrl;
 
         public String getId() { return id; }
@@ -312,6 +423,8 @@ public class DashboardService {
         public void setPresetTypeCode(Integer presetTypeCode) { this.presetTypeCode = presetTypeCode; }
         public LocalDateTime getCreatedAt() { return createdAt; }
         public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+        public LocalDateTime getScheduledTime() { return scheduledTime; }
+        public void setScheduledTime(LocalDateTime scheduledTime) { this.scheduledTime = scheduledTime; }
         public String getDocUrl() { return docUrl; }
         public void setDocUrl(String docUrl) { this.docUrl = docUrl; }
     }
@@ -336,6 +449,7 @@ public class DashboardService {
         private String id;
         private String title;
         private String status;
+        private Integer presetTypeCode;
         private String recordingUrl;
         private LocalDateTime createdAt;
 
@@ -345,6 +459,8 @@ public class DashboardService {
         public void setTitle(String title) { this.title = title; }
         public String getStatus() { return status; }
         public void setStatus(String status) { this.status = status; }
+        public Integer getPresetTypeCode() { return presetTypeCode; }
+        public void setPresetTypeCode(Integer presetTypeCode) { this.presetTypeCode = presetTypeCode; }
         public String getRecordingUrl() { return recordingUrl; }
         public void setRecordingUrl(String recordingUrl) { this.recordingUrl = recordingUrl; }
         public LocalDateTime getCreatedAt() { return createdAt; }

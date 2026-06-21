@@ -16,6 +16,7 @@ import java.util.regex.Pattern;
 /**
  * 会中多维表格展示排序：
  * 近三个月在前（按创建日期）；近三月内状态子段展示序：延期 → 已完成 → 进行中；
+ * 「进行中」子段内：截止日期升序（最早优先，无截止日期排最后）；
  * 同段内：近 7 日已完成 → 未完成 → 进行中 → 更早已完成。
  */
 public final class BitableRecordSorter {
@@ -71,6 +72,12 @@ public final class BitableRecordSorter {
         }
         if (recentBucket(a) == 0 && recentBucket(b) == 0) {
             c = Integer.compare(displaySectionOrder(displayCategory(a)), displaySectionOrder(displayCategory(b)));
+            if (c != 0) {
+                return c;
+            }
+        }
+        if (displayCategory(a) == CATEGORY_IN_PROGRESS && displayCategory(b) == CATEGORY_IN_PROGRESS) {
+            c = Long.compare(deadlineSortKeyAsc(a), deadlineSortKeyAsc(b));
             if (c != 0) {
                 return c;
             }
@@ -260,6 +267,16 @@ public final class BitableRecordSorter {
         }
         Long deadlineMs = extractDeadlineDateMs(record);
         return deadlineMs != null ? deadlineMs : Long.MIN_VALUE;
+    }
+
+    /** 截止日期升序；优先「距离截止」天数，其次截止日期毫秒；无值排最后。 */
+    static long deadlineSortKeyAsc(JsonNode record) {
+        Long days = extractDaysToDeadline(record);
+        if (days != null) {
+            return days;
+        }
+        Long deadlineMs = extractDeadlineDateMs(record);
+        return deadlineMs != null ? deadlineMs : Long.MAX_VALUE;
     }
 
     /**

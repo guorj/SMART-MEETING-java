@@ -39,6 +39,7 @@ public class MeetingCreateRequest {
     /** 链路上次会议 ID，用于待办进度通报 */
     private String previousMeetingId;
     private LocalDateTime scheduledTime;
+    /** 计划开始时间（ISO-8601）；预约型 create-only API 使用，即时 create-and-start 路径忽略 */
     private List<ParticipantEntry> participants;
 
     /**

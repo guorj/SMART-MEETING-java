@@ -88,6 +88,19 @@
   opacity: 0.65;
 }
 
+.chroma-card--draft .role,
+.chroma-card--active .role {
+  font-weight: 600;
+}
+
+.chroma-card--draft .role {
+  color: #9a6700;
+}
+
+.chroma-card--active .role {
+  color: var(--color-primary, #002FA7);
+}
+
 .chroma-visual {
   position: relative;
   z-index: 1;

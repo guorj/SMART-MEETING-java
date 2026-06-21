@@ -48,6 +48,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
 import java.io.IOException;
+import java.net.URI;
 
 /**
  * 飞书开放平台 API 封装：Tenant Token 管理、消息发送、云文档读写与资源正文拉取。
@@ -352,7 +353,25 @@ public class FeishuService {
         }
     }
 
-    public record CalendarCreateResult(boolean success, String eventId, String message) {}
+    public record CalendarCreateResult(boolean success, String eventId, String calendarId, String message,
+                                       int invitedCount, int skippedCount, String vcMeetingUrl) {
+
+        public CalendarCreateResult(boolean success, String eventId, String message) {
+            this(success, eventId, "", message, 0, 0, "");
+        }
+
+        public CalendarCreateResult(boolean success, String eventId, String message,
+                                    int invitedCount, int skippedCount) {
+            this(success, eventId, "", message, invitedCount, skippedCount, "");
+        }
+
+        public CalendarCreateResult(boolean success, String eventId, String calendarId, String message,
+                                    int invitedCount, int skippedCount) {
+            this(success, eventId, calendarId, message, invitedCount, skippedCount, "");
+        }
+    }
+
+    public record CalendarAttendeeAddResult(boolean success, int invitedCount, String message) {}
 
     public record TaskCreateResult(boolean success, String taskId, String message) {}
 
@@ -362,35 +381,291 @@ public class FeishuService {
      * 说明：若当前应用未开通 calendar scope，会返回失败但不抛异常，供上层做降级提示。
      */
     public CalendarCreateResult createCalendarEvent(String summary, LocalDateTime startAt, String roomHint, String chatId) {
-        try {
-            String token = getTenantToken();
-            String url = baseUrl + "/open-apis/calendar/v4/calendars/primary/events";
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            headers.setBearerAuth(token);
+        LocalDateTime effectiveStart = startAt != null ? startAt : LocalDateTime.now().plusMinutes(5);
+        return createCalendarEvent(summary, effectiveStart, effectiveStart.plusMinutes(60),
+                roomHint, chatId, List.of(), CalendarVchatOptions.defaults(), null);
+    }
 
-            long startTs = toEpochSeconds(startAt != null ? startAt : LocalDateTime.now().plusMinutes(5));
-            long endTs = toEpochSeconds((startAt != null ? startAt : LocalDateTime.now().plusMinutes(5)).plusMinutes(60));
-            Map<String, Object> body = new LinkedHashMap<>();
-            body.put("summary", summary == null || summary.isBlank() ? "会议邀约" : summary);
-            body.put("description", roomHint == null || roomHint.isBlank() ? "" : ("会议室建议：" + roomHint));
-            body.put("start_time", Map.of("timestamp", String.valueOf(startTs)));
-            body.put("end_time", Map.of("timestamp", String.valueOf(endTs)));
+    /**
+     * 创建飞书日历事件并邀请参会人。
+     * <p>
+     * 飞书 v4：创建日程与添加参与人是两个 API；参与人须 POST attendees 接口才会出现在用户日历中。
+     *
+     * @param attendeeFeishuUserIds 飞书 user_id 列表（与 user_id_type=user_id 一致）
+     */
+    public CalendarCreateResult createCalendarEvent(String summary, LocalDateTime startAt, LocalDateTime endAt,
+                                                    String roomHint, String chatId,
+                                                    List<String> attendeeFeishuUserIds) {
+        return createCalendarEvent(summary, startAt, endAt, roomHint, chatId, attendeeFeishuUserIds,
+                CalendarVchatOptions.defaults(), null);
+    }
+
+    public CalendarCreateResult createCalendarEvent(String summary, LocalDateTime startAt, LocalDateTime endAt,
+                                                    String roomHint, String chatId,
+                                                    List<String> attendeeFeishuUserIds,
+                                                    CalendarVchatOptions vchatOptions, String ownerUserId) {
+        try {
+            HttpHeaders headers = feishuJsonAuthHeaders();
+            URI uri = calendarCreateEventUri("primary");
+
+            LocalDateTime effectiveStart = startAt != null ? startAt : LocalDateTime.now().plusMinutes(5);
+            LocalDateTime effectiveEnd = endAt != null ? endAt : effectiveStart.plusMinutes(60);
+            CalendarVchatOptions vchat = vchatOptions != null ? vchatOptions : CalendarVchatOptions.defaults();
+            Map<String, Object> body = buildCalendarEventBody(
+                    summary, roomHint, effectiveStart, effectiveEnd, true, vchat, ownerUserId);
+
+            List<String> attendees = attendeeFeishuUserIds == null ? List.of() : attendeeFeishuUserIds.stream()
+                    .filter(id -> id != null && !id.isBlank())
+                    .distinct()
+                    .toList();
 
             ResponseEntity<JsonNode> resp = restTemplate.exchange(
-                    url, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
-            JsonNode data = resp.getBody() == null ? null : resp.getBody().path("data");
-            String eventId = data == null ? "" : data.path("event").path("event_id").asText("");
+                    uri, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode root = resp.getBody();
+            if (root != null && root.path("code").asInt(0) != 0) {
+                String msg = feishuErrorMessage(root, "feishu_error");
+                log.warn("createCalendarEvent feishu error: {}", msg);
+                return new CalendarCreateResult(false, "", "", msg, 0, 0, "");
+            }
+            JsonNode eventNode = root == null ? null : root.path("data").path("event");
+            String eventId = eventNode == null ? "" : eventNode.path("event_id").asText("");
+            String calendarId = eventNode == null ? "primary" : eventNode.path("organizer_calendar_id").asText("primary");
+            String vcMeetingUrl = extractVcMeetingUrl(eventNode);
             if (eventId.isBlank()) {
-                return new CalendarCreateResult(false, "", "empty_event_id");
+                return new CalendarCreateResult(false, "", "", "empty_event_id", 0, 0, "");
             }
+
+            int invitedCount = 0;
+            if (!attendees.isEmpty() || (chatId != null && !chatId.isBlank())) {
+                CalendarAttendeeAddResult addResult = addCalendarEventAttendees(
+                        "primary", eventId, attendees, chatId, true);
+                if (!addResult.success()) {
+                    log.warn("createCalendarEvent attendees failed: eventId={}, calendarId={}, msg={}",
+                            eventId, calendarId, addResult.message());
+                    return new CalendarCreateResult(false, eventId, calendarId,
+                            "attendees_add_failed:" + addResult.message(), 0, 0, vcMeetingUrl);
+                }
+                invitedCount = addResult.invitedCount();
+            }
+
             if (chatId != null && !chatId.isBlank()) {
-                sendMessage(chatId, "日历邀约已创建：" + summary);
+                String timeHint = effectiveStart.toString().replace('T', ' ').substring(0, 16);
+                String notify = "日历邀约已创建：" + (summary == null || summary.isBlank() ? "会议邀约" : summary);
+                if (invitedCount > 0) {
+                    notify += "\n已邀请 " + invitedCount + " 位参与人/群";
+                }
+                if (vcMeetingUrl != null && !vcMeetingUrl.isBlank()) {
+                    notify += "\n视频会议：" + vcMeetingUrl;
+                }
+                notify += "\n时间：" + timeHint;
+                sendMessage(chatId, notify);
             }
-            return new CalendarCreateResult(true, eventId, "ok");
+            log.info("createCalendarEvent ok: eventId={}, calendarId={}, invitedCount={}, vcMeetingUrl={}",
+                    eventId, calendarId, invitedCount, vcMeetingUrl);
+            return new CalendarCreateResult(true, eventId, calendarId, "ok", invitedCount, 0, vcMeetingUrl);
         } catch (Exception e) {
             log.warn("createCalendarEvent failed: {}", e.getMessage());
-            return new CalendarCreateResult(false, "", e.getMessage());
+            return new CalendarCreateResult(false, "", "", e.getMessage(), 0, 0, "");
+        }
+    }
+
+    private Map<String, Object> buildCalendarEventBody(String summary, String roomHint,
+                                                       LocalDateTime startAt, LocalDateTime endAt,
+                                                       boolean needNotification,
+                                                       CalendarVchatOptions vchatOptions, String ownerUserId) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("summary", summary == null || summary.isBlank() ? "会议邀约" : summary);
+        body.put("description", roomHint == null || roomHint.isBlank() ? "" : ("会议室建议：" + roomHint));
+        body.put("need_notification", needNotification);
+        body.put("start_time", Map.of(
+                "timestamp", String.valueOf(toEpochSeconds(startAt)),
+                "timezone", "Asia/Shanghai"));
+        body.put("end_time", Map.of(
+                "timestamp", String.valueOf(toEpochSeconds(endAt)),
+                "timezone", "Asia/Shanghai"));
+        body.put("visibility", "default");
+        body.put("attendee_ability", "can_see_others");
+        body.put("free_busy_status", "busy");
+        CalendarVchatOptions vchat = vchatOptions != null ? vchatOptions : CalendarVchatOptions.defaults();
+        if (vchat.reminderMinutes() > 0) {
+            body.put("reminders", List.of(Map.of("minutes", vchat.reminderMinutes())));
+        }
+        Map<String, Object> vchatBody = buildVchatBody(vchat, ownerUserId);
+        if (vchatBody != null) {
+            body.put("vchat", vchatBody);
+        }
+        return body;
+    }
+
+    private Map<String, Object> buildVchatBody(CalendarVchatOptions options, String ownerUserId) {
+        if (options == null || !options.enabled()) {
+            return Map.of("vc_type", CalendarVchatOptions.VC_TYPE_NO_MEETING);
+        }
+        String vcType = options.vcType() == null || options.vcType().isBlank()
+                ? CalendarVchatOptions.VC_TYPE_VC
+                : options.vcType().trim().toLowerCase();
+        Map<String, Object> vchat = new LinkedHashMap<>();
+        vchat.put("vc_type", vcType);
+        if (CalendarVchatOptions.VC_TYPE_THIRD_PARTY.equals(vcType)) {
+            if (options.meetingUrl() != null && !options.meetingUrl().isBlank()) {
+                vchat.put("meeting_url", options.meetingUrl().trim());
+                vchat.put("icon_type", "vc");
+                vchat.put("description", "发起视频会议");
+            }
+            return vchat;
+        }
+        if (CalendarVchatOptions.VC_TYPE_NO_MEETING.equals(vcType)) {
+            return vchat;
+        }
+        Map<String, Object> meetingSettings = new LinkedHashMap<>();
+        meetingSettings.put("allow_attendees_start", options.allowAttendeesStart());
+        meetingSettings.put("open_lobby", options.openLobby());
+        meetingSettings.put("auto_record", options.autoRecord());
+        if (options.joinMeetingPermission() != null && !options.joinMeetingPermission().isBlank()) {
+            meetingSettings.put("join_meeting_permission", options.joinMeetingPermission());
+        }
+        if (ownerUserId != null && !ownerUserId.isBlank()) {
+            meetingSettings.put("owner_id", ownerUserId.trim());
+        }
+        vchat.put("meeting_settings", meetingSettings);
+        return vchat;
+    }
+
+    private static String extractVcMeetingUrl(JsonNode eventNode) {
+        if (eventNode == null) {
+            return "";
+        }
+        return eventNode.path("vchat").path("meeting_url").asText("");
+    }
+
+    /**
+     * 调用飞书「添加日程参与人」接口（用户 user_id + 可选群 chat_id）。
+     */
+    public CalendarAttendeeAddResult addCalendarEventAttendees(String calendarId, String eventId,
+                                                               List<String> openIds, String chatId,
+                                                               boolean needNotification) {
+        if (eventId == null || eventId.isBlank()) {
+            return new CalendarAttendeeAddResult(false, 0, "empty_event_id");
+        }
+        String cal = normalizeCalendarId(calendarId);
+        try {
+            HttpHeaders headers = feishuJsonAuthHeaders();
+            URI uri = calendarEventAttendeesUri(cal, eventId);
+
+            List<Map<String, Object>> nodes = new ArrayList<>();
+            for (String openId : openIds) {
+                Map<String, Object> node = new LinkedHashMap<>();
+                node.put("type", "user");
+                node.put("user_id", openId);
+                node.put("is_optional", false);
+                nodes.add(node);
+            }
+            if (chatId != null && !chatId.isBlank()) {
+                Map<String, Object> chatNode = new LinkedHashMap<>();
+                chatNode.put("type", "chat");
+                chatNode.put("chat_id", chatId);
+                chatNode.put("is_optional", false);
+                nodes.add(chatNode);
+            }
+            if (nodes.isEmpty()) {
+                return new CalendarAttendeeAddResult(true, 0, "no_attendees");
+            }
+
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("attendees", nodes);
+            body.put("need_notification", needNotification);
+
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
+                    uri, HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode root = resp.getBody();
+            if (root != null && root.path("code").asInt(0) != 0) {
+                String msg = feishuErrorMessage(root, "feishu_error");
+                log.warn("addCalendarEventAttendees feishu error: eventId={}, calendarId={}, err={}",
+                        eventId, cal, msg);
+                return new CalendarAttendeeAddResult(false, 0, msg);
+            }
+            JsonNode added = root == null ? null : root.path("data").path("attendees");
+            int count = added != null && added.isArray() ? added.size() : nodes.size();
+            return new CalendarAttendeeAddResult(true, count, "ok");
+        } catch (Exception e) {
+            log.warn("addCalendarEventAttendees failed: eventId={}, err={}", eventId, e.getMessage());
+            return new CalendarAttendeeAddResult(false, 0, e.getMessage());
+        }
+    }
+
+    public record CalendarUpdateResult(boolean success, String eventId, String message) {}
+
+    public CalendarUpdateResult updateCalendarEvent(String eventId, LocalDateTime startAt, LocalDateTime endAt,
+                                                    String summary, String roomHint, boolean needNotification) {
+        return updateCalendarEvent("primary", eventId, startAt, endAt, summary, roomHint, needNotification,
+                CalendarVchatOptions.defaults(), null);
+    }
+
+    public CalendarUpdateResult updateCalendarEvent(String eventId, LocalDateTime startAt, LocalDateTime endAt,
+                                                    String summary, String roomHint, boolean needNotification,
+                                                    CalendarVchatOptions vchatOptions, String ownerUserId) {
+        return updateCalendarEvent("primary", eventId, startAt, endAt, summary, roomHint, needNotification,
+                vchatOptions, ownerUserId);
+    }
+
+    /**
+     * 更新飞书日历事件（PATCH）。
+     *
+     * @param calendarId 日程所属日历 ID（创建时返回的 organizer_calendar_id；可传 primary）
+     */
+    public CalendarUpdateResult updateCalendarEvent(String calendarId, String eventId, LocalDateTime startAt,
+                                                    LocalDateTime endAt, String summary, String roomHint,
+                                                    boolean needNotification) {
+        return updateCalendarEvent(calendarId, eventId, startAt, endAt, summary, roomHint, needNotification,
+                CalendarVchatOptions.defaults(), null);
+    }
+
+    public CalendarUpdateResult updateCalendarEvent(String calendarId, String eventId, LocalDateTime startAt,
+                                                    LocalDateTime endAt, String summary, String roomHint,
+                                                    boolean needNotification,
+                                                    CalendarVchatOptions vchatOptions, String ownerUserId) {
+        if (eventId == null || eventId.isBlank()) {
+            return new CalendarUpdateResult(false, "", "empty_event_id");
+        }
+        String cal = normalizeCalendarId(calendarId);
+        try {
+            HttpHeaders headers = feishuJsonAuthHeaders();
+            URI uri = calendarEventUri(cal, eventId);
+
+            LocalDateTime effectiveStart = startAt != null ? startAt : LocalDateTime.now().plusMinutes(5);
+            LocalDateTime effectiveEnd = endAt != null ? endAt : effectiveStart.plusMinutes(60);
+            Map<String, Object> body = new LinkedHashMap<>();
+            if (summary != null && !summary.isBlank()) {
+                body.put("summary", summary);
+            }
+            if (roomHint != null && !roomHint.isBlank()) {
+                body.put("description", "会议室建议：" + roomHint);
+            }
+            body.put("need_notification", needNotification);
+            body.put("start_time", Map.of(
+                    "timestamp", String.valueOf(toEpochSeconds(effectiveStart)),
+                    "timezone", "Asia/Shanghai"));
+            body.put("end_time", Map.of(
+                    "timestamp", String.valueOf(toEpochSeconds(effectiveEnd)),
+                    "timezone", "Asia/Shanghai"));
+            CalendarVchatOptions vchat = vchatOptions != null ? vchatOptions : CalendarVchatOptions.defaults();
+            Map<String, Object> vchatBody = buildVchatBody(vchat, ownerUserId);
+            if (vchatBody != null) {
+                body.put("vchat", vchatBody);
+            }
+
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
+                    uri, HttpMethod.PATCH, new HttpEntity<>(body, headers), JsonNode.class);
+            JsonNode root = resp.getBody();
+            if (root != null && root.path("code").asInt(0) != 0) {
+                String msg = feishuErrorMessage(root, "feishu_error");
+                log.warn("updateCalendarEvent feishu error: eventId={}, err={}", eventId, msg);
+                return new CalendarUpdateResult(false, eventId, msg);
+            }
+            return new CalendarUpdateResult(true, eventId, "ok");
+        } catch (Exception e) {
+            log.warn("updateCalendarEvent failed: eventId={}, err={}", eventId, e.getMessage());
+            return new CalendarUpdateResult(false, eventId, e.getMessage());
         }
     }
 
@@ -433,6 +708,70 @@ public class FeishuService {
 
     private long toEpochSeconds(LocalDateTime time) {
         return time.atZone(ZoneId.of("Asia/Shanghai")).toEpochSecond();
+    }
+
+    private HttpHeaders feishuJsonAuthHeaders() {
+        String token = getTenantToken();
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("empty tenant access token");
+        }
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBearerAuth(token);
+        headers.set("Authorization", "Bearer " + token);
+        return headers;
+    }
+
+    /**
+     * calendar_id 常含 {@code @}（如 feishu.cn_xxx@group.calendar.feishu.cn），必须 encode 后再请求，
+     * 否则 URI 解析会把 {@code @} 当 userinfo 分隔符，导致 Authorization 未到达飞书 API。
+     */
+    private URI calendarCreateEventUri(String calendarId) {
+        String cal = normalizeCalendarId(calendarId);
+        return UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/open-apis/calendar/v4/calendars/{calendar_id}/events")
+                .queryParam("user_id_type", "user_id")
+                .buildAndExpand(cal)
+                .encode()
+                .toUri();
+    }
+
+    private URI calendarEventAttendeesUri(String calendarId, String eventId) {
+        String cal = normalizeCalendarId(calendarId);
+        return UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/open-apis/calendar/v4/calendars/{calendar_id}/events/{event_id}/attendees")
+                .queryParam("user_id_type", "user_id")
+                .buildAndExpand(cal, eventId)
+                .encode()
+                .toUri();
+    }
+
+    private URI calendarEventUri(String calendarId, String eventId) {
+        String cal = normalizeCalendarId(calendarId);
+        return UriComponentsBuilder.fromHttpUrl(baseUrl)
+                .path("/open-apis/calendar/v4/calendars/{calendar_id}/events/{event_id}")
+                .queryParam("user_id_type", "user_id")
+                .buildAndExpand(cal, eventId)
+                .encode()
+                .toUri();
+    }
+
+    private static String normalizeCalendarId(String calendarId) {
+        if (calendarId == null || calendarId.isBlank()) {
+            return "primary";
+        }
+        return calendarId.trim();
+    }
+
+    private static String feishuErrorMessage(JsonNode root, String fallback) {
+        if (root == null) {
+            return fallback;
+        }
+        int code = root.path("code").asInt(0);
+        if (code == 0) {
+            return fallback;
+        }
+        return code + ":" + root.path("msg").asText(fallback);
     }
 
     // ==================== 文档管理 ====================

@@ -28,6 +28,9 @@ public class MeetingTypePreset {
     private String groupName;
     /** 默认排期说明（如「每周一 9:00」） */
     private String scheduleNote;
+    /** 机器可读排期规则 JSON（weekly/fixed/at_start） */
+    @TableField(value = "schedule_config", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
+    private String scheduleConfig;
     /** 默认议程摘要（纯文本） */
     private String agendaSummary;
     /** 默认组织者姓名 */

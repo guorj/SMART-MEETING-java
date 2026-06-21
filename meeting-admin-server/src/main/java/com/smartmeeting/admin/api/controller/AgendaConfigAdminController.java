@@ -61,6 +61,15 @@ public class AgendaConfigAdminController {
         return ApiResponse.ok();
     }
 
+    /** 仅保存 host_agenda JSON，不修改 display_name 等 meta（与 PUT /presets 区分） */
+    @PutMapping("/presets/{code}/host-agenda-json")
+    public ApiResponse<Void> saveHostAgendaJson(@PathVariable int code,
+                                                @RequestBody Map<String, String> body) {
+        String json = body != null ? body.get("hostAgendaJson") : null;
+        agendaConfigService.saveHostAgendaJsonOnly(code, json);
+        return ApiResponse.ok();
+    }
+
     @PostMapping("/presets/{code}/preview")
     public ApiResponse<List<String>> preview(@PathVariable int code) {
         return ApiResponse.ok(agendaConfigService.previewMergeLines(code));
@@ -95,8 +104,8 @@ public class AgendaConfigAdminController {
     public ApiResponse<List<String>> validateAgenda(@PathVariable int code,
                                                     @RequestBody(required = false) Map<String, String> body) {
         String json = body != null ? body.get("hostAgendaJson") : null;
-        if (json == null) {
-            json = agendaConfigService.loadBundle(code).getHostAgendaJson();
+        if (json == null || json.isBlank()) {
+            return ApiResponse.ok(agendaConfigService.validateAgendaBundle(code));
         }
         return ApiResponse.ok(agendaConfigService.validateAgenda(json));
     }

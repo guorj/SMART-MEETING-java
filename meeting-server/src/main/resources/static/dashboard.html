@@ -10,17 +10,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260612-2">
-<link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260612-2">
+<link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260614-3">
 <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260612-2">
 <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260612-2">
 <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260612-2">
-<link rel="stylesheet" href="ui-kit/chroma-grid.css?v=sm-ui-20260612-3">
+<link rel="stylesheet" href="ui-kit/chroma-grid.css?v=sm-ui-20260614-1">
 <link rel="stylesheet" href="ui-kit/gooey-nav.css?v=sm-ui-20260612-6">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
 <script src="ui-kit/icons.js?v=sm-ui-20260610-2"></script>
 <script src="ui-kit/motion.js?v=sm-ui-20260610-2"></script>
 <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-2"></script>
-<script src="ui-kit/chroma-grid.js?v=sm-ui-20260612-3"></script>
+<script src="ui-kit/chroma-grid.js?v=sm-ui-20260614-1"></script>
 <script src="ui-kit/gooey-nav.js?v=sm-ui-20260612-3"></script>
 <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
@@ -60,6 +60,8 @@ function fmtDt(s){return s?String(s).replace('T',' ').slice(0,16):'-';}
 
 function statusLabel(st){
   const map={
+    ISSUE_COLLECTING:'待开始',
+    INVITED:'已邀约',
     RECORDING:'录音中',
     STARTED:'进行中',
     PAUSED:'已暂停',
@@ -74,6 +76,7 @@ function statusBadgeClass(st){
   if(st==='STARTED')return 'badge-started';
   if(st==='PAUSED')return 'badge-expiring';
   if(st==='PROCESSING')return 'badge-processing';
+  if(st==='ISSUE_COLLECTING'||st==='INVITED')return 'badge-expiring';
   return 'ui-badge-neutral';
 }
 function statusBadge(st){
@@ -86,20 +89,208 @@ function vpBadge(status){
   return '<span class="ui-badge ui-badge-neutral">未注册</span>';
 }
 function canRecover(st){
-  return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
+  return st==='STARTED'||st==='RECORDING'||st==='PAUSED'||st==='ISSUE_COLLECTING'||st==='INVITED';
 }
 function canEnd(st){
-  return st==='STARTED'||st==='RECORDING'||st==='PAUSED';
+  return st==='STARTED'||st==='RECORDING'||st==='PAUSED'||st==='ISSUE_COLLECTING'||st==='INVITED';
+}
+function recoverButtonLabel(st){
+  return isNotStarted(st)?'开始':'恢复';
+}
+
+function buildDetectedMeetingsList(activeMeeting,draftMeetings){
+  const out=[];
+  if(activeMeeting) out.push(activeMeeting);
+  const sorted=(draftMeetings||[]).slice().sort((a,b)=>{
+    const at=a.createdAt||'';
+    const bt=b.createdAt||'';
+    return at<bt?1:at>bt?-1:0;
+  });
+  for(const d of sorted){
+    if(activeMeeting&&d.id===activeMeeting.id) continue;
+    out.push(d);
+  }
+  return out;
+}
+
+function renderDetectedMeetingRow(meeting,canCreate,canEndMeeting){
+  const kind=detectedMeetingKind(meeting.status);
+  const recoverLabel=recoverButtonLabel(meeting.status);
+  const recoverBtn=canCreate
+    ? `<button type="button" class="ui-btn ui-btn-recover btn btn-recover dashboard-inline-btn btn-detected-recover" data-meeting-id="${esc(meeting.id)}" data-status="${esc(meeting.status)}" data-recording-url="${esc(meeting.recordingUrl||'')}" ${canRecover(meeting.status)?'':'disabled'}>${recoverLabel}</button>`
+    : '';
+  const endBtn=canEndMeeting
+    ? `<button type="button" class="ui-btn ui-btn-danger btn btn-danger dashboard-inline-btn btn-detected-end" data-meeting-id="${esc(meeting.id)}" data-status="${esc(meeting.status)}" ${canEnd(meeting.status)?'':'disabled'}>结束</button>`
+    : '';
+  if(canEndMeeting||canCreate){
+    return `<div class="msg msg-info detected-meeting-row">
+      <span class="detected-meeting-text">检测到${kind}会议：<b>${esc(meeting.title || meeting.id)}</b></span>
+      <span class="detected-meeting-actions">${recoverBtn}${endBtn}</span>
+    </div>`;
+  }
+  return `<div class="msg msg-info detected-meeting-row">
+    <span class="detected-meeting-text">${kind}：<b>${esc(meeting.title || meeting.id)}</b></span>
+    <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
+  </div>`;
+}
+
+function renderDetectedMeetingsHtml(detectedMeetings,canCreate,canEndMeeting){
+  if(!detectedMeetings||!detectedMeetings.length) return '';
+  const rows=detectedMeetings.map(m=>renderDetectedMeetingRow(m,canCreate,canEndMeeting)).join('');
+  return `<div class="ui-card card blur-fade detected-meetings-card"><div class="detected-meetings-stack">${rows}</div></div>`;
+}
+
+function renderQuickPanel(canCreate,presets,detectedMeetings,canEndMeeting){
+  const activeBlock=renderDetectedMeetingsHtml(detectedMeetings,canCreate,canEndMeeting);
+  const presetBlock=canCreate
+    ? `<div class="ui-card card card-chroma-meetings blur-fade">
+        <div id="preset-chroma-grid"></div>
+        <p id="create-msg" class="msg hidden"></p>
+      </div>`
+    : `<div class="ui-card card blur-fade">
+        <h2>开始会议</h2>
+        <p class="muted">您没有创建会议的权限，请联系管理员。</p>
+      </div>`;
+  return activeBlock+presetBlock;
 }
 
 let presetChromaGrid=null;
 let gooeyNavInstance=null;
 let activeDashboardTab='quick';
 
+function todoStatusLabel(st){
+  const map={PENDING:'待处理',IN_PROGRESS:'进行中',COMPLETED:'已完成',BLOCKED:'挂起',DELAYED:'延期',OVERDUE:'逾期'};
+  return map[st]||st||'-';
+}
+
+async function apiUpload(path, formData){
+  const fullPath=withBase(path);
+  const url=fullPath.includes('?')?fullPath+'&token='+TOKEN:fullPath+'?token='+TOKEN;
+  const res=await fetch(url,{method:'POST',body:formData});
+  if(!res.ok){const t=await res.text();throw new Error(t||'上传失败');}
+  const body=await res.json();
+  if(body&&typeof body.code==='number'&&body.code!==0){throw new Error(body.message||'上传失败');}
+  return body.data;
+}
+
+function renderMyTodosPanel(myTodos, feishuUserId){
+  if(!myTodos||!myTodos.length){
+    return '<div class="ui-card card blur-fade"><h2>我的待办</h2><p class="muted">暂无待办事项</p></div>';
+  }
+  const rows=myTodos.map(t=>{
+    const isAssignee=t.assigneeId===feishuUserId;
+    const assigneeBtns=isAssignee
+      ? `<button type="button" class="ui-btn ui-btn-primary btn-todo-complete" data-id="${esc(t.id)}">完成</button>
+         <button type="button" class="ui-btn ui-btn-secondary btn-todo-block" data-id="${esc(t.id)}">挂起</button>`
+      : '<span class="muted">经办人仅可更新进度</span>';
+    return `<div class="ui-card card blur-fade todo-item-card" data-todo-id="${esc(t.id)}">
+      <div class="todo-item-head"><b>${esc(t.content)}</b> <span class="ui-badge ui-badge-neutral">${esc(todoStatusLabel(t.status))}</span></div>
+      <p class="muted" style="font-size:13px;margin:6px 0">责任人：${esc(t.assigneeName||t.assigneeId||'-')} · 经办人：${esc(t.operatorName||t.operatorId||t.assigneeName||'-')}</p>
+      <p class="muted" style="font-size:13px">截止：${fmtDt(t.deadline)}</p>
+      <div class="todo-actions" style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">${assigneeBtns}</div>
+      <details class="todo-detail">
+        <summary>进度与附件</summary>
+        <div class="todo-progress-list muted" id="todo-progress-${esc(t.id)}">加载中…</div>
+        <div class="todo-attach-list muted" id="todo-attach-${esc(t.id)}"></div>
+        <div style="margin-top:8px">
+          <textarea class="ui-input todo-progress-text" rows="2" placeholder="填写进度说明" style="width:100%;margin-bottom:6px"></textarea>
+          <input type="number" class="ui-input todo-progress-pct" min="0" max="100" placeholder="进度%" style="max-width:6rem;margin-bottom:6px"/>
+          <button type="button" class="ui-btn ui-btn-secondary btn-todo-progress" data-id="${esc(t.id)}">提交进度</button>
+        </div>
+        <div style="margin-top:8px">
+          <input type="file" class="todo-file-input" data-id="${esc(t.id)}"/>
+          <button type="button" class="ui-btn ui-btn-secondary btn-todo-upload" data-id="${esc(t.id)}">上传附件</button>
+        </div>
+      </details>
+      <p class="msg hidden todo-msg"></p>
+    </div>`;
+  }).join('');
+  return `<div class="ui-card card blur-fade"><h2>我的待办</h2><p class="muted" style="font-size:13px;margin-bottom:10px">责任人可完成/挂起；经办人可更新进度与上传附件。</p></div>${rows}`;
+}
+
+async function loadTodoDetail(todoId){
+  const progEl=document.getElementById('todo-progress-'+todoId);
+  const attEl=document.getElementById('todo-attach-'+todoId);
+  if(!progEl) return;
+  try{
+    const progress=await api('/api/v1/todos/'+encodeURIComponent(todoId)+'/progress');
+    progEl.innerHTML=(progress&&progress.length)
+      ? progress.map(p=>'<div style="margin:4px 0"><b>'+esc(p.authorName||p.authorId)+'</b> ['+esc(p.authorRole)+'] '+esc(p.progressText)
+        +(p.progressPercent!=null?' ('+p.progressPercent+'%)':'')+' · '+fmtDt(p.createdAt)+'</div>').join('')
+      : '<p>暂无进度记录</p>';
+    const attachments=await api('/api/v1/todos/'+encodeURIComponent(todoId)+'/attachments');
+    if(attEl){
+      attEl.innerHTML=(attachments&&attachments.length)
+        ? attachments.map(a=>'<div><a href="'+withBase('/api/v1/todos/'+encodeURIComponent(todoId)+'/attachments/'+encodeURIComponent(a.id)+'/download?token='+TOKEN)+'" target="_blank">'+esc(a.fileName)+'</a> · '+fmtDt(a.createdAt)+'</div>').join('')
+        : '<p>暂无附件</p>';
+    }
+  }catch(e){
+    progEl.textContent='加载失败: '+e.message;
+  }
+}
+
+function bindMyTodosPanel(myTodos, feishuUserId){
+  (myTodos||[]).forEach(t=>{
+    const card=document.querySelector('.todo-item-card[data-todo-id="'+t.id+'"]');
+    if(!card) return;
+    const msgEl=card.querySelector('.todo-msg');
+    const showTodoMsg=(text,isErr)=>{
+      if(!msgEl) return;
+      msgEl.classList.remove('hidden');
+      msgEl.className=isErr?'msg msg-err todo-msg':'msg msg-ok todo-msg';
+      msgEl.textContent=text;
+    };
+    card.querySelector('.btn-todo-complete')?.addEventListener('click',async()=>{
+      try{
+        await api('/api/v1/todos/'+encodeURIComponent(t.id)+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'COMPLETED'})});
+        showTodoMsg('已标记完成',false);
+        setTimeout(()=>init(),800);
+      }catch(e){showTodoMsg(e.message,true);}
+    });
+    card.querySelector('.btn-todo-block')?.addEventListener('click',async()=>{
+      const reason=prompt('挂起原因（可选）','');
+      try{
+        await api('/api/v1/todos/'+encodeURIComponent(t.id)+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'BLOCKED',blockReason:reason||''})});
+        showTodoMsg('已挂起',false);
+        setTimeout(()=>init(),800);
+      }catch(e){showTodoMsg(e.message,true);}
+    });
+    card.querySelector('.btn-todo-progress')?.addEventListener('click',async()=>{
+      const text=card.querySelector('.todo-progress-text').value.trim();
+      if(!text){showTodoMsg('请填写进度说明',true);return;}
+      const pctRaw=card.querySelector('.todo-progress-pct').value;
+      const body={progressText:text};
+      if(pctRaw) body.progressPercent=parseInt(pctRaw,10);
+      try{
+        await api('/api/v1/todos/'+encodeURIComponent(t.id)+'/progress',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+        showTodoMsg('进度已提交',false);
+        await loadTodoDetail(t.id);
+      }catch(e){showTodoMsg(e.message,true);}
+    });
+    card.querySelector('.btn-todo-upload')?.addEventListener('click',async()=>{
+      const fileInput=card.querySelector('.todo-file-input');
+      if(!fileInput||!fileInput.files||!fileInput.files[0]){showTodoMsg('请选择文件',true);return;}
+      const fd=new FormData();
+      fd.append('file',fileInput.files[0]);
+      try{
+        await apiUpload('/api/v1/todos/'+encodeURIComponent(t.id)+'/attachments',fd);
+        showTodoMsg('附件已上传',false);
+        fileInput.value='';
+        await loadTodoDetail(t.id);
+      }catch(e){showTodoMsg(e.message,true);}
+    });
+    card.querySelector('.todo-detail')?.addEventListener('toggle',()=>{
+      if(card.querySelector('.todo-detail').open) loadTodoDetail(t.id);
+    });
+  });
+}
+
 function initBlurFade(){ if(window.SmMotion) SmMotion.initBlurFade(); }
 
 function buildNavItems(perms){
   const items=[{id:'quick',label:'快速开始'}];
+  items.push({id:'mytodos',label:'我的待办'});
+  if(perms.canCreateMeeting) items.push({id:'schedule',label:'预约会议'});
   if(perms.canRegisterVoiceprint) items.push({id:'voiceprint',label:'声纹注册'});
   items.push({id:'recent',label:'近期会议'});
   items.push({id:'account',label:'账户信息'});
@@ -131,12 +322,33 @@ function initDashboardNav(items){
   showDashboardPanel(activeDashboardTab);
 }
 
-function initPresetChromaGrid(presets){
+function isNotStarted(st){
+  return st==='ISSUE_COLLECTING'||st==='INVITED';
+}
+function detectedMeetingKind(st){
+  return isNotStarted(st)?'待开始':'进行中';
+}
+
+function initPresetChromaGrid(presets,activeMeeting,draftMeetings){
   if(!window.ChromaGrid||!presets||!presets.length) return;
   const mountEl=document.getElementById('preset-chroma-grid');
   if(!mountEl) return;
   if(presetChromaGrid) presetChromaGrid.unmount();
-  const items=ChromaGrid.presetsToItems(presets);
+  const UNLIMITED_DRAFT_PRESET=99;
+  const draftByPreset={};
+  (draftMeetings||[]).forEach(m=>{
+    if(m.presetTypeCode!=null&&m.presetTypeCode!==UNLIMITED_DRAFT_PRESET&&!draftByPreset[m.presetTypeCode]) draftByPreset[m.presetTypeCode]=m;
+  });
+  const items=ChromaGrid.presetsToItems(presets).map(item=>{
+    const code=parseInt(item.code,10);
+    if(activeMeeting&&activeMeeting.presetTypeCode===code){
+      return Object.assign({},item,{subtitle:'进行中',meetingState:'active'});
+    }
+    if(code!==UNLIMITED_DRAFT_PRESET&&draftByPreset[code]){
+      return Object.assign({},item,{subtitle:'待开始',meetingState:'draft'});
+    }
+    return item;
+  });
   presetChromaGrid=ChromaGrid.mount(mountEl,{
     items,
     columns:2,
@@ -162,40 +374,83 @@ function initDashboardBento(){
   });
 }
 
-function renderActiveMeetingHtml(activeMeeting,canCreate,canEndMeeting){
-  if(!activeMeeting) return '';
-  if(canEndMeeting){
-    return `<div class="ui-card card blur-fade">
-      <div class="msg msg-info" style="margin-top:0;margin-bottom:10px">
-        检测到进行中会议：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}
-      </div>
-      <div class="btn-grid" style="margin-top:0">
-        ${canCreate?`<button class="ui-btn ui-btn-recover btn btn-recover" id="btn-recover" style="width:100%" ${canRecover(activeMeeting.status)?'':'disabled'}>恢复当前会议</button>`:''}
-        <button class="ui-btn ui-btn-danger btn btn-danger" id="btn-end-active" style="width:100%" ${canEnd(activeMeeting.status)?'':'disabled'}>结束当前会议</button>
-      </div>
-    </div>`;
+function renderSchedulePanel(canCreate,presets,scheduledMeetings){
+  if(!canCreate){
+    return `<div class="ui-card card blur-fade"><p class="muted">您没有创建会议的权限，请联系管理员。</p></div>`;
   }
+  const presetOptions=(presets||[]).map(p=>'<option value="'+p.code+'">'+esc(p.code+' — '+p.displayName)+'</option>').join('');
+  const scheduledList=(scheduledMeetings||[]).length===0?'<p class="muted">暂无待开始预约</p>':
+    scheduledMeetings.map(m=>'<div class="meeting-item"><span class="meeting-title">'+esc(m.title)+'</span>'
+      +statusBadge(m.status)+'<span class="meeting-time">'+fmtDt(m.scheduledTime)+'</span>'
+      +'<button type="button" class="ui-btn ui-btn-secondary btn-reschedule" data-id="'+esc(m.id)+'" data-time="'+esc(m.scheduledTime||'')+'">改期</button></div>').join('');
   return `<div class="ui-card card blur-fade">
-    <div class="msg msg-info" style="margin-top:0;margin-bottom:0">
-      进行中：<b>${esc(activeMeeting.title || activeMeeting.id)}</b> ${statusBadge(activeMeeting.status)}<br/>
-      <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
-    </div>
-  </div>`;
+      <h2>预约会议</h2>
+      <p class="muted" style="font-size:13px;margin-bottom:10px">仅创建、不立即开始；计划时间写入系统，会前可自动发送日历邀约。</p>
+      <div class="form-field" style="margin-bottom:10px">
+        <label for="schedule-preset" class="muted" style="display:block;margin-bottom:6px;font-size:13px">会议模板</label>
+        <select id="schedule-preset" class="ui-input">${presetOptions}</select>
+      </div>
+      <div class="form-field" style="margin-bottom:10px">
+        <label for="schedule-time" class="muted" style="display:block;margin-bottom:6px;font-size:13px">计划开始时间（必填）</label>
+        <input type="datetime-local" id="schedule-time" class="ui-input" style="max-width:20rem"/>
+      </div>
+      <button type="button" class="ui-btn ui-btn-primary" id="btn-schedule-meeting">预约会议</button>
+      <p id="schedule-msg" class="msg hidden"></p>
+      <h3 style="margin-top:16px;font-size:15px">待开始预约</h3>
+      <div id="scheduled-meetings-list">${scheduledList}</div>
+    </div>`;
 }
 
-function renderQuickPanel(canCreate,presets,activeMeeting,canEndMeeting){
-  const activeBlock=renderActiveMeetingHtml(activeMeeting,canCreate,canEndMeeting);
-  const presetBlock=canCreate
-    ? `<div class="ui-card card card-chroma-meetings blur-fade">
-        <h2>开始会议</h2>
-        <div id="preset-chroma-grid"></div>
-        <p id="create-msg" class="msg hidden"></p>
-      </div>`
-    : `<div class="ui-card card blur-fade">
-        <h2>开始会议</h2>
-        <p class="muted">您没有创建会议的权限，请联系管理员。</p>
-      </div>`;
-  return activeBlock+presetBlock;
+function bindDetectedMeetingButtons(canCreate,canEndMeeting){
+  if(canCreate){
+    document.querySelectorAll('.btn-detected-recover').forEach(btn=>{
+      btn.onclick=async()=>{
+        const status=btn.dataset.status;
+        const recordingUrl=btn.dataset.recordingUrl;
+        if(!canRecover(status)) return;
+        btn.disabled=true;
+        try{
+          if(isNotStarted(status)){
+            if(recordingUrl) window.open(recordingUrl,'_blank');
+            else showMsg('create-msg','当前会议暂无可用入口，请稍后重试。',true);
+          }else{
+            const r=await api('/api/v1/dashboard/active-meeting/recover',{method:'POST'});
+            if(r&&r.recordingUrl) window.open(r.recordingUrl,'_blank');
+            else showMsg('create-msg','当前会议暂无可用入口，请稍后重试。',true);
+          }
+        }catch(e){
+          showMsg('create-msg',e.message,true);
+        }finally{
+          btn.disabled=false;
+        }
+      };
+    });
+  }
+  if(canEndMeeting){
+    document.querySelectorAll('.btn-detected-end').forEach(btn=>{
+      btn.onclick=async()=>{
+        const status=btn.dataset.status;
+        const meetingId=btn.dataset.meetingId;
+        if(!canEnd(status)||!meetingId) return;
+        const draft=isNotStarted(status);
+        if(!confirm(draft?'确认结束并取消该待开始会议？':'确认结束当前会议？结束后将进入纪要处理流程。')) return;
+        btn.disabled=true;
+        try{
+          if(draft){
+            await api('/api/v1/dashboard/meetings/'+encodeURIComponent(meetingId)+'/cancel-draft',{method:'POST'});
+            showMsg('create-msg','待开始会议已取消。',false);
+          }else{
+            await api('/api/v1/dashboard/active-meeting/end',{method:'POST'});
+            showMsg('create-msg','当前会议已结束，正在生成纪要。',false);
+          }
+          setTimeout(()=>init(),1200);
+        }catch(e){
+          showMsg('create-msg',e.message,true);
+          btn.disabled=false;
+        }
+      };
+    });
+  }
 }
 
 async function init(){
@@ -203,12 +458,21 @@ async function init(){
     const meResp=await api('/api/v1/dashboard/me');
     const me=meResp.userInfo||meResp;
     const perms=meResp.permissions||{};
+    const canCreate=perms.canCreateMeeting;
     const vp=await api('/api/v1/dashboard/voiceprint-status');
     const activeMeeting=await api('/api/v1/dashboard/active-meeting');
+    const draftMeetings=canCreate?await api('/api/v1/dashboard/draft-meetings'):[];
     const meetings=await api('/api/v1/dashboard/recent-meetings?limit=10');
     const presets=await api('/api/v1/dashboard/meeting-presets');
 
-    const canCreate=perms.canCreateMeeting;
+    const detectedMeetings=buildDetectedMeetingsList(activeMeeting,draftMeetings);
+    const scheduledMeetings=canCreate?await api('/api/v1/dashboard/scheduled-meetings?limit=10'):[];
+    let myTodos=[];
+    try{
+      myTodos=await api('/api/v1/todos/my');
+    }catch(e){
+      console.warn('load my todos failed',e);
+    }
     const canEndMeeting=perms.canEndMeeting;
     const canVoiceprint=perms.canRegisterVoiceprint;
     const navItems=buildNavItems(perms);
@@ -237,8 +501,14 @@ async function init(){
         </div>
         <div class="dashboard-panels">
           <section id="panel-quick" class="dashboard-panel">
-            ${renderQuickPanel(canCreate,presets,activeMeeting,canEndMeeting)}
+            ${renderQuickPanel(canCreate,presets,detectedMeetings,canEndMeeting)}
           </section>
+          <section id="panel-mytodos" class="dashboard-panel hidden">
+            ${renderMyTodosPanel(myTodos, me.feishuUserId)}
+          </section>
+          ${canCreate?`<section id="panel-schedule" class="dashboard-panel hidden">
+            ${renderSchedulePanel(canCreate,presets,scheduledMeetings)}
+          </section>`:''}
           ${voiceprintPanel}
           <section id="panel-recent" class="dashboard-panel hidden">
             <div class="ui-card card blur-fade">
@@ -264,7 +534,12 @@ async function init(){
     initDashboardNav(navItems);
 
     if(canCreate){
-      initPresetChromaGrid(presets);
+      initPresetChromaGrid(presets,activeMeeting,draftMeetings);
+      const scheduleBtn=document.getElementById('btn-schedule-meeting');
+      if(scheduleBtn) scheduleBtn.onclick=doScheduleMeeting;
+      document.querySelectorAll('.btn-reschedule').forEach(btn=>{
+        btn.onclick=()=>doRescheduleMeeting(btn.dataset.id, btn.dataset.time);
+      });
     }
     if(canVoiceprint){
       const regBtn=document.getElementById('btn-register');
@@ -275,45 +550,8 @@ async function init(){
         }catch(e){showMsg('create-msg',e.message,true);}
       };
     }
-    const recoverBtn=document.getElementById('btn-recover');
-    const endBtn=document.getElementById('btn-end-active');
-    const setActiveButtonsDisabled=(disabled)=>{
-      if(recoverBtn) recoverBtn.disabled=disabled;
-      if(endBtn) endBtn.disabled=disabled;
-    };
-    if(recoverBtn && activeMeeting && canCreate){
-      recoverBtn.onclick=async()=>{
-        if(!canRecover(activeMeeting.status)) return;
-        setActiveButtonsDisabled(true);
-        try{
-          const r=await api('/api/v1/dashboard/active-meeting/recover',{method:'POST'});
-          if(r && r.recordingUrl){
-            window.open(r.recordingUrl,'_blank');
-          }else{
-            showMsg('create-msg','当前会议暂无可用入口，请稍后重试。',true);
-          }
-        }catch(e){
-          showMsg('create-msg',e.message,true);
-        }finally{
-          setActiveButtonsDisabled(false);
-        }
-      };
-    }
-    if(endBtn && activeMeeting && canEndMeeting){
-      endBtn.onclick=async()=>{
-        if(!canEnd(activeMeeting.status)) return;
-        if(!confirm('确认结束当前会议？结束后将进入纪要处理流程。')) return;
-        setActiveButtonsDisabled(true);
-        try{
-          await api('/api/v1/dashboard/active-meeting/end',{method:'POST'});
-          showMsg('create-msg','当前会议已结束，正在生成纪要。',false);
-          setTimeout(()=>init(),1200);
-        }catch(e){
-          showMsg('create-msg',e.message,true);
-          setActiveButtonsDisabled(false);
-        }
-      };
-    }
+    bindDetectedMeetingButtons(canCreate,canEndMeeting);
+    bindMyTodosPanel(myTodos, me.feishuUserId);
 
     initBlurFade();
     initDashboardBento();
@@ -347,6 +585,46 @@ async function doCreateMeeting(presetCode,busyCode){
     msgEl.className='msg msg-err';
     msgEl.textContent=e.message;
     if(presetChromaGrid) presetChromaGrid.setBusy(busyCode!=null?busyCode:presetCode,false);
+  }
+}
+
+async function doScheduleMeeting(){
+  const msgEl=document.getElementById('schedule-msg');
+  const presetEl=document.getElementById('schedule-preset');
+  const timeEl=document.getElementById('schedule-time');
+  if(!msgEl||!presetEl||!timeEl||!timeEl.value){
+    if(msgEl){msgEl.className='msg msg-err';msgEl.classList.remove('hidden');msgEl.textContent='请填写计划开始时间';}
+    return;
+  }
+  msgEl.classList.remove('hidden');
+  msgEl.className='msg msg-info';
+  msgEl.textContent='正在预约…';
+  try{
+    const body={presetTypeCode:parseInt(presetEl.value,10),scheduledTime:timeEl.value.length===16?timeEl.value+':00':timeEl.value};
+    const r=await api('/api/v1/dashboard/schedule-meeting',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
+    msgEl.className='msg msg-ok';
+    msgEl.textContent='已预约会议 ID: '+r.id+'，计划时间: '+fmtDt(r.scheduledTime)
+      +(r.roomId?'（飞书日历已创建）':'（日历未同步，请查看服务端日志）');
+    setTimeout(()=>init(),2000);
+  }catch(e){
+    msgEl.className='msg msg-err';
+    msgEl.textContent=e.message;
+  }
+}
+
+async function doRescheduleMeeting(meetingId, currentTime){
+  const raw=prompt('新的计划开始时间（YYYY-MM-DDTHH:mm）', (currentTime||'').replace(' ','T').slice(0,16));
+  if(!raw) return;
+  const scheduledTime=raw.length===16?raw+':00':raw;
+  try{
+    const r=await api('/api/v1/dashboard/meetings/'+encodeURIComponent(meetingId)+'/schedule',{
+      method:'PATCH',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({scheduledTime,syncCalendar:true,notifyChat:true})
+    });
+    showMsg('schedule-msg','改期成功'+(r.calendarSynced?'（已同步飞书日历）':'（日历未同步: '+(r.calendarReason||'')+'）'),false);
+    setTimeout(()=>init(),1500);
+  }catch(e){
+    showMsg('schedule-msg',e.message,true);
   }
 }
 

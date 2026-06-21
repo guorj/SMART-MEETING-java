@@ -16,18 +16,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
- * 飞书侧「创建并启动会议」协调器：串联会议创建、启动、录音页 Token 生成与飞书通知推送。
+ * 飞书侧「创建会议」协调器：串联会议创建、录音页 Token 生成与飞书通知推送。
  * <p>
- * 主要协作组件：{@link MeetingService}、{@link FeishuService}、{@link FeishuCardBuilder}、
- * {@link ParticipantLinkService}、{@link JwtUtil}、{@link FeishuStartMeetingPendingStore}。
+ * 快速开始仅创建草稿（{@link MeetingStatus#ISSUE_COLLECTING}），每用户每模板最多保留 1 场草稿（模板 {@value com.smartmeeting.service.PresetDraftPolicy#UNLIMITED_DRAFT_PRESET_CODE} 除外）；
+ * DB 状态变为 {@link MeetingStatus#STARTED} 须在主持页 {@code POST /api/v1/host/meetings/{id}/start} 后触发。
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class FeishuMeetingStartCoordinator {
+
+    private static final Set<String> NOT_STARTED = Set.of(
+            MeetingStatus.ISSUE_COLLECTING.name(),
+            MeetingStatus.INVITED.name());
 
     private final FeishuStartMeetingPendingStore startMeetingPendingStore;
     private final MeetingMapper meetingMapper;
@@ -38,88 +44,150 @@ public class FeishuMeetingStartCoordinator {
     private final MeetingWebPageUrls meetingWebPageUrls;
     private final ParticipantLinkService participantLinkService;
     private final MeetingPreStageService meetingPreStageService;
+    private final PresetScheduleTimeResolver presetScheduleTimeResolver;
 
     /**
-     * 创建会议、立即启动、生成录音页链接并向群聊推送「会议已开始」卡片，同时向线上参会人单聊推送个人入会链接。
+     * 创建会议（或复用已有草稿/进行中会议）、生成录音页链接并推送飞书卡片。
      *
      * @param openId  发起人飞书 open_id
      * @param chatId  会议群 chat_id
      * @param request 会议创建请求
-     * @return 创建并启动后的完整会议响应
-     * @throws BusinessException openId 为空（400）或已有进行中的会议（400）
+     * @return 会议响应（含 recordingUrl）
+     * @throws BusinessException openId 为空（400）
      */
     public MeetingResponse createMeetingStartAndNotifyFeishu(String openId, String chatId, MeetingCreateRequest request) {
         startMeetingPendingStore.clear(openId, chatId);
         if (openId == null || openId.isBlank()) {
             throw new BusinessException(400, "无法识别您的飞书账号，请稍后重试");
         }
-        LambdaQueryWrapper<Meeting> activeQuery = new LambdaQueryWrapper<>();
-        activeQuery.eq(Meeting::getCreatorId, openId);
-        activeQuery.in(Meeting::getStatus,
-                MeetingStatus.STARTED.name(),
-                MeetingStatus.RECORDING.name(),
-                MeetingStatus.PAUSED.name());
-        Meeting active = meetingMapper.selectOne(activeQuery);
+
+        Meeting active = findActiveMeeting(openId);
         if (active != null) {
-            // 兼容恢复链路：若存在进行中的会议，直接返回该会议并补发入口，避免前端陷入“可见但不可继续”状态。
-            String recordingToken = active.getRecordingToken();
-            if (recordingToken == null || recordingToken.isBlank()) {
-                String userName = feishuService.getUserNameByUserId(openId);
-                recordingToken = jwtUtil.generateOperatorMeetingToken(
-                        active.getId(), JwtUtil.TYPE_RECORDING, openId, userName);
-                meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
-                        .eq(Meeting::getId, active.getId())
-                        .set(Meeting::getRecordingToken, recordingToken));
+            return returnExistingMeeting(openId, chatId, active, true);
+        }
+
+        Integer presetCode = request.getPresetTypeCode();
+        if (PresetDraftPolicy.shouldReuseSingleDraft(presetCode)) {
+            Meeting draft = findDraftByPreset(openId, presetCode);
+            if (draft != null) {
+                return returnExistingMeeting(openId, chatId, draft, false);
             }
-            String existingUrl = meetingWebPageUrls.resolveRecordingPageUrl(
-                    active.getId(), recordingToken, active.getRecordingUrl());
-            String card = cardBuilder.buildMeetingStartedNotifyCard(active.getId(), active.getTitle(), existingUrl);
-            boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
-            if (!sentToChat) {
-                feishuService.sendInteractiveCardToUserId(openId, card);
-            }
-            pushOnlineParticipantJoinLinks(active.getId(), active.getTitle());
-            log.warn("Detected existing active meeting, returned existing flow: openId={}, meetingId={}",
-                    openId, active.getId());
-            return meetingService.getMeeting(active.getId());
         }
 
         request.setCreatorId(openId);
         request.setChatId(chatId);
+        if (request.getScheduledTime() != null) {
+            log.warn("Ignoring scheduledTime on instant-start path: openId={}, scheduledTime={}",
+                    openId, request.getScheduledTime());
+            request.setScheduledTime(null);
+        }
 
         MeetingResponse meeting = meetingService.createMeeting(request);
         String meetingId = meeting.getId();
         String displayTitle = meeting.getTitle();
 
+        applyPresetScheduledTimeIfNeeded(meetingId, meeting.getPresetTypeCode());
         meetingPreStageService.runPreStage(meetingId, meeting.getPresetTypeCode());
-        meetingService.startMeeting(meetingId);
 
-        String userName = feishuService.getUserNameByUserId(openId);
-        String recordingToken = jwtUtil.generateOperatorMeetingToken(
-                meetingId, JwtUtil.TYPE_RECORDING, openId, userName);
+        String recordingToken = ensureRecordingToken(meetingId, openId);
         String recordingUrl = meetingWebPageUrls.recordingPageUrl(meetingId, recordingToken);
-
         meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
                 .eq(Meeting::getId, meetingId)
                 .set(Meeting::getRecordingToken, recordingToken));
 
-        String card = cardBuilder.buildMeetingStartedNotifyCard(meetingId, displayTitle, recordingUrl);
-        boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
-        if (!sentToChat) {
-            // chat_id 缺失或群推送失败时，至少给发起人单聊一张直达卡，避免“已创建但无入口”。
-            feishuService.sendInteractiveCardToUserId(openId, card);
-        }
-        pushOnlineParticipantJoinLinks(meetingId, displayTitle);
+        sendCreatedNotifyCard(openId, chatId, meetingId, displayTitle, recordingUrl);
 
-        log.info("会议已创建: meetingId={}, title={}, recordingUrl={}", meetingId, displayTitle, recordingUrl);
+        log.info("会议草稿已创建: meetingId={}, title={}, recordingUrl={}", meetingId, displayTitle, recordingUrl);
         return meetingService.getMeeting(meetingId);
     }
 
     /**
+     * 查询用户在某模板下的最新未开始草稿（单草稿模板用于复用；模板 99 建会路径不复用）。
+     */
+    public Meeting findDraftByPreset(String creatorId, int presetTypeCode) {
+        if (creatorId == null || creatorId.isBlank() || presetTypeCode <= 0) {
+            return null;
+        }
+        return meetingMapper.selectOne(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, creatorId)
+                .eq(Meeting::getPresetTypeCode, presetTypeCode)
+                .in(Meeting::getStatus, NOT_STARTED)
+                .orderByDesc(Meeting::getCreatedAt)
+                .last("LIMIT 1"));
+    }
+
+    private Meeting findActiveMeeting(String creatorId) {
+        return meetingMapper.selectOne(new LambdaQueryWrapper<Meeting>()
+                .eq(Meeting::getCreatorId, creatorId)
+                .in(Meeting::getStatus,
+                        MeetingStatus.STARTED.name(),
+                        MeetingStatus.RECORDING.name(),
+                        MeetingStatus.PAUSED.name())
+                .orderByDesc(Meeting::getCreatedAt)
+                .last("LIMIT 1"));
+    }
+
+    private MeetingResponse returnExistingMeeting(String openId, String chatId, Meeting meeting, boolean inProgress) {
+        String recordingToken = ensureRecordingToken(meeting.getId(), openId);
+        String recordingUrl = meetingWebPageUrls.resolveRecordingPageUrl(
+                meeting.getId(), recordingToken, meeting.getRecordingUrl());
+        if (inProgress) {
+            String card = cardBuilder.buildMeetingStartedNotifyCard(meeting.getId(), meeting.getTitle(), recordingUrl);
+            sendCard(openId, chatId, card);
+            pushOnlineParticipantJoinLinks(meeting.getId(), meeting.getTitle());
+            log.warn("Detected existing active meeting, returned existing flow: openId={}, meetingId={}",
+                    openId, meeting.getId());
+        } else {
+            sendCreatedNotifyCard(openId, chatId, meeting.getId(), meeting.getTitle(), recordingUrl);
+            log.info("Reused existing draft meeting: openId={}, meetingId={}, preset={}",
+                    openId, meeting.getId(), meeting.getPresetTypeCode());
+        }
+        return meetingService.getMeeting(meeting.getId());
+    }
+
+    private String ensureRecordingToken(String meetingId, String openId) {
+        Meeting row = meetingMapper.selectById(meetingId);
+        if (row != null && row.getRecordingToken() != null && !row.getRecordingToken().isBlank()) {
+            return row.getRecordingToken();
+        }
+        String userName = feishuService.getUserNameByUserId(openId);
+        String recordingToken = jwtUtil.generateOperatorMeetingToken(
+                meetingId, JwtUtil.TYPE_RECORDING, openId, userName);
+        meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
+                .eq(Meeting::getId, meetingId)
+                .set(Meeting::getRecordingToken, recordingToken));
+        return recordingToken;
+    }
+
+    private void sendCreatedNotifyCard(String openId, String chatId, String meetingId,
+                                       String title, String recordingUrl) {
+        String card = cardBuilder.buildMeetingCreatedNotifyCard(meetingId, title, recordingUrl);
+        sendCard(openId, chatId, card);
+    }
+
+    private void sendCard(String openId, String chatId, String card) {
+        boolean sentToChat = chatId != null && !chatId.isBlank() && feishuService.sendInteractiveCard(chatId, card);
+        if (!sentToChat) {
+            feishuService.sendInteractiveCardToUserId(openId, card);
+        }
+    }
+
+    /**
+     * instant-start：从 preset schedule_config 写入 scheduled_time（不读请求体）。
+     */
+    private void applyPresetScheduledTimeIfNeeded(String meetingId, Integer presetTypeCode) {
+        if (presetTypeCode == null || presetTypeCode <= 0) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        presetScheduleTimeResolver.resolve(presetTypeCode, now).ifPresent(scheduledTime ->
+                meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
+                        .eq(Meeting::getId, meetingId)
+                        .set(Meeting::getScheduledTime, scheduledTime)));
+    }
+
+    /**
      * 向每位线上参会人单聊推送个人入会链接（含 open_id 的参会人）。
-     *
-     * @param meetingId    会议 ID
-     * @param meetingTitle 会议主题（用于卡片展示）
      */
     private void pushOnlineParticipantJoinLinks(String meetingId, String meetingTitle) {
         List<MeetingResponse.ParticipantDTO> links = participantLinkService.buildParticipantLinks(meetingId);

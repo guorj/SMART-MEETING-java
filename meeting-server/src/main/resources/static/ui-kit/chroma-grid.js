@@ -99,6 +99,11 @@
       card.type = 'button';
       card.className = 'chroma-card';
       card.dataset.code = item.code != null ? String(item.code) : String(index);
+      if (item.meetingState === 'draft') {
+        card.classList.add('chroma-card--draft');
+      } else if (item.meetingState === 'active') {
+        card.classList.add('chroma-card--active');
+      }
       card.style.setProperty('--card-border', item.borderColor || '#002FA7');
       card.style.setProperty('--card-gradient', item.gradient || DEFAULT_PALETTE[0].gradient);
 

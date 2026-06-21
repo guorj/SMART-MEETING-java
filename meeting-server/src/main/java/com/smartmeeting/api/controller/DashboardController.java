@@ -4,13 +4,18 @@ import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.MeetingCreateRequest;
 import com.smartmeeting.api.dto.MeetingPresetResponse;
 import com.smartmeeting.api.dto.MeetingResponse;
+import com.smartmeeting.api.dto.MeetingScheduleRequest;
+import com.smartmeeting.api.dto.MeetingScheduleResponse;
 import com.smartmeeting.service.DashboardGrantService;
 import com.smartmeeting.service.DashboardService;
+import com.smartmeeting.service.MeetingScheduleService;
 import com.smartmeeting.util.JwtUtil;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -34,6 +39,7 @@ public class DashboardController {
     private String baseUrl;
 
     private final DashboardService dashboardService;
+    private final MeetingScheduleService meetingScheduleService;
     private final JwtUtil jwtUtil;
     private final DashboardGrantService dashboardGrantService;
 
@@ -72,6 +78,13 @@ public class DashboardController {
         return ApiResponse.ok(dashboardService.getActiveMeeting(entry.feishuUserId()));
     }
 
+    @GetMapping("/draft-meetings")
+    public ApiResponse<List<DashboardService.ActiveMeetingResult>> draftMeetings(@RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
+        return ApiResponse.ok(dashboardService.getDraftMeetings(entry.feishuUserId()));
+    }
+
     @PostMapping("/active-meeting/end")
     public ApiResponse<MeetingResponse> endActiveMeeting(@RequestParam("token") String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
@@ -84,6 +97,15 @@ public class DashboardController {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
         dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.recoverActiveMeeting(entry.feishuUserId()));
+    }
+
+    @PostMapping("/meetings/{meetingId}/cancel-draft")
+    public ApiResponse<MeetingResponse> cancelDraftMeeting(
+            @RequestParam("token") String token,
+            @PathVariable String meetingId) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireEndMeeting(entry.feishuUserId());
+        return ApiResponse.ok(dashboardService.cancelDraftMeeting(entry.feishuUserId(), meetingId));
     }
 
     @GetMapping("/meeting-presets")
@@ -100,6 +122,34 @@ public class DashboardController {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
         dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
         return ApiResponse.ok(dashboardService.createMeeting(entry.feishuUserId(), entry.chatId(), request));
+    }
+
+    @PostMapping("/schedule-meeting")
+    public ApiResponse<MeetingResponse> scheduleMeeting(
+            @RequestParam("token") String token,
+            @Valid @RequestBody MeetingCreateRequest request) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
+        return ApiResponse.ok(dashboardService.scheduleMeeting(entry.feishuUserId(), entry.chatId(), request));
+    }
+
+    @GetMapping("/scheduled-meetings")
+    public ApiResponse<List<DashboardService.MeetingSummary>> scheduledMeetings(
+            @RequestParam("token") String token,
+            @RequestParam(defaultValue = "10") int limit) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireDashboardAccess(entry.feishuUserId());
+        return ApiResponse.ok(dashboardService.getScheduledMeetings(entry.feishuUserId(), limit));
+    }
+
+    @PatchMapping("/meetings/{meetingId}/schedule")
+    public ApiResponse<MeetingScheduleResponse> rescheduleMeeting(
+            @RequestParam("token") String token,
+            @PathVariable String meetingId,
+            @RequestBody MeetingScheduleRequest request) {
+        JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
+        dashboardGrantService.requireCreateMeeting(entry.feishuUserId());
+        return ApiResponse.ok(meetingScheduleService.reschedule(meetingId, request));
     }
 
     @GetMapping("/voiceprint-register-url")

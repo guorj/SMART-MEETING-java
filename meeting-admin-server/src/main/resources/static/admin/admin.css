@@ -902,6 +902,37 @@ pre.panel, #preview-out, #validate-out, #m-detail {
   margin-bottom: 0.9rem;
   font-size: 1.02rem;
 }
+.admin-result-title {
+  margin-top: 0.1rem;
+  margin-bottom: 0.75rem;
+  font-size: 1.02rem;
+  font-weight: 600;
+}
+.admin-result-title-err { color: var(--danger, #b91c1c); }
+.admin-result-body {
+  margin: 0;
+  max-height: min(60vh, 520px);
+  overflow: auto;
+  padding: 0.75rem 0.85rem;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: var(--radius-sm);
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.admin-result-html {
+  background: var(--surface);
+  color: var(--text);
+  font-family: var(--font);
+  white-space: normal;
+}
+.admin-result-modal-actions {
+  margin-top: 0.85rem;
+  gap: 0.5rem;
+}
 .module-intro { font-size: 0.8125rem; color: var(--text-soft); margin: 0 0 0.75rem; line-height: 1.5; }
 .toolbar-note { font-size: 0.75rem; color: var(--text-soft); margin-left: 0.5rem; }
 .doc-inline-hint-block { font-size: 0.8125rem; color: var(--text-soft); margin: 0.25rem 0 0.5rem; line-height: 1.45; }

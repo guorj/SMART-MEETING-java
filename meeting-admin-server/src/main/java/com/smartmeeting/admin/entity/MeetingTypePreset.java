@@ -1,5 +1,6 @@
 package com.smartmeeting.admin.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -17,6 +18,8 @@ public class MeetingTypePreset {
     private String department;
     private String groupName;
     private String scheduleNote;
+    @TableField(value = "schedule_config", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class, updateStrategy = FieldStrategy.IGNORED)
+    private String scheduleConfig;
     private String agendaSummary;
     private String organizerName;
     private String leaderName;
