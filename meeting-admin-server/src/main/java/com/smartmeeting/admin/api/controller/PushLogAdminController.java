@@ -6,6 +6,7 @@ import com.smartmeeting.admin.service.BotBridgeService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 @RestController
@@ -24,13 +25,14 @@ public class PushLogAdminController {
             @RequestParam(required = false) String triggerType,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        return ApiResponse.ok(botBridge.get("/api/logs", Map.of(
-                "taskId", taskId,
-                "batchId", batchId,
-                "meetingId", meetingId,
-                "status", status,
-                "triggerType", triggerType,
-                "page", String.valueOf(page),
-                "size", String.valueOf(size))));
+        Map<String, String> query = new LinkedHashMap<>();
+        if (taskId != null && !taskId.isBlank()) query.put("taskId", taskId);
+        if (batchId != null && !batchId.isBlank()) query.put("batchId", batchId);
+        if (meetingId != null && !meetingId.isBlank()) query.put("meetingId", meetingId);
+        if (status != null && !status.isBlank()) query.put("status", status);
+        if (triggerType != null && !triggerType.isBlank()) query.put("triggerType", triggerType);
+        query.put("page", String.valueOf(page));
+        query.put("size", String.valueOf(size));
+        return ApiResponse.ok(botBridge.get("/api/logs", query));
     }
 }

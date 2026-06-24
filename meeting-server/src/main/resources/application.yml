@@ -124,6 +124,14 @@ meeting:
   todo:
     # [冷启动] 待办到期提醒 Cron；Admin 只读 mirror
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
+    # [冷启动] 逾期自动标记 + 责任人提醒 Cron（默认每 30 分钟）
+    reminder-cron: ${MEETING_TODO_REMINDER_CRON:0 */30 * * * ?}
+    # [冷启动] 延期升级提醒直属上级 Cron（默认每日 08:30 与 17:00 两次，避免每小时打扰）
+    escalation-cron: ${MEETING_TODO_ESCALATION_CRON:0 30 8,17 * * ?}
+    # [冷启动] 每日未完成待办清单汇总推送 Cron（默认每日 09:00，交互式卡片含延期/挂起按钮）
+    daily-summary-cron: ${MEETING_TODO_DAILY_SUMMARY_CRON:0 0 9 * * ?}
+    # [冷启动] 申请延期/挂起后理由输入会话的 TTL（分钟），默认 5
+    reason-input-ttl-minutes: ${MEETING_TODO_REASON_INPUT_TTL_MINUTES:5}
     # [冷启动] 待办附件本地存储目录
     attachment-dir: ${MEETING_TODO_ATTACHMENT_DIR:data/todo-attachments}
     # [冷启动] 单附件最大字节数，默认 10MB

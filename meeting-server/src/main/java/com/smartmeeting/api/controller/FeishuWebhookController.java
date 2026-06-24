@@ -211,6 +211,14 @@ public class FeishuWebhookController {
                 String text = content.path("text").asText();
                 log.info("Feishu text message: {}", text);
 
+                // 优先消费「申请延期/挂起」理由输入会话：若该用户正处于理由等待状态，将本条文本作为理由提交
+                if (userId != null && !userId.isEmpty()) {
+                    boolean consumed = commandHandler.handleTodoReasonInput(userId, chatId, text);
+                    if (consumed) {
+                        return;
+                    }
+                }
+
                 FeishuCommandRouter.CommandResult result = commandRouter.parse(text);
                 Kind pendingKind = (userId != null && !userId.isEmpty())
                         ? startMeetingPendingStore.getKind(userId, chatId)

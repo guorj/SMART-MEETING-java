@@ -17,4 +17,7 @@ public class UserMapping {
     private String userName;
 
     private String feishuUserId;
+
+    /** 直属上级飞书 user_id（用于待办延期升级提醒） */
+    private String supervisorFeishuUserId;
 }

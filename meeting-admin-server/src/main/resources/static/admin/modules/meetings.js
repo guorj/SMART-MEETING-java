@@ -27,7 +27,8 @@ AdminModules.register({
       if (obsPanelReady) return;
       const host = document.getElementById('m-obs-panel');
       if (!host) return;
-      host.innerHTML = `
+      try {
+        host.innerHTML = `
         <div class="panel">
           <div class="form-field" style="max-width:36rem">
             <label>会议 ID</label>
@@ -97,33 +98,36 @@ AdminModules.register({
           <pre id="obs-pipeline-readable" style="max-height:280px;overflow:auto"></pre>
           <pre id="obs-pipeline-raw" class="hidden" style="max-height:280px;overflow:auto"></pre>
         </div>`;
-      document.getElementById('obs-load').onclick = loadObservability;
-      document.getElementById('obs-meeting-view-readable').onclick = () => {
-        meetingDetailMode = 'readable';
-        applyMeetingDetailView();
-      };
-      document.getElementById('obs-meeting-view-raw').onclick = () => {
-        meetingDetailMode = 'raw';
-        applyMeetingDetailView();
-      };
-      document.getElementById('obs-meeting-view-edit').onclick = () => {
-        meetingDetailMode = 'edit';
-        applyMeetingDetailView();
-      };
-      document.getElementById('obs-minute-view-readable').onclick = () => { sectionMode.minute = 'readable'; applySectionView('minute'); };
-      document.getElementById('obs-minute-view-raw').onclick = () => { sectionMode.minute = 'raw'; applySectionView('minute'); };
-      document.getElementById('obs-transcript-view-readable').onclick = () => { sectionMode.transcript = 'readable'; applySectionView('transcript'); };
-      document.getElementById('obs-transcript-view-raw').onclick = () => { sectionMode.transcript = 'raw'; applySectionView('transcript'); };
-      document.getElementById('obs-push-view-readable').onclick = () => { sectionMode.push = 'readable'; applySectionView('push'); };
-      document.getElementById('obs-push-view-raw').onclick = () => { sectionMode.push = 'raw'; applySectionView('push'); };
-      document.getElementById('obs-pipeline-view-readable').onclick = () => { sectionMode.pipeline = 'readable'; applySectionView('pipeline'); };
-      document.getElementById('obs-pipeline-view-raw').onclick = () => { sectionMode.pipeline = 'raw'; applySectionView('pipeline'); };
-      renderMeetingDetail(meetingDetailRaw);
-      applySectionView('minute');
-      applySectionView('transcript');
-      applySectionView('push');
-      applySectionView('pipeline');
-      obsPanelReady = true;
+        document.getElementById('obs-load').onclick = () => loadObservability();
+        document.getElementById('obs-meeting-view-readable').onclick = () => {
+          meetingDetailMode = 'readable';
+          applyMeetingDetailView();
+        };
+        document.getElementById('obs-meeting-view-raw').onclick = () => {
+          meetingDetailMode = 'raw';
+          applyMeetingDetailView();
+        };
+        document.getElementById('obs-meeting-view-edit').onclick = () => {
+          meetingDetailMode = 'edit';
+          applyMeetingDetailView();
+        };
+        document.getElementById('obs-minute-view-readable').onclick = () => { sectionMode.minute = 'readable'; applySectionView('minute'); };
+        document.getElementById('obs-minute-view-raw').onclick = () => { sectionMode.minute = 'raw'; applySectionView('minute'); };
+        document.getElementById('obs-transcript-view-readable').onclick = () => { sectionMode.transcript = 'readable'; applySectionView('transcript'); };
+        document.getElementById('obs-transcript-view-raw').onclick = () => { sectionMode.transcript = 'raw'; applySectionView('transcript'); };
+        document.getElementById('obs-push-view-readable').onclick = () => { sectionMode.push = 'readable'; applySectionView('push'); };
+        document.getElementById('obs-push-view-raw').onclick = () => { sectionMode.push = 'raw'; applySectionView('push'); };
+        document.getElementById('obs-pipeline-view-readable').onclick = () => { sectionMode.pipeline = 'readable'; applySectionView('pipeline'); };
+        document.getElementById('obs-pipeline-view-raw').onclick = () => { sectionMode.pipeline = 'raw'; applySectionView('pipeline'); };
+        renderMeetingDetail(meetingDetailRaw);
+        applySectionView('minute');
+        applySectionView('transcript');
+        applySectionView('push');
+        applySectionView('pipeline');
+        obsPanelReady = true;
+      } catch (err) {
+        showMsg('数据查看面板初始化失败: ' + (err.message || String(err)), true);
+      }
     };
 
     const setTab = (name) => {
@@ -137,6 +141,14 @@ AdminModules.register({
       obs.classList.toggle('hidden', name !== 'obs');
       tabOps.classList.toggle('primary', name === 'ops');
       tabObs.classList.toggle('primary', name === 'obs');
+      if (name === 'obs') {
+        obs.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        const obsInput = document.getElementById('obs-meeting-id');
+        const hasId = obsInput && String(obsInput.value || '').trim();
+        if (!hasId) {
+          showMsg('请输入会议 ID 并点「加载」，或从会议列表点击「数据查看」', false);
+        }
+      }
     };
     const valText = v => (v == null || String(v).trim() === '' ? '-' : String(v));
     const renderMeetingReadable = (detail) => {
@@ -395,7 +407,8 @@ AdminModules.register({
         const checked = selectedMeetingIds.has(m.id) ? ' checked' : '';
         tr.innerHTML = '<td><input type="checkbox" class="m-row-check" data-id="' + m.id + '"' + checked + '/></td>'
           + '<td>' + m.id + '</td><td>' + esc(m.title || '') + '</td><td>' + fmtDt(m.scheduledTime) + '</td><td>' + meetingStartTime(m) + '</td><td>' + m.status + '</td><td>' + m.presetTypeCode + '</td><td>' + esc(m.creatorId || '') + '</td>'
-          + '<td><a href="#" class="m-det" data-id="' + m.id + '">数据查看</a> <a href="#" class="m-end" data-id="' + m.id + '" title="' + AdminHints.meetings.forceEnd.replace(/"/g, '&quot;') + '">结束</a></td>';
+          + '<td><button type="button" class="link-btn m-det" data-id="' + esc(m.id) + '">数据查看</button>'
+          + '<button type="button" class="link-btn m-end" data-id="' + esc(m.id) + '" title="' + AdminHints.meetings.forceEnd.replace(/"/g, '&quot;') + '">结束</button></td>';
         tbody.appendChild(tr);
       });
       tbody.querySelectorAll('input.m-row-check').forEach(cb => {
@@ -406,20 +419,18 @@ AdminModules.register({
           updateBatchDeleteUi();
         };
       });
-      tbody.querySelectorAll('a.m-det').forEach(a => {
-        a.onclick = async e => {
-          e.preventDefault();
-          const meetingId = a.dataset.id;
+      tbody.querySelectorAll('button.m-det').forEach(btn => {
+        btn.onclick = async () => {
+          const meetingId = btn.dataset.id;
           setTab('obs');
           const obsInput = document.getElementById('obs-meeting-id');
           if (obsInput) obsInput.value = meetingId;
           await loadObservability(meetingId);
         };
       });
-      tbody.querySelectorAll('a.m-end').forEach(a => {
-        a.onclick = async e => {
-          e.preventDefault();
-          const meetingId = a.dataset.id;
+      tbody.querySelectorAll('button.m-end').forEach(btn => {
+        btn.onclick = async () => {
+          const meetingId = btn.dataset.id;
           const ok = await AdminUi.openConfirmModal({
             title: '强制结束会议',
             body: '强制结束会议 ' + meetingId + '？\n\n' + AdminHints.meetings.forceEnd
@@ -441,6 +452,13 @@ AdminModules.register({
       ensureObsPanel();
       const id = (idArg || (document.getElementById('obs-meeting-id') || {}).value || '').trim();
       if (!id) return showMsg('请输入会议 ID', true);
+      const loadBtn = document.getElementById('obs-load');
+      const prevLabel = loadBtn ? loadBtn.textContent : '';
+      if (loadBtn) {
+        loadBtn.disabled = true;
+        loadBtn.textContent = '加载中…';
+      }
+      showMsg('正在加载会议数据…', false);
       try {
         const enc = encodeURIComponent(id);
         const [detail, minute, lines, pushPage, execRows] = await Promise.all([
@@ -477,8 +495,17 @@ AdminModules.register({
         applySectionView('pipeline');
 
         showMsg('已加载会议数据: ' + id, false);
+        const obsPanel = document.getElementById('m-obs-panel');
+        if (obsPanel) obsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
       } catch (err) {
-        showMsg('加载会议数据失败: ' + err.message, true);
+        const msg = err.message || String(err);
+        showMsg('加载会议数据失败: ' + msg, true);
+        AdminUi.openResultModal({ title: '加载会议数据', body: msg, isError: true });
+      } finally {
+        if (loadBtn) {
+          loadBtn.disabled = false;
+          loadBtn.textContent = prevLabel || '加载';
+        }
       }
     };
 

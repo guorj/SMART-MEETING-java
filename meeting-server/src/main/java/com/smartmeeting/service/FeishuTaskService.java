@@ -1,13 +1,19 @@
 package com.smartmeeting.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.MeetingTodo;
+import com.smartmeeting.entity.UserMapping;
+import com.smartmeeting.enums.TodoStatus;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.repository.TodoMapper;
+import com.smartmeeting.repository.UserMappingMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.List;
 
 @Slf4j
@@ -18,6 +24,8 @@ public class FeishuTaskService {
     private final FeishuService feishuService;
     private final MeetingMapper meetingMapper;
     private final FeishuCardBuilder cardBuilder;
+    private final UserMappingMapper userMappingMapper;
+    private final TodoMapper todoMapper;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
@@ -60,5 +68,90 @@ public class FeishuTaskService {
             feishuService.sendInteractiveCardToUserId(todo.getAssigneeId(), cardBuilder.buildTodoActionCard(todo));
         }
         log.info("Todo reminder sent: todoId={}, assignee={}", todo.getId(), todo.getAssigneeId());
+    }
+
+    /**
+     * 向责任人直属上级发送延期升级提醒。
+     * <p>
+     * 聚合该责任人所有 OVERDUE 待办，发送交互式卡片，上级可选择「催办」或「已知晓暂不处理」。
+     *
+     * @param todo 已逾期的待办（用于定位责任人与上级）
+     * @return 成功发送给上级返回 {@code true}；无上级映射或发送失败返回 {@code false}
+     */
+    public boolean escalateOverdueToSupervisor(MeetingTodo todo) {
+        if (todo == null) {
+            return false;
+        }
+        String assigneeId = todo.getAssigneeId();
+        if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
+            return false;
+        }
+        UserMapping mapping = userMappingMapper.selectOne(new LambdaQueryWrapper<UserMapping>()
+                .eq(UserMapping::getFeishuUserId, assigneeId)
+                .last("LIMIT 1"));
+        if (mapping == null) {
+            log.debug("Escalation skipped: no user mapping for assignee {}", assigneeId);
+            return false;
+        }
+        String supervisorId = mapping.getSupervisorFeishuUserId();
+        if (supervisorId == null || supervisorId.isBlank() || "unknown".equalsIgnoreCase(supervisorId)) {
+            log.debug("Escalation skipped: no supervisor configured for assignee {}", assigneeId);
+            return false;
+        }
+        // 聚合该责任人所有 OVERDUE 待办，一次性向上级展示
+        LambdaQueryWrapper<MeetingTodo> w = new LambdaQueryWrapper<>();
+        w.eq(MeetingTodo::getAssigneeId, assigneeId)
+                .eq(MeetingTodo::getStatus, TodoStatus.OVERDUE.name())
+                .last("LIMIT 50");
+        List<MeetingTodo> overdueTodos = todoMapper.selectList(w);
+        if (overdueTodos.isEmpty()) {
+            return false;
+        }
+        String supervisorName = feishuService.getUserNameByUserId(supervisorId);
+        String cardJson = cardBuilder.buildSupervisorEscalationCard(
+                supervisorName, safeName(todo.getAssigneeName(), assigneeId), overdueTodos);
+        boolean ok = feishuService.sendInteractiveCardToUserId(supervisorId, cardJson);
+        if (ok) {
+            log.info("Escalation card sent: assignee={}, supervisor={}, overdueCount={}",
+                    assigneeId, supervisorId, overdueTodos.size());
+        }
+        return ok;
+    }
+
+    /**
+     * 向指定责任人推送每日未完成待办清单汇总（交互式卡片）。
+     * <p>
+     * 卡片列出每条待办的内容、状态、截止时间，并提供「申请延期」「挂起」按钮；
+     * 责任人点击按钮后，机器人引导其回复理由文本完成状态变更。
+     *
+     * @param assigneeId 责任人飞书 user_id
+     * @param todos      该责任人未完成的待办列表
+     * @param date       汇总日期
+     */
+    public void pushDailySummary(String assigneeId, List<MeetingTodo> todos, LocalDate date) {
+        if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
+            return;
+        }
+        if (todos == null || todos.isEmpty()) {
+            return;
+        }
+        String assigneeName = todos.get(0).getAssigneeName();
+        if (assigneeName == null || assigneeName.isBlank()) {
+            assigneeName = feishuService.getUserNameByUserId(assigneeId);
+        }
+        String cardJson = cardBuilder.buildDailySummaryCard(assigneeName, todos, date);
+        feishuService.sendInteractiveCardToUserId(assigneeId, cardJson);
+        log.info("Daily todo summary card sent: assignee={}, count={}", assigneeId, todos.size());
+    }
+
+    private String safe(String s) {
+        return s == null ? "" : s;
+    }
+
+    private String safeName(String name, String fallback) {
+        if (name != null && !name.isBlank()) {
+            return name;
+        }
+        return fallback == null ? "未知" : fallback;
     }
 }

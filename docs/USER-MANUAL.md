@@ -166,7 +166,7 @@
 ### 5.2 关闭待办后仍有提醒调用
 
 - `meeting.todo.extraction-enabled` 只控制提取，不控制提醒调度。
-- 需同时关闭 `meeting.todo.reminder-enabled`。
+- 需同时关闭 `meeting.todo.reminder-enabled`（关闭后逾期标记、升级提醒、每日汇总三项子任务均不注册）。
 
 ### 5.3 “会议管理”无弹窗
 
@@ -181,6 +181,20 @@
 - **责任人**：飞书卡片可「完成」「挂起」；智能会议前台「我的待办」同样可操作。
 - **经办人**：仅可在前台更新进度、上传附件，**不能**完成或挂起。
 - **Admin 待办追踪**：强制改状态/删除须填写原因，写入 `int_meeting_todo_audit`；可查看进度与附件列表。
+
+### 5.5 待办追踪五项能力（v0.23）
+
+| 能力 | 状态 | 说明 |
+|------|------|------|
+| ① 待提取（从纪要提取待办） | ✅ 已实现 | `TodoExtractionService` 通过 LLM + 正则兜底提取，开关 `meeting.todo.extraction-enabled`。 |
+| ② 待办责任人分解（拆分） | ✅ 已实现 | `POST /api/v1/todos/{tid}/split` 将父待办拆分为多个子待办，子待办 `parent_id` 指向父待办（v0.23 新增列）。未指定字段继承父待办。 |
+| ③ 每日待办提醒 | ✅ 已实现 | `TodoReminderScheduler.pushDailySummary()` 每日 09:00 按责任人聚合未完成待办推送飞书清单汇总，Cron `meeting.todo.daily-summary-cron`。 |
+| ④ 待办推送飞书 | ✅ 已实现 | `FeishuTaskService` 在提取/提醒时发送交互卡片与文本，并同步飞书 Task API。 |
+| ⑤ 延期提醒直属上级 | ✅ 已实现 | `TodoReminderScheduler.escalateOverdueToSupervisor()` 每小时对已 OVERDUE 待办向责任人直属上级发送升级提醒，Cron `meeting.todo.escalation-cron`；依赖 `int_user_mapping_feishu.supervisor_feishu_user_id`（v0.23 新增列）。 |
+
+**OVERDUE 自动标记**：`TodoReminderScheduler.scanAndMarkOverdue()` 每 30 分钟扫描过 `deadline` 仍未完成的待办（PENDING/IN_PROGRESS/DELAYED/BLOCKED），自动置为 `OVERDUE` 并提醒责任人。Cron `meeting.todo.reminder-cron`。手动设置 OVERDUE 仍被禁止（`forceUpdateStatus` 校验）。
+
+**前置数据**：启用 ⑤ 需在 `int_user_mapping_feishu` 维护每用户的 `supervisor_feishu_user_id`（直属上级飞书 user_id）。未配置上级的用户跳过升级提醒（日志 `Escalation skipped: no supervisor configured`）。
 
 ---
 

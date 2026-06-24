@@ -51,6 +51,8 @@ public class MeetingTodo {
     private String nextMeetingId;
     /** 是否已在下一次会议中通报 */
     private Boolean reportedInNext;
+    /** 父待办 ID（拆分来源）；NULL 表示原始待办 */
+    private String parentId;
     /** 记录创建时间 */
     private LocalDateTime createdAt;
 }

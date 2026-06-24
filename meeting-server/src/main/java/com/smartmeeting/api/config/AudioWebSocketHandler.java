@@ -129,12 +129,18 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             sendText(session, "{\"type\":\"recording_rejoined\",\"meetingId\":\"" + meetingId
                     + "\",\"state\":\"PAUSED\"}");
         } else {
-            try {
-                String audioPath = recordingService.startRecording(meetingId);
-                sendText(session, "{\"type\":\"recording_started\",\"audioPath\":\"" + audioPath + "\"}");
-            } catch (Exception e) {
-                log.warn("Failed to start recording via service: {}", e.getMessage());
-            }
+            tryStartRecording(session, meetingId);
+        }
+    }
+
+    /** 启动或恢复录音；FAST_START 竞态时由首帧 PCM 再次调用。 */
+    private void tryStartRecording(WebSocketSession session, String meetingId) {
+        if (recordingService.getRecordingState(meetingId) != null) {
+            return;
+        }
+        String audioPath = recordingService.ensureRecordingStarted(meetingId);
+        if (audioPath != null && !audioPath.isBlank()) {
+            sendText(session, "{\"type\":\"recording_started\",\"audioPath\":\"" + audioPath + "\"}");
         }
     }
 
@@ -156,6 +162,10 @@ public class AudioWebSocketHandler implements WebSocketHandler {
             buffer.get(pcmData);
 
             lastAudioFrameAtMs.put(meetingId, System.currentTimeMillis());
+
+            if (recordingService.getRecordingState(meetingId) == null) {
+                tryStartRecording(session, meetingId);
+            }
 
             // 如果暂停了，不发送给 ASR
             if (Boolean.TRUE.equals(pausedMeetings.get(meetingId))) {
@@ -215,6 +225,14 @@ public class AudioWebSocketHandler implements WebSocketHandler {
                             "\",\"duration\":" + result.get("durationSeconds") + "}");
                 } catch (Exception e) {
                     log.warn("Error stopping recording: {}", e.getMessage());
+                    recordingService.ensureRecordingStarted(meetingId);
+                    try {
+                        Map<String, Object> result = recordingService.stopRecording(meetingId);
+                        sendText(session, "{\"type\":\"stopped\",\"meetingId\":\"" + meetingId +
+                                "\",\"duration\":" + result.get("durationSeconds") + "}");
+                    } catch (Exception retryEx) {
+                        log.warn("Retry stop recording failed: {}", retryEx.getMessage());
+                    }
                 }
                 asrBridgeService.endRealtimeAsr(meetingId);
                 // 不立即关闭，等待ASR返回最后一条结果后再关闭

@@ -16,6 +16,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -38,6 +40,8 @@ class PostMeetingOrchestratorTest {
     private OfflineAsrService offlineAsrService;
     @Mock
     private MinuteGenerationService minuteGenerationService;
+    @Mock
+    private AudioCacheService audioCacheService;
 
     private MeetingAsrProperties asrProperties;
     private MeetingMinuteProperties minuteProperties;
@@ -47,6 +51,7 @@ class PostMeetingOrchestratorTest {
     void setUp() {
         asrProperties = new MeetingAsrProperties();
         minuteProperties = new MeetingMinuteProperties();
+        when(audioCacheService.findExistingCachePath(any())).thenReturn(Optional.empty());
         orchestrator = new PostMeetingOrchestrator(
                 meetingMapper,
                 asrProperties,
@@ -55,7 +60,8 @@ class PostMeetingOrchestratorTest {
                 domainEventPublisher,
                 meetingStateMachineService,
                 offlineAsrService,
-                minuteGenerationService);
+                minuteGenerationService,
+                audioCacheService);
     }
 
     @Test
@@ -130,6 +136,24 @@ class PostMeetingOrchestratorTest {
 
         verify(domainEventPublisher).publish(any(MeetingEndedEvent.class));
         verify(domainEventPublisher, never()).publish(any(OfflineAsrRequestedEvent.class));
+    }
+
+    @Test
+    @DisplayName("DB 无 audio_path 但 cache 有 PCM 时回填并排队离线 ASR")
+    void cachedPcmOnly_queuesOfflineAsr() {
+        asrProperties.setOfflineEnabled(true);
+        minuteProperties.setGenerationEnabled(false);
+        Meeting meeting = stubMeeting(null, null);
+        when(audioCacheService.findExistingCachePath(MEETING_ID))
+                .thenReturn(Optional.of("./data/audio/2026-06-22/meet-orchestrator.pcm"));
+        when(transcriptSegmentHelper.hasFinalRealtimeSegments(MEETING_ID)).thenReturn(false);
+
+        String status = orchestrator.dispatchAfterMeetingEnded(MEETING_ID, null, null, null);
+
+        assertThat(status).isEqualTo(MeetingStatus.PROCESSING.name());
+        assertThat(meeting.getAudioPath()).isEqualTo("./data/audio/2026-06-22/meet-orchestrator.pcm");
+        verify(meetingMapper).updateById(meeting);
+        verify(domainEventPublisher).publish(any(OfflineAsrRequestedEvent.class));
     }
 
     @Test

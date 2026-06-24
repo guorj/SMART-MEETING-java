@@ -94,6 +94,9 @@ function canRecover(st){
 function canEnd(st){
   return st==='STARTED'||st==='RECORDING'||st==='PAUSED'||st==='ISSUE_COLLECTING'||st==='INVITED';
 }
+function endButtonLabel(st){
+  return isNotStarted(st)?'取消预约':'结束';
+}
 function recoverButtonLabel(st){
   return isNotStarted(st)?'开始':'恢复';
 }
@@ -119,8 +122,9 @@ function renderDetectedMeetingRow(meeting,canCreate,canEndMeeting){
   const recoverBtn=canCreate
     ? `<button type="button" class="ui-btn ui-btn-recover btn btn-recover dashboard-inline-btn btn-detected-recover" data-meeting-id="${esc(meeting.id)}" data-status="${esc(meeting.status)}" data-recording-url="${esc(meeting.recordingUrl||'')}" ${canRecover(meeting.status)?'':'disabled'}>${recoverLabel}</button>`
     : '';
+  const endLabel=endButtonLabel(meeting.status);
   const endBtn=canEndMeeting
-    ? `<button type="button" class="ui-btn ui-btn-danger btn btn-danger dashboard-inline-btn btn-detected-end" data-meeting-id="${esc(meeting.id)}" data-status="${esc(meeting.status)}" ${canEnd(meeting.status)?'':'disabled'}>结束</button>`
+    ? `<button type="button" class="ui-btn ui-btn-danger btn btn-danger dashboard-inline-btn btn-detected-end" data-meeting-id="${esc(meeting.id)}" data-status="${esc(meeting.status)}" ${canEnd(meeting.status)?'':'disabled'}>${endLabel}</button>`
     : '';
   if(canEndMeeting||canCreate){
     return `<div class="msg msg-info detected-meeting-row">
@@ -130,7 +134,7 @@ function renderDetectedMeetingRow(meeting,canCreate,canEndMeeting){
   }
   return `<div class="msg msg-info detected-meeting-row">
     <span class="detected-meeting-text">${kind}：<b>${esc(meeting.title || meeting.id)}</b></span>
-    <span class="muted">您没有结束会议权限，如需操作请联系管理员。</span>
+    <span class="muted">您没有取消预约或结束会议权限，如需操作请联系管理员。</span>
   </div>`;
 }
 
@@ -433,7 +437,7 @@ function bindDetectedMeetingButtons(canCreate,canEndMeeting){
         const meetingId=btn.dataset.meetingId;
         if(!canEnd(status)||!meetingId) return;
         const draft=isNotStarted(status);
-        if(!confirm(draft?'确认结束并取消该待开始会议？':'确认结束当前会议？结束后将进入纪要处理流程。')) return;
+        if(!confirm(draft?'确认取消该待开始会议？取消后将不能再从该入口开始。':'确认结束当前会议？结束后将进入纪要处理流程。')) return;
         btn.disabled=true;
         try{
           if(draft){

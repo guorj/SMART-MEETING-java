@@ -238,6 +238,7 @@ public class MeetingTodoAdminService {
         dto.setRemindCount(row.getRemindCount());
         dto.setNextMeetingId(row.getNextMeetingId());
         dto.setReportedInNext(row.getReportedInNext());
+        dto.setParentId(row.getParentId());
         dto.setCreatedAt(row.getCreatedAt());
         return dto;
     }

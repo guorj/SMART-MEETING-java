@@ -28,5 +28,7 @@ public class MeetingTodo {
     private Integer remindCount;
     private String nextMeetingId;
     private Boolean reportedInNext;
+    /** 父待办 ID（拆分来源）；NULL 表示原始待办 */
+    private String parentId;
     private LocalDateTime createdAt;
 }

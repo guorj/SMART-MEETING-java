@@ -1,7 +1,7 @@
 ﻿(function () {
   const TOKEN_KEY = 'sm-admin-token';
   const LAST_ROUTE_KEY = 'sm-admin-last-route';
-  const STATIC_ASSET_VERSION = 'sm-ui-20260612-5';
+  const STATIC_ASSET_VERSION = 'sm-ui-20260621-1';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;
@@ -247,14 +247,21 @@
 
   async function navigate(hash) {
     const seq = ++navigateSeq;
-    const fullHash = hash || location.hash || sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets';
     if (hash) {
       location.hash = hash;
     }
+    const routePath = (location.hash || '#/presets').replace('#', '').split('?')[0];
+    if (!routePath || routePath === '/') {
+      const restore = sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets';
+      if (restore && location.hash !== restore) {
+        location.hash = restore;
+      }
+      return;
+    }
+    const fullHash = hash || location.hash || sessionStorage.getItem(LAST_ROUTE_KEY) || '#/presets';
     try {
       sessionStorage.setItem(LAST_ROUTE_KEY, fullHash);
     } catch (_) { /* ignore */ }
-    const routePath = (location.hash || '#/presets').replace('#', '').split('?')[0];
     const m = modules.find(x => x.uiRouteHash === '#' + routePath);
     const root = document.getElementById('module-root');
     if (window.SmMotion && SmMotion.showModuleSkeleton) {

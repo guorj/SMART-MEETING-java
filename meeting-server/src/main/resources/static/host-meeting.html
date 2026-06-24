@@ -294,6 +294,7 @@
       let recTimerAccumSec = 0;
       let recTimerRunning = false;
       let meetingLive = false;
+      let meetingCancelled = false;
       /** 本场是否已启动主持会话（POST /start 或 adopt active）；结束前不重置 */
       let hostSessionStarted = false;
       let startInFlight = false;
@@ -3896,6 +3897,16 @@
           var j = await res.json();
           if (j.code !== 0 || !j.data) return;
           var d = j.data;
+          meetingCancelled = d.status === 'CANCELLED';
+          if (meetingCancelled) {
+            updateMeetingStatusBadge('已取消', 'danger');
+            showErr('会议已取消，不能开始。请返回工作台重新创建会议。');
+            var startBtn = document.getElementById('btnStartMeeting');
+            if (startBtn) {
+              startBtn.disabled = true;
+              startBtn.textContent = '会议已取消';
+            }
+          }
           if (d.title) {
             updateMeetingHeader(d.title, pageEntryLabel());
           }
@@ -4043,7 +4054,10 @@
         .then(function () { return refreshHostStateFromApi(); })
         .finally(function () {
           if (canOperate) {
-            if (!hostSessionStarted && !meetingLive) {
+            if (meetingCancelled) {
+              btnStartInit.disabled = true;
+              btnStartInit.textContent = '会议已取消';
+            } else if (!hostSessionStarted && !meetingLive) {
               btnStartInit.disabled = false;
               btnStartInit.textContent = '开始会议';
             }
@@ -4109,7 +4123,7 @@
       }
 
       document.getElementById('btnStartMeeting').onclick = async function () {
-        if (!canOperate || startInFlight || hostSessionStarted) return;
+        if (!canOperate || startInFlight || hostSessionStarted || meetingCancelled) return;
         showErr('');
         const btn = document.getElementById('btnStartMeeting');
         btn.disabled = true;

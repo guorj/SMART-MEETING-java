@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.smartmeeting.api.dto.MeetingTodoResponse;
 import com.smartmeeting.api.dto.TodoAssignRequest;
 import com.smartmeeting.api.dto.TodoBoardResponse;
+import com.smartmeeting.api.dto.TodoSplitRequest;
 import com.smartmeeting.api.dto.TodoStatusUpdateRequest;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.MeetingTodo;
@@ -21,10 +22,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -196,6 +199,78 @@ public class TodoService {
         return applyStatusChange(todo, request);
     }
 
+    /**
+     * 将一个父待办拆分为多个子待办。
+     * <p>
+     * 子待办继承父待办的 meetingId、presetTypeCode；未显式指定的字段（assignee/operator/deadline/priority）继承父待办值。
+     * 父待办状态保持不变，由调用方后续维护。
+     *
+     * @param parentTodoId 父待办 ID
+     * @param request      拆分请求
+     * @return 新创建的子待办列表
+     */
+    @Transactional
+    public List<MeetingTodoResponse> splitTodo(String parentTodoId, TodoSplitRequest request) {
+        MeetingTodo parent = requireTodo(parentTodoId);
+        List<TodoSplitRequest.Item> items = request.getItems();
+        if (items == null || items.isEmpty()) {
+            throw new BusinessException(400, "拆分项不能为空");
+        }
+        LocalDateTime now = LocalDateTime.now();
+        List<MeetingTodo> created = new ArrayList<>();
+        for (TodoSplitRequest.Item item : items) {
+            if (item.getContent() == null || item.getContent().isBlank()) {
+                throw new BusinessException(400, "子待办 content 不能为空");
+            }
+            MeetingTodo child = new MeetingTodo();
+            child.setId(UUID.randomUUID().toString());
+            child.setMeetingId(parent.getMeetingId());
+            child.setPresetTypeCode(parent.getPresetTypeCode());
+            child.setContent(item.getContent().trim());
+            child.setAssigneeId(resolveInherit(item.getAssigneeId(), parent.getAssigneeId()));
+            child.setAssigneeName(resolveInherit(item.getAssigneeName(), parent.getAssigneeName()));
+            child.setOperatorId(resolveInherit(item.getOperatorId(), parent.getOperatorId()));
+            child.setOperatorName(resolveInherit(item.getOperatorName(), parent.getOperatorName()));
+            child.setStatus(TodoStatus.PENDING.name());
+            child.setPriority(resolveInherit(item.getPriority(), parent.getPriority()));
+            child.setDeadline(resolveInherit(item.getDeadline(), parent.getDeadline()));
+            child.setRemindCount(0);
+            child.setParentId(parent.getId());
+            child.setCreatedAt(now);
+            todoMapper.insert(child);
+            created.add(child);
+
+            incrementParticipantTodoCount(child.getMeetingId(), child.getAssigneeId());
+        }
+        log.info("Todo split: parentId={} into {} children", parentTodoId, created.size());
+        return created.stream().map(this::toResponse).collect(Collectors.toList());
+    }
+
+    /**
+     * 为参会人的 todo_count 计数 +1（拆分新增子待办时调用）。
+     */
+    private void incrementParticipantTodoCount(String meetingId, String assigneeId) {
+        if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
+            return;
+        }
+        LambdaQueryWrapper<Participant> w = new LambdaQueryWrapper<>();
+        w.eq(Participant::getMeetingId, meetingId).eq(Participant::getUserId, assigneeId);
+        Participant p = participantMapper.selectOne(w);
+        if (p == null) {
+            return;
+        }
+        int tc = p.getTodoCount() == null ? 0 : p.getTodoCount();
+        p.setTodoCount(tc + 1);
+        participantMapper.updateById(p);
+    }
+
+    private <T> T resolveInherit(T childValue, T parentValue) {
+        if (childValue instanceof String s) {
+            return (s == null || s.isBlank()) ? parentValue : childValue;
+        }
+        return childValue != null ? childValue : parentValue;
+    }
+
     public void adjustParticipantCompletedCount(String meetingId, String assigneeId, int delta) {
         if (assigneeId == null || assigneeId.isBlank() || "unknown".equalsIgnoreCase(assigneeId)) {
             return;
@@ -255,8 +330,83 @@ public class TodoService {
                 .remindCount(t.getRemindCount())
                 .nextMeetingId(t.getNextMeetingId())
                 .reportedInNext(t.getReportedInNext())
+                .parentId(t.getParentId())
                 .createdAt(t.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * 责任人通过每日汇总卡片申请延期/挂起后，提交理由文本完成状态变更。
+     *
+     * @param todoId         目标待办 ID
+     * @param decision       决策类型：{@code REQUEST_DELAY} 或 {@code REQUEST_BLOCK}
+     * @param reason         责任人输入的理由文本
+     * @param operatorFeishuUserId 操作人飞书 user_id（须为该待办责任人）
+     * @return 更新后的待办响应
+     */
+    @Transactional
+    public MeetingTodoResponse applyReasonInput(String todoId, String decision, String reason,
+                                                String operatorFeishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireAssignee(todo, operatorFeishuUserId);
+        TodoStatusUpdateRequest req = new TodoStatusUpdateRequest();
+        if ("REQUEST_DELAY".equalsIgnoreCase(decision)) {
+            req.setStatus(TodoStatus.DELAYED.name());
+        } else if ("REQUEST_BLOCK".equalsIgnoreCase(decision)) {
+            req.setStatus(TodoStatus.BLOCKED.name());
+        } else {
+            throw new BusinessException(400, "未知的待办理由决策: " + decision);
+        }
+        req.setBlockReason(reason == null || reason.isBlank() ? "飞书卡片申请（未填写理由）" : reason.trim());
+        log.info("Todo reason input applied: todoId={}, decision={}, operator={}", todoId, decision, operatorFeishuUserId);
+        return applyStatusChange(todo, req);
+    }
+
+    /**
+     * 上级通过延期升级卡片作出决策：催办（urge）或已知晓暂不处理（acknowledge）。
+     * <ul>
+     *   <li>{@code urge}：向责任人再次发送催办卡片，并递增 remindCount。</li>
+     *   <li>{@code acknowledge}：仅记录日志，本期不对待办做状态变更。</li>
+     * </ul>
+     *
+     * @param decision        决策：{@code urge} 或 {@code acknowledge}
+     * @param assigneeId      责任人飞书 user_id
+     * @param subordinateName 下属姓名（展示用）
+     * @param supervisorId    上级飞书 user_id（用于回执）
+     * @return 处理结果描述
+     */
+    @Transactional
+    public String applySupervisorDecision(String decision, String assigneeId, String subordinateName,
+                                          String supervisorId) {
+        if (assigneeId == null || assigneeId.isBlank()) {
+            return "无责任人信息，无法处理";
+        }
+        if ("urge".equalsIgnoreCase(decision)) {
+            // 查询该责任人所有 OVERDUE 待办，递增提醒次数并触发催办
+            LambdaQueryWrapper<MeetingTodo> w = new LambdaQueryWrapper<>();
+            w.eq(MeetingTodo::getAssigneeId, assigneeId)
+                    .eq(MeetingTodo::getStatus, TodoStatus.OVERDUE.name());
+            List<MeetingTodo> overdueTodos = todoMapper.selectList(w);
+            LocalDateTime now = LocalDateTime.now();
+            for (MeetingTodo todo : overdueTodos) {
+                todo.setLastRemindAt(now);
+                Integer rc = todo.getRemindCount() == null ? 0 : todo.getRemindCount();
+                todo.setRemindCount(rc + 1);
+                todoMapper.updateById(todo);
+            }
+            log.info("Supervisor urge: supervisor={}, assignee={}, overdueCount={}",
+                    supervisorId, assigneeId, overdueTodos.size());
+            return "已催办下属【" + safeName(subordinateName) + "】的 " + overdueTodos.size() + " 项逾期待办";
+        } else if ("acknowledge".equalsIgnoreCase(decision)) {
+            log.info("Supervisor acknowledge: supervisor={}, assignee={}, no action taken",
+                    supervisorId, assigneeId);
+            return "已记录：您已知晓下属【" + safeName(subordinateName) + "】的逾期待办，暂不处理";
+        }
+        return "未知的上级决策: " + decision;
+    }
+
+    private String safeName(String name) {
+        return name == null || name.isBlank() ? "未知" : name;
     }
 
     private void markAllDoneIfNeeded(String meetingId) {

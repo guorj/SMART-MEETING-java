@@ -20,6 +20,7 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.session.FeishuChatInstructionCardStore;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
 import com.smartmeeting.session.FeishuUserLastGroupChatStore;
+import com.smartmeeting.session.TodoReasonPendingStore;
 import com.smartmeeting.util.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -66,6 +67,7 @@ public class FeishuCommandHandler {
     private final PostMeetingOrchestrator postMeetingOrchestrator;
     private final DashboardGrantService dashboardGrantService;
     private final TodoService todoService;
+    private final TodoReasonPendingStore todoReasonPendingStore;
 
     @Value("${meeting.base-url:http://localhost:8765}")
     private String baseUrl;
@@ -199,6 +201,8 @@ public class FeishuCommandHandler {
             handleAgendaFillInlineSubmit(openId, chatId, campaignId, form);
         } else if ("todo-action".equals(cmd)) {
             handleTodoCardAction(openId, value);
+        } else if ("todo-escalation".equals(cmd)) {
+            handleTodoEscalationAction(openId, value);
         } else {
             log.warn("卡片回调未知 cmd: {}", cmd);
         }
@@ -211,6 +215,21 @@ public class FeishuCommandHandler {
             return;
         }
         try {
+            // 每日汇总卡片：申请延期 / 挂起 —— 引导责任人下一条消息作为理由
+            if ("request_delay".equalsIgnoreCase(decision)) {
+                todoReasonPendingStore.mark(openId, null,
+                        TodoReasonPendingStore.Decision.REQUEST_DELAY, todoId);
+                feishuService.sendMessageToUserId(openId,
+                        "您正在为该待办申请延期。请直接回复一条消息说明延期理由（5 分钟内有效）：");
+                return;
+            }
+            if ("request_block".equalsIgnoreCase(decision)) {
+                todoReasonPendingStore.mark(openId, null,
+                        TodoReasonPendingStore.Decision.REQUEST_BLOCK, todoId);
+                feishuService.sendMessageToUserId(openId,
+                        "您正在挂起该待办。请直接回复一条消息说明挂起理由（5 分钟内有效）：");
+                return;
+            }
             com.smartmeeting.api.dto.TodoStatusUpdateRequest req = new com.smartmeeting.api.dto.TodoStatusUpdateRequest();
             if ("complete_todo".equalsIgnoreCase(decision)) {
                 req.setStatus("COMPLETED");
@@ -225,6 +244,59 @@ public class FeishuCommandHandler {
         } catch (Exception e) {
             log.warn("todo card action failed: todoId={}, openId={}, err={}", todoId, openId, e.getMessage());
             feishuService.sendMessageToUserId(openId, "操作失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 处理上级延期升级卡片的「催办 / 已知晓暂不处理」决策。
+     */
+    private void handleTodoEscalationAction(String openId, JsonNode value) {
+        String decision = value.path("decision").asText("");
+        String assigneeId = value.path("assigneeId").asText("");
+        String subordinateName = value.path("subordinateName").asText("");
+        if (decision.isBlank() || openId == null || openId.isBlank()) {
+            return;
+        }
+        try {
+            String result = todoService.applySupervisorDecision(decision, assigneeId, subordinateName, openId);
+            feishuService.sendMessageToUserId(openId, result);
+        } catch (Exception e) {
+            log.warn("todo escalation action failed: decision={}, openId={}, err={}", decision, openId, e.getMessage());
+            feishuService.sendMessageToUserId(openId, "操作失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 处理责任人在「申请延期/挂起」后回复的理由文本。
+     * <p>
+     * 若该用户当前处于理由输入等待状态，则将文本作为理由提交，完成状态变更；返回 {@code true} 表示已消费。
+     * 否则返回 {@code false}，交由上层按普通消息处理。
+     *
+     * @param openId   操作人飞书 user_id
+     * @param chatId   会话 chat_id（私聊可为空）
+     * @param text     用户输入的理由文本
+     * @return 已作为理由消费返回 {@code true}；否则 {@code false}
+     */
+    public boolean handleTodoReasonInput(String openId, String chatId, String text) {
+        if (openId == null || openId.isBlank() || text == null || text.isBlank()) {
+            return false;
+        }
+        TodoReasonPendingStore.PendingReason entry = todoReasonPendingStore.consume(openId, null);
+        if (entry == null) {
+            return false;
+        }
+        try {
+            todoService.applyReasonInput(entry.getTodoId(), entry.getDecision().name(), text.trim(), openId);
+            String action = entry.getDecision() == TodoReasonPendingStore.Decision.REQUEST_DELAY ? "延期" : "挂起";
+            feishuService.sendMessageToUserId(openId,
+                    "已" + action + "待办，理由：" + text.trim());
+            return true;
+        } catch (Exception e) {
+            log.warn("todo reason input failed: todoId={}, openId={}, err={}",
+                    entry.getTodoId(), openId, e.getMessage());
+            feishuService.sendMessageToUserId(openId, "理由提交失败：" + e.getMessage()
+                    + "\n请稍后重试或在「我的待办」手动更新。");
+            return true;
         }
     }
 

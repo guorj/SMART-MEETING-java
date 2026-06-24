@@ -9,6 +9,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.LocalDate;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 /**
@@ -33,9 +35,40 @@ public class AudioCacheService {
      * @param meetingId 会议 ID（用于文件名）
      * @param pcmData   PCM 原始字节
      */
+    /**
+     * 按约定目录结构生成 PCM 路径（不校验文件是否存在）。
+     *
+     * @param meetingId 会议 ID
+     * @param date      日期分区
+     * @return 与 {@link RecordingService} 一致的相对/绝对路径字符串
+     */
+    public String cachePathFor(String meetingId, LocalDate date) {
+        return cacheDir + "/" + date + "/" + meetingId + ".pcm";
+    }
+
+    /**
+     * 查找已落盘的 PCM（先当日、再前一日，应对跨零点场景）。
+     *
+     * @param meetingId 会议 ID
+     * @return 非空且 size&gt;0 的文件路径
+     */
+    public Optional<String> findExistingCachePath(String meetingId) {
+        LocalDate today = LocalDate.now();
+        for (LocalDate date : new LocalDate[]{today, today.minusDays(1)}) {
+            Path filePath = Paths.get(cachePathFor(meetingId, date));
+            try {
+                if (Files.isRegularFile(filePath) && Files.size(filePath) > 0) {
+                    return Optional.of(filePath.toString());
+                }
+            } catch (IOException e) {
+                log.debug("Skip unreadable cache file: {}", filePath, e);
+            }
+        }
+        return Optional.empty();
+    }
+
     public void writeAudioChunk(String meetingId, byte[] pcmData) {
-        String dateDir = java.time.LocalDate.now().toString();
-        Path filePath = Paths.get(cacheDir, dateDir, meetingId + ".pcm");
+        Path filePath = Paths.get(cachePathFor(meetingId, LocalDate.now()));
         try {
             Files.createDirectories(filePath.getParent());
             Files.write(filePath, pcmData, StandardOpenOption.CREATE, StandardOpenOption.APPEND);
@@ -52,8 +85,7 @@ public class AudioCacheService {
      * @throws IOException 文件不存在或读失败时
      */
     public byte[] readAudio(String meetingId) throws IOException {
-        String dateDir = java.time.LocalDate.now().toString();
-        Path filePath = Paths.get(cacheDir, dateDir, meetingId + ".pcm");
+        Path filePath = Paths.get(cachePathFor(meetingId, LocalDate.now()));
         return Files.readAllBytes(filePath);
     }
 

@@ -23,6 +23,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -43,9 +44,7 @@ public class RecordingService {
 
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
-
-    @Value("${meeting.audio.cache-dir:/data/audio}")
-    private String audioCacheDir;
+    private final AudioCacheService audioCacheService;
 
     @Value("${meeting.llm.model:deepseek-v4-pro}")
     private String modelName;
@@ -95,11 +94,13 @@ public class RecordingService {
 
         recordingStates.put(meetingId, RecordingState.RECORDING);
 
-        // 确保目录存在
+        // 确保目录存在；cache 可能已通过 WebSocket 先行写入，勿覆盖
         try {
-            Files.createDirectories(Paths.get(audioPath).getParent());
-            // 创建空文件
-            Files.createFile(Paths.get(audioPath));
+            Path path = Paths.get(audioPath);
+            Files.createDirectories(path.getParent());
+            if (!Files.exists(path)) {
+                Files.createFile(path);
+            }
         } catch (IOException e) {
             throw new BusinessException("Failed to create audio file: " + e.getMessage());
         }
@@ -261,8 +262,73 @@ public class RecordingService {
 
     /** 按缓存根目录、当日日期与会议 ID 生成 PCM 文件路径。 */
     private String generateAudioPath(String meetingId) {
-        String dateStr = LocalDate.now().toString();
-        return audioCacheDir + "/" + dateStr + "/" + meetingId + ".pcm";
+        return audioCacheService.cachePathFor(meetingId, LocalDate.now());
+    }
+
+    /**
+     * 在 WebSocket 竞态（Audio 先于 FAST_START）或重连场景下尽力启动录音。
+     *
+     * @param meetingId 会议 ID
+     * @return 音频路径；状态不允许且 cache 亦无数据时返回 {@code null}
+     */
+    @Transactional
+    public String ensureRecordingStarted(String meetingId) {
+        RecordingState state = recordingStates.get(meetingId);
+        if (state == RecordingState.RECORDING || state == RecordingState.PAUSED) {
+            Meeting meeting = meetingMapper.selectById(meetingId);
+            return meeting != null ? meeting.getAudioPath() : null;
+        }
+        try {
+            return startRecording(meetingId);
+        } catch (BusinessException e) {
+            return attachCachedAudioRecording(meetingId).orElse(null);
+        }
+    }
+
+    /**
+     * 解析会议音频路径：DB / 云端 URL；若 PCM 已在 cache 落盘则回填 {@code audio_path}。
+     *
+     * @param meeting 会议实体（可为 null）
+     * @return 可用于离线 ASR 的路径或 URL；不可解析时 {@code null}
+     */
+    @Transactional
+    public String resolveAndPersistAudioPath(Meeting meeting) {
+        if (meeting == null) {
+            return null;
+        }
+        if (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank()) {
+            return meeting.getAudioPath();
+        }
+        if (meeting.getSourceAudioUrl() != null && !meeting.getSourceAudioUrl().isBlank()) {
+            return meeting.getSourceAudioUrl();
+        }
+        Optional<String> cached = attachCachedAudioRecording(meeting.getId());
+        return cached.orElse(null);
+    }
+
+    /** 若 cache 已有 PCM，将路径写入 DB 并注册内存录音态（不截断已有文件）。 */
+    private Optional<String> attachCachedAudioRecording(String meetingId) {
+        Optional<String> cached = audioCacheService.findExistingCachePath(meetingId);
+        if (cached.isEmpty()) {
+            return Optional.empty();
+        }
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return Optional.empty();
+        }
+        String audioPath = cached.get();
+        if (meeting.getAudioPath() == null || meeting.getAudioPath().isBlank()) {
+            meeting.setAudioPath(audioPath);
+        }
+        String status = meeting.getStatus();
+        if (MeetingStatus.STARTED.name().equals(status) || MeetingStatus.REVIEWING.name().equals(status)) {
+            meetingStateMachineService.apply(meetingId, MeetingEvent.START_RECORDING);
+            meeting.setStatus(MeetingStatus.RECORDING.name());
+        }
+        meetingMapper.updateById(meeting);
+        recordingStates.putIfAbsent(meetingId, RecordingState.RECORDING);
+        log.info("Attached cached audio for meeting: {}, path={}", meetingId, audioPath);
+        return Optional.of(meeting.getAudioPath());
     }
 
     /**

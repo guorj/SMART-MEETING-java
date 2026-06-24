@@ -9,6 +9,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -562,5 +563,138 @@ public class FeishuCardBuilder {
             noteItem.put("tag", "plain_text");
             noteItem.put("content", text);
         }
+    }
+
+    // ==================== 每日待办清单汇总卡片 ====================
+
+    /**
+     * 构建每日待办清单汇总卡片（按责任人聚合其未完成待办）。
+     * <p>
+     * 每条待办展示内容、状态、截止时间，并提供「申请延期」「挂起」按钮：
+     * 责任人点击按钮后，机器人引导其回复理由文本，完成状态变更。
+     *
+     * @param assigneeName 责任人姓名（展示用）
+     * @param todos        该责任人未完成的待办列表
+     * @param date         汇总日期
+     * @return 飞书交互卡片 JSON
+     */
+    public String buildDailySummaryCard(String assigneeName, List<MeetingTodo> todos, LocalDate date) {
+        ObjectNode card = objectMapper.createObjectNode();
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "📋 每日待办清单 " + date.format(DateTimeFormatter.ISO_DATE));
+        header.put("template", "blue");
+
+        ArrayNode elements = card.putArray("elements");
+        addMarkdownElement(elements, "**责任人**：" + safeName(assigneeName));
+        addMarkdownElement(elements, "**未完成待办数**：" + todos.size() + " 项");
+        addDividerElement(elements);
+
+        int idx = 1;
+        for (MeetingTodo todo : todos) {
+            StringBuilder line = new StringBuilder();
+            line.append(idx++).append(". ").append(safe(todo.getContent()));
+            String status = safe(todo.getStatus());
+            if (!status.isEmpty()) {
+                line.append("  【").append(status).append("】");
+            }
+            addMarkdownElement(elements, line.toString());
+            if (todo.getDeadline() != null) {
+                addMarkdownElement(elements, "&nbsp;&nbsp;&nbsp;&nbsp;截止：" + todo.getDeadline().format(TIME_FMT));
+            }
+            if (todo.getMeetingId() != null) {
+                addMarkdownElement(elements, "&nbsp;&nbsp;&nbsp;&nbsp;会议：" + todo.getMeetingId());
+            }
+            // 每条待办的操作按钮行：申请延期 / 挂起（点击后引导输入理由）
+            ObjectNode delayValue = objectMapper.createObjectNode();
+            delayValue.put("cmd", "todo-action");
+            delayValue.put("decision", "request_delay");
+            delayValue.put("todoId", todo.getId());
+            delayValue.put("meetingId", todo.getMeetingId());
+            ObjectNode blockValue = objectMapper.createObjectNode();
+            blockValue.put("cmd", "todo-action");
+            blockValue.put("decision", "request_block");
+            blockValue.put("todoId", todo.getId());
+            blockValue.put("meetingId", todo.getMeetingId());
+            addCallbackButtonRow(elements, "申请延期", delayValue, "default");
+            addCallbackButtonRow(elements, "挂起", blockValue, "default");
+            addDividerElement(elements);
+        }
+
+        addMarkdownElement(elements, "点击「申请延期」或「挂起」后，请回复一条消息说明理由。");
+        return card.toString();
+    }
+
+    // ==================== 上级延期升级提醒卡片 ====================
+
+    /**
+     * 构建上级延期升级提醒卡片（聚合某下属所有 OVERDUE 待办）。
+     * <p>
+     * 上级可对整组逾期待办选择「催办」（向下属再次提醒）或「已知晓，暂不处理」。
+     *
+     * @param supervisorName  上级姓名（展示用）
+     * @param subordinateName 下属姓名
+     * @param todos           该下属逾期的待办列表
+     * @return 飞书交互卡片 JSON
+     */
+    public String buildSupervisorEscalationCard(String supervisorName, String subordinateName, List<MeetingTodo> todos) {
+        ObjectNode card = objectMapper.createObjectNode();
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "⚠️ 下属待办逾期提醒");
+        header.put("template", "red");
+
+        ArrayNode elements = card.putArray("elements");
+        addMarkdownElement(elements, "**上级**：" + safeName(supervisorName));
+        addMarkdownElement(elements, "**下属**：" + safeName(subordinateName));
+        addMarkdownElement(elements, "**逾期待办数**：" + todos.size() + " 项");
+        addDividerElement(elements);
+
+        int idx = 1;
+        // 聚合的 assigneeId 用于批量决策；取第一条（同一组聚合）
+        String assigneeId = null;
+        for (MeetingTodo todo : todos) {
+            if (assigneeId == null) {
+                assigneeId = todo.getAssigneeId();
+            }
+            StringBuilder line = new StringBuilder();
+            line.append(idx++).append(". ").append(safe(todo.getContent()));
+            addMarkdownElement(elements, line.toString());
+            if (todo.getDeadline() != null) {
+                addMarkdownElement(elements, "&nbsp;&nbsp;&nbsp;&nbsp;截止：" + todo.getDeadline().format(TIME_FMT));
+            }
+            if (todo.getRemindCount() != null) {
+                addMarkdownElement(elements, "&nbsp;&nbsp;&nbsp;&nbsp;已提醒次数：" + todo.getRemindCount());
+            }
+        }
+        addDividerElement(elements);
+
+        // 整组操作按钮：催办 / 已知晓暂不处理
+        ObjectNode urgeValue = objectMapper.createObjectNode();
+        urgeValue.put("cmd", "todo-escalation");
+        urgeValue.put("decision", "urge");
+        urgeValue.put("assigneeId", assigneeId == null ? "" : assigneeId);
+        urgeValue.put("subordinateName", safeName(subordinateName));
+        ObjectNode ackValue = objectMapper.createObjectNode();
+        ackValue.put("cmd", "todo-escalation");
+        ackValue.put("decision", "acknowledge");
+        ackValue.put("assigneeId", assigneeId == null ? "" : assigneeId);
+        ackValue.put("subordinateName", safeName(subordinateName));
+        addCallbackButtonRow(elements, "催办", urgeValue, "primary");
+        addCallbackButtonRow(elements, "已知晓，暂不处理", ackValue, "default");
+
+        return card.toString();
+    }
+
+    private String safeName(String name) {
+        return name == null || name.isBlank() ? "未知" : name;
     }
 }

@@ -190,7 +190,16 @@ public class MeetingService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
 
-        MeetingEvent event = MeetingStatus.INVITED.name().equals(meeting.getStatus())
+        String status = meeting.getStatus();
+        if (MeetingStatus.CANCELLED.name().equals(status)) {
+            throw new BusinessException(400, "会议已取消，不能开始: " + meetingId);
+        }
+        if (!MeetingStatus.ISSUE_COLLECTING.name().equals(status)
+                && !MeetingStatus.INVITED.name().equals(status)) {
+            throw new BusinessException(400, "仅可开始待开始会议: " + status);
+        }
+
+        MeetingEvent event = MeetingStatus.INVITED.name().equals(status)
                 ? MeetingEvent.START_MEETING : MeetingEvent.FAST_START;
         meetingStateMachineService.apply(meetingId, event);
         meeting.setStatus(MeetingStatus.STARTED.name());
@@ -215,6 +224,9 @@ public class MeetingService {
             throw new BusinessException(404, "会议不存在: " + meetingId);
         }
         String status = meeting.getStatus();
+        if (meeting.getActualStartTime() != null) {
+            throw new BusinessException(400, "会议已开始，不能取消预约: " + status);
+        }
         if (!MeetingStatus.ISSUE_COLLECTING.name().equals(status)
                 && !MeetingStatus.INVITED.name().equals(status)) {
             throw new BusinessException(400, "仅可取消未开始的会议: " + status);
@@ -222,7 +234,8 @@ public class MeetingService {
         meetingStateMachineService.apply(meetingId, MeetingEvent.CANCEL_MEETING);
         meeting.setStatus(MeetingStatus.CANCELLED.name());
         meetingMapper.updateById(meeting);
-        log.info("Meeting draft cancelled: id={}", meetingId);
+        log.info("Meeting draft cancelled: id={}, title={}, creatorId={}, chatId={}, originalStatus={}, scheduledTime={}",
+                meetingId, meeting.getTitle(), meeting.getCreatorId(), meeting.getChatId(), status, meeting.getScheduledTime());
         return toResponse(meeting);
     }
 
@@ -261,9 +274,7 @@ public class MeetingService {
         meetingMapper.updateById(meeting);
         recordingService.clearRecordingState(meetingId);
 
-        String eventAudioSource = (meeting.getAudioPath() != null && !meeting.getAudioPath().isBlank())
-                ? meeting.getAudioPath()
-                : meeting.getSourceAudioUrl();
+        String eventAudioSource = recordingService.resolveAndPersistAudioPath(meeting);
         postMeetingOrchestrator.dispatchAfterMeetingEnded(
                 meetingId, eventAudioSource, List.of(), null);
 

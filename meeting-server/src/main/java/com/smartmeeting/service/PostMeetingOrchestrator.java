@@ -32,6 +32,7 @@ public class PostMeetingOrchestrator {
     private final MeetingStateMachineService meetingStateMachineService;
     private final OfflineAsrService offlineAsrService;
     private final MinuteGenerationService minuteGenerationService;
+    private final AudioCacheService audioCacheService;
 
     /**
      * 会议结束后的异步编排入口。
@@ -46,7 +47,7 @@ public class PostMeetingOrchestrator {
             return MeetingStatus.COMPLETED.name();
         }
 
-        String resolvedAudio = resolveAudioPath(audioPath, meeting);
+        String resolvedAudio = resolveAudioWithCacheFallback(meeting, audioPath);
         boolean needsOffline = needsOfflineAsr(meetingId, resolvedAudio, meeting);
         boolean needsMinute = minuteProperties.isGenerationEnabled();
         long sentAt = System.currentTimeMillis();
@@ -81,7 +82,7 @@ public class PostMeetingOrchestrator {
         if (meeting == null) {
             throw new IllegalArgumentException("会议不存在: " + meetingId);
         }
-        String audioPath = resolveAudioPath(null, meeting);
+        String audioPath = resolveAudioWithCacheFallback(meeting, null);
         if (needsOfflineAsr(meetingId, audioPath, meeting)) {
             offlineAsrService.runOfflineAsrSync(meetingId, audioPath);
         }
@@ -126,5 +127,21 @@ public class PostMeetingOrchestrator {
             return true;
         }
         return meeting.getSourceAudioUrl() != null && !meeting.getSourceAudioUrl().isBlank();
+    }
+
+    /** DB/入参无路径时，若 WebSocket cache 已落盘则回填 {@code audio_path}。 */
+    private String resolveAudioWithCacheFallback(Meeting meeting, String audioPath) {
+        String resolved = resolveAudioPath(audioPath, meeting);
+        if (resolved != null && !resolved.isBlank()) {
+            return resolved;
+        }
+        return audioCacheService.findExistingCachePath(meeting.getId())
+                .map(cached -> {
+                    meeting.setAudioPath(cached);
+                    meetingMapper.updateById(meeting);
+                    log.info("Attached cached audio path for meeting: {}, path={}", meeting.getId(), cached);
+                    return cached;
+                })
+                .orElse(null);
     }
 }
