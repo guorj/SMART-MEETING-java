@@ -1,7 +1,7 @@
 ﻿(function () {
   const TOKEN_KEY = 'sm-admin-token';
   const LAST_ROUTE_KEY = 'sm-admin-last-route';
-  const STATIC_ASSET_VERSION = 'sm-ui-20260621-1';
+  const STATIC_ASSET_VERSION = 'sm-ui-20260624-1';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;

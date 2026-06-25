@@ -79,6 +79,13 @@ public class MeetingHostSessionService {
             MeetingStatus.ISSUE_COLLECTING.name(),
             MeetingStatus.INVITED.name());
 
+    /** 已结束或纪要处理中：禁止再次开启主持会话 */
+    private static final Set<String> HOST_START_FORBIDDEN = Set.of(
+            MeetingStatus.PROCESSING.name(),
+            MeetingStatus.COMPLETED.name(),
+            MeetingStatus.CANCELLED.name(),
+            MeetingStatus.TODO_TRACKING.name());
+
     /** 主持页「议题加时」可选分钟数 */
     private static final Set<Integer> ALLOWED_TOPIC_EXTEND_MINUTES = Set.of(1, 3, 5, 10);
 
@@ -260,6 +267,9 @@ public class MeetingHostSessionService {
         Meeting meeting = meetingMapper.selectById(meetingId);
         if (meeting == null) {
             throw new BusinessException(404, "会议不存在: " + meetingId);
+        }
+        if (meeting.getStatus() != null && HOST_START_FORBIDDEN.contains(meeting.getStatus())) {
+            throw new BusinessException(400, "会议已结束或正在生成纪要，不能重新开始主持: " + meeting.getStatus());
         }
         if (meeting.getStatus() != null && NOT_STARTED.contains(meeting.getStatus())) {
             meetingService.startMeeting(meetingId);

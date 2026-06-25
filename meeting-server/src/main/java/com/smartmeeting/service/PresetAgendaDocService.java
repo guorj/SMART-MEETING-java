@@ -29,6 +29,7 @@ import com.smartmeeting.api.dto.structured.ExcelWorkbookDto;
 import com.smartmeeting.api.dto.structured.SheetStructuredDto;
 import com.smartmeeting.service.structured.LocalAgendaMaterialPartBuilder;
 import com.smartmeeting.service.structured.StructuredImageCollector;
+import com.smartmeeting.service.oabp.OabpAgendaTaskPartBuilder;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +54,7 @@ public class PresetAgendaDocService {
     private final FeishuService feishuService;
     private final AgendaMaterialStorageService agendaMaterialStorageService;
     private final ObjectMapper objectMapper;
+    private final OabpAgendaTaskPartBuilder oabpAgendaTaskPartBuilder;
 
     public PresetBundle refreshPresetBundle(int presetTypeCode) {
         if (presetTypeCode <= 0) {
@@ -192,10 +194,15 @@ public class PresetAgendaDocService {
         AgendaWeeklyReportDto weeklyReport = buildWeeklyReportDto(meeting, agendaIndex).orElse(null);
         List<AgendaDocPartDto> localParts = LocalAgendaMaterialPartBuilder.buildParts(
                 meeting, agendaIndex, objectMapper, agendaMaterialStorageService);
+        Integer presetCode = meeting != null ? meeting.getPresetTypeCode() : null;
+        String presetAgendaJson = presetCode != null && presetCode > 0 ? presetHostAgendaJson(presetCode) : null;
+        List<AgendaDocPartDto> oabpParts = oabpAgendaTaskPartBuilder.buildParts(
+                meeting, agendaIndex, presetAgendaJson);
+        List<AgendaDocPartDto> materialParts = OabpAgendaTaskPartBuilder.mergeLocalAndOabp(localParts, oabpParts);
         if (refs.isEmpty()) {
             boolean hasWeekly = weeklyReport != null && weeklyReport.getGeneratedReportUrl() != null
                     && !weeklyReport.getGeneratedReportUrl().isBlank();
-            if (localParts.isEmpty() && !hasWeekly) {
+            if (materialParts.isEmpty() && !hasWeekly) {
                 throw new BusinessException(404,
                         "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
                                 ? "「" + agendaTitle + "」" : "")
@@ -204,7 +211,7 @@ public class PresetAgendaDocService {
             return AgendaDocContentResponse.builder()
                     .agendaIndex(agendaIndex)
                     .agendaTitle(agendaTitle)
-                    .parts(localParts)
+                    .parts(materialParts)
                     .weeklyReport(weeklyReport)
                     .build();
         }
@@ -238,13 +245,15 @@ public class PresetAgendaDocService {
             }
             parts.add(partBuilder.build());
         }
-        parts.addAll(localParts);
+        parts.addAll(materialParts);
         boolean anyText = parts.stream().anyMatch(p -> p.getPlainText() != null && !p.getPlainText().isBlank());
         boolean anyStructured = parts.stream().anyMatch(p -> p.getStructuredContent() != null);
         if (!anyText && !anyStructured && parts.stream().allMatch(p -> p.getFetchError() != null)) {
             boolean anyUrl = parts.stream().anyMatch(p -> p.getFeishuDocUrl() != null && !p.getFeishuDocUrl().isBlank());
-            if (!anyUrl && (weeklyReport == null || weeklyReport.getPlainText() == null
-                    || weeklyReport.getPlainText().isBlank())) {
+            boolean hasWeeklyText = weeklyReport != null && weeklyReport.getPlainText() != null
+                    && !weeklyReport.getPlainText().isBlank();
+            boolean hasWeeklyStructured = weeklyReport != null && weeklyReport.getStructuredContent() != null;
+            if (!anyUrl && !hasWeeklyText && !hasWeeklyStructured && !OabpAgendaTaskPartBuilder.hasOabpParts(oabpParts)) {
                 throw new BusinessException(502,
                         "会序 " + (agendaIndex + 1) + " 全部飞书资料拉取失败，请检查权限或链接");
             }

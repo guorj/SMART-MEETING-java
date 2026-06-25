@@ -67,6 +67,12 @@ public class MeetingRecordingSessionEndService {
             return meetingService.endMeeting(meetingId);
         }
 
+        if (MeetingStatus.ISSUE_COLLECTING.name().equals(status)
+                || MeetingStatus.INVITED.name().equals(status)) {
+            recordingService.clearRecordingState(meetingId);
+            return meetingService.cancelDraftMeeting(meetingId);
+        }
+
         throw new BusinessException(400, "会议状态不允许结束: " + status);
     }
 

@@ -3,6 +3,7 @@
 
 DROP TABLE IF EXISTS int_meeting_minute;
 DROP TABLE IF EXISTS int_transcript_segment;
+DROP TABLE IF EXISTS int_meeting_audio_asset;
 DROP TABLE IF EXISTS int_meeting_todo;
 DROP TABLE IF EXISTS int_meeting_participant;
 DROP TABLE IF EXISTS int_meeting;
@@ -84,6 +85,25 @@ CREATE TABLE int_meeting_participant (
     todo_count      INT          NOT NULL DEFAULT 0,
     completed_count INT          NOT NULL DEFAULT 0,
     UNIQUE (meeting_id, user_id)
+);
+
+CREATE TABLE int_meeting_audio_asset (
+    id               VARCHAR(36)  NOT NULL PRIMARY KEY,
+    meeting_id       VARCHAR(36)  NOT NULL,
+    asset_role       VARCHAR(20)  NOT NULL,
+    source_type      VARCHAR(30)  NOT NULL DEFAULT 'UNKNOWN',
+    path             VARCHAR(500) NOT NULL,
+    encoding         VARCHAR(32)  NOT NULL DEFAULT 'pcm_s16le',
+    sample_rate      INT          NOT NULL DEFAULT 16000,
+    channels         INT          NOT NULL DEFAULT 1,
+    bit_depth        INT          NOT NULL DEFAULT 16,
+    file_size        BIGINT       NOT NULL DEFAULT 0,
+    duration_ms      INT          NULL,
+    rms              DOUBLE       NULL,
+    absmax           INT          NULL,
+    nonzero_ratio    DOUBLE       NULL,
+    quality_status   VARCHAR(30)  NOT NULL DEFAULT 'OK',
+    created_at       TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE int_transcript_segment (

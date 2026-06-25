@@ -58,6 +58,18 @@ function esc(s){return(s==null?'':String(s)).replace(/&/g,'&amp;').replace(/</g,
 function ix(name){return window.Iconsax&&Iconsax.render?Iconsax.render(name):'';}
 function fmtDt(s){return s?String(s).replace('T',' ').slice(0,16):'-';}
 
+/** 待开始会议打开主持页时附带 autostart=1，由主持页自动触发「开始会议」。 */
+function appendAutostartParam(url){
+  if(!url) return url;
+  try{
+    const u=new URL(url, window.location.href);
+    u.searchParams.set('autostart','1');
+    return u.href;
+  }catch(_){
+    return url+(url.includes('?')?'&':'?')+'autostart=1';
+  }
+}
+
 function statusLabel(st){
   const map={
     ISSUE_COLLECTING:'待开始',
@@ -415,7 +427,7 @@ function bindDetectedMeetingButtons(canCreate,canEndMeeting){
         btn.disabled=true;
         try{
           if(isNotStarted(status)){
-            if(recordingUrl) window.open(recordingUrl,'_blank');
+            if(recordingUrl) window.open(appendAutostartParam(recordingUrl),'_blank');
             else showMsg('create-msg','当前会议暂无可用入口，请稍后重试。',true);
           }else{
             const r=await api('/api/v1/dashboard/active-meeting/recover',{method:'POST'});
@@ -579,7 +591,7 @@ async function doCreateMeeting(presetCode,busyCode){
     msgEl.className='msg msg-ok';
     if(r && r.recordingUrl){
       msgEl.innerHTML='会议已创建！ID: '+esc(r.id)+'<br/>'
-        +'<a class="meeting-link" href="'+esc(r.recordingUrl)+'" target="_blank">打开会议主页（直达）</a>'
+        +'<a class="meeting-link" href="'+esc(appendAutostartParam(r.recordingUrl))+'" target="_blank">打开会议主页（直达）</a>'
         +'<br/><span class="muted">飞书会话中也会推送直达卡片</span>';
     }else{
       msgEl.textContent='会议已创建！ID: '+r.id;

@@ -28,6 +28,7 @@ public class OfflineVoiceprintRelabelService {
 
     private final MeetingMapper meetingMapper;
     private final MeetingAudioMaterializerService meetingAudioMaterializerService;
+    private final AudioNormalizeService audioNormalizeService;
     private final TranscriptSegmentHelper transcriptSegmentHelper;
     private final MeetingVoiceprintProperties voiceprintProperties;
     private final OfflineSpeakerLabeler offlineSpeakerLabeler;
@@ -61,6 +62,13 @@ public class OfflineVoiceprintRelabelService {
             throw new BusinessException("PCM 文件不存在: " + audioPath);
         }
 
+        var normalized = audioNormalizeService.normalize(meetingId, audioPath);
+        if (!normalized.usableForAsr()) {
+            throw new BusinessException("音频质量不足，无法重标注: "
+                    + normalized.qualityStatus() + " - " + normalized.getQuality().getMessage());
+        }
+        String normalizedPath = normalized.getNormalizedPath();
+
         List<TranscriptSegment> segments = transcriptSegmentHelper.listAllSegments(meetingId);
         Map<String, String> before = snapshotSpeakerFields(segments);
 
@@ -70,19 +78,19 @@ public class OfflineVoiceprintRelabelService {
             log.warn("Voiceprint cache refresh skipped before relabel: {}", e.getMessage());
         }
 
-        offlineSpeakerLabeler.label(meetingId, audioPath, segments, List.of());
+        offlineSpeakerLabeler.label(meetingId, normalizedPath, segments, List.of());
 
         List<TranscriptSegment> afterSegments = transcriptSegmentHelper.listAllSegments(meetingId);
         int updatedCount = countSpeakerChanges(before, afterSegments);
 
         log.info("Voiceprint relabel finished: meetingId={}, segments={}, updated={}, audio={}",
-                meetingId, afterSegments.size(), updatedCount, audioPath);
+                meetingId, afterSegments.size(), updatedCount, normalizedPath);
 
         return VoiceprintRelabelResult.builder()
                 .meetingId(meetingId)
                 .segmentCount(afterSegments.size())
                 .updatedCount(updatedCount)
-                .audioPathUsed(audioPath)
+                .audioPathUsed(normalizedPath)
                 .message("ISV 声纹重标注完成，未重跑 IST")
                 .build();
     }

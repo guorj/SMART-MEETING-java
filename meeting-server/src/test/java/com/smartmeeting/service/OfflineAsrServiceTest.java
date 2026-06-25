@@ -6,6 +6,9 @@ import com.smartmeeting.entity.Participant;
 import com.smartmeeting.enums.MeetingStatus;
 import com.smartmeeting.event.DomainEventPublisher;
 import com.smartmeeting.event.MeetingEndedEvent;
+import com.smartmeeting.enums.AudioQualityStatus;
+import com.smartmeeting.model.AudioNormalizeResult;
+import com.smartmeeting.model.AudioQualityReport;
 import com.smartmeeting.model.OfflineAsrMessage;
 import com.smartmeeting.model.OfflineTranscribeRequest;
 import com.smartmeeting.repository.MeetingMapper;
@@ -38,6 +41,8 @@ class OfflineAsrServiceTest {
     @Mock
     private MeetingAudioMaterializerService meetingAudioMaterializerService;
     @Mock
+    private AudioNormalizeService audioNormalizeService;
+    @Mock
     private OfflineCorrectionService correctionService;
     @Mock
     private DomainEventPublisher domainEventPublisher;
@@ -56,11 +61,30 @@ class OfflineAsrServiceTest {
                 meetingMapper,
                 participantMapper,
                 meetingAudioMaterializerService,
+                audioNormalizeService,
                 correctionService,
                 minuteProperties,
                 domainEventPublisher,
                 meetingStateMachineService,
                 transcriptSegmentHelper);
+    }
+
+    private void stubUsableNormalize(String path) {
+        when(audioNormalizeService.normalize(eq(MEETING_ID), eq(path)))
+                .thenReturn(AudioNormalizeResult.builder()
+                        .meetingId(MEETING_ID)
+                        .originalPath(path)
+                        .normalizedPath(path)
+                        .quality(AudioQualityReport.builder()
+                                .durationMs(5000)
+                                .rms(100)
+                                .absmax(5000)
+                                .nonzeroRatio(0.5)
+                                .status(AudioQualityStatus.OK)
+                                .message("ok")
+                                .build())
+                        .converted(false)
+                        .build());
     }
 
     @Test
@@ -71,6 +95,7 @@ class OfflineAsrServiceTest {
         stubParticipants();
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
+        stubUsableNormalize("/tmp/a.pcm");
 
         OfflineAsrMessage message = OfflineAsrMessage.builder()
                 .meetingId(MEETING_ID)
@@ -97,6 +122,7 @@ class OfflineAsrServiceTest {
         when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(true);
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
+        stubUsableNormalize("/tmp/a.pcm");
 
         service.process(OfflineAsrMessage.builder()
                 .meetingId(MEETING_ID)
@@ -118,6 +144,7 @@ class OfflineAsrServiceTest {
         when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(false);
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), any(), any()))
                 .thenReturn("/tmp/a.pcm");
+        stubUsableNormalize("/tmp/a.pcm");
 
         service.process(OfflineAsrMessage.builder()
                 .meetingId(MEETING_ID)

@@ -53,6 +53,7 @@ public class DashboardService {
     private final FeishuService feishuService;
     private final VoiceprintRegisterService voiceprintRegisterService;
     private final MeetingService meetingService;
+    private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
     private final MeetingCalendarSyncService meetingCalendarSyncService;
     private final JwtUtil jwtUtil;
     private final MeetingVoiceprintLifecycleProperties lifecycleProperties;
@@ -226,7 +227,7 @@ public class DashboardService {
         if (active == null) {
             throw new BusinessException(400, "当前没有可结束的进行中会议");
         }
-        return meetingService.endMeeting(active.getId());
+        return meetingRecordingSessionEndService.endFromRecordingPage(active.getId());
     }
 
     public ActiveMeetingResult recoverActiveMeeting(String feishuUserId) {

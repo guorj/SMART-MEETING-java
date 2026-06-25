@@ -2,6 +2,7 @@ package com.smartmeeting.service.host;
 
 import com.smartmeeting.api.config.AudioWebSocketHandler;
 import com.smartmeeting.service.AsrBridgeService;
+import com.smartmeeting.service.RecordingService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,7 @@ public class MeetingHostMediaTeardownService {
     private final MeetingHostSessionService meetingHostSessionService;
     private final AsrBridgeService asrBridgeService;
     private final AudioWebSocketHandler audioWebSocketHandler;
+    private final RecordingService recordingService;
 
     /**
      * 录音会话结束前的媒体与主持资源清理。
@@ -41,7 +43,8 @@ public class MeetingHostMediaTeardownService {
         if (hadHost) {
             meetingHostSessionService.stopAndClear(meetingId);
         }
-        if (!hadHost) {
+        boolean hadRecording = recordingService.getRecordingState(meetingId) != null;
+        if (!hadHost && !hadRecording) {
             return;
         }
         try {

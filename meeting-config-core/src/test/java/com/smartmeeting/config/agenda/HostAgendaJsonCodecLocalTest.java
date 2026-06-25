@@ -53,6 +53,23 @@ class HostAgendaJsonCodecLocalTest {
     }
 
     @Test
+    void roundTripOabpTaskSql() {
+        HostAgendaItem item = new HostAgendaItem();
+        item.setTitle("项目任务通报");
+        item.setMinutes(10);
+        item.setOabpTaskSql("SELECT task_name FROM jq_project_task_tracking WHERE deleted = 0");
+
+        String json = HostAgendaJsonCodec.toJson(mapper, List.of(item));
+        assertTrue(json.contains("oabpTaskSql"));
+
+        List<HostAgendaItem> parsed = HostAgendaJsonCodec.parseItems(mapper, json);
+        assertEquals(1, parsed.size());
+        assertEquals(
+                "SELECT task_name FROM jq_project_task_tracking WHERE deleted = 0",
+                parsed.get(0).getOabpTaskSql());
+    }
+
+    @Test
     void snapshotRoundTripLocal() {
         AgendaDocBindingSnapshot snap = AgendaDocBindingSnapshot.builder()
                 .configName("img-1")

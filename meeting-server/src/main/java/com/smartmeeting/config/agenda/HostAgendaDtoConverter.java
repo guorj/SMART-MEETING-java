@@ -20,6 +20,7 @@ public final class HostAgendaDtoConverter {
         item.setMinutes(dto.getMinutes());
         item.setDetail(dto.getDetail());
         item.setFeishuDocUrl(dto.getFeishuDocUrl());
+        item.setOabpTaskSql(dto.getOabpTaskSql());
         if (dto.getFeishuDocs() != null) {
             List<HostAgendaFeishuDocRef> refs = new ArrayList<>();
             for (FeishuDocRefDto r : dto.getFeishuDocs()) {
@@ -70,6 +71,7 @@ public final class HostAgendaDtoConverter {
             dto.setMinutes(item.getMinutes());
             dto.setDetail(item.getDetail());
             dto.setFeishuDocUrl(item.getFeishuDocUrl());
+            dto.setOabpTaskSql(item.getOabpTaskSql());
             if (item.getFeishuDocs() != null) {
                 List<FeishuDocRefDto> refs = new ArrayList<>();
                 for (HostAgendaFeishuDocRef r : item.getFeishuDocs()) {

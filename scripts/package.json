@@ -1,0 +1,12 @@
+{
+  "name": "smart-meeting-scripts",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "import-feishu-base": "node import-feishu-base-to-oabp.mjs",
+    "test:import-feishu-base": "node --test import-feishu-base-to-oabp.test.mjs"
+  },
+  "dependencies": {
+    "mysql2": "^3.14.0"
+  }
+}

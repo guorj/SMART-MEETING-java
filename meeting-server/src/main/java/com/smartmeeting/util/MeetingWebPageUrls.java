@@ -49,6 +49,11 @@ public class MeetingWebPageUrls {
         return appendBuster(normalizedBase() + "/rec/" + meetingId + "?token=" + token);
     }
 
+    /** 待开始会议入口：主持页加载后自动触发「开始会议」。 */
+    public String recordingPageUrlWithAutostart(String meetingId, String token) {
+        return recordingPageUrl(meetingId, token) + "&autostart=1";
+    }
+
     /**
      * 解析录音页 URL：优先用 {@code recording_token} 与当前 {@code meeting.base-url} 动态拼接；
      * 无 token 时回退库内 {@code recording_url}（历史数据兼容）。

@@ -12,7 +12,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @SpringBootApplication
 @EnableScheduling
-@MapperScan("com.smartmeeting.repository")
+@MapperScan(value = "com.smartmeeting.repository", sqlSessionFactoryRef = "primarySqlSessionFactory")
 public class SmartMeetingApplication {
 
     /**

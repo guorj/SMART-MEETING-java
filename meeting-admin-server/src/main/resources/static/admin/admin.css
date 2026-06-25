@@ -308,6 +308,7 @@ td a:hover {
   vertical-align: middle;
 }
 .tag-warn { background: var(--danger-soft); color: #991b1b; }
+.tag-oabp { background: #e0e7ff; color: #3730a3; }
 .tag-role {
   background: var(--primary-soft);
   color: var(--primary);
@@ -595,6 +596,17 @@ button:disabled {
   background: #F4F6F9;
   flex: 1;
   border-top: 1px solid var(--border-emphasis, #94A3B8);
+}
+.agenda-card-oabp {
+  padding: 0.85rem 1.1rem 1rem;
+  background: #f8fafc;
+  border-top: 1px solid var(--border-emphasis, #94A3B8);
+}
+.agenda-card-oabp .ag-oabp-sql {
+  width: 100%;
+  min-height: 5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.82rem;
 }
 .agenda-doc-toolbar {
   display: flex;

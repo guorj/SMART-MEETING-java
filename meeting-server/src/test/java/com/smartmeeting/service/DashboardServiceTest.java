@@ -40,6 +40,7 @@ class DashboardServiceTest {
     @Mock private FeishuService feishuService;
     @Mock private VoiceprintRegisterService voiceprintRegisterService;
     @Mock private MeetingService meetingService;
+    @Mock private MeetingRecordingSessionEndService meetingRecordingSessionEndService;
     @Mock private MeetingCalendarSyncService meetingCalendarSyncService;
     @Mock private JwtUtil jwtUtil;
     @Mock private MeetingVoiceprintLifecycleProperties lifecycleProperties;
@@ -60,6 +61,7 @@ class DashboardServiceTest {
                 feishuService,
                 voiceprintRegisterService,
                 meetingService,
+                meetingRecordingSessionEndService,
                 meetingCalendarSyncService,
                 jwtUtil,
                 lifecycleProperties,

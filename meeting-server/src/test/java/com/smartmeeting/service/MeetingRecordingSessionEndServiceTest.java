@@ -115,6 +115,26 @@ class MeetingRecordingSessionEndServiceTest {
         verify(meetingService).endMeeting(id);
     }
 
+    /** ISSUE_COLLECTING 草稿：清理录音态并取消预约。 */
+    @Test
+    @DisplayName("ISSUE_COLLECTING：取消草稿会议")
+    void issueCollecting_cancelsDraft() {
+        String id = "meet-draft";
+        Meeting m = meeting(id, MeetingStatus.ISSUE_COLLECTING.name());
+        when(meetingMapper.selectById(id)).thenReturn(m);
+        MeetingResponse cancelled = new MeetingResponse();
+        cancelled.setId(id);
+        cancelled.setStatus(MeetingStatus.CANCELLED.name());
+        when(meetingService.cancelDraftMeeting(id)).thenReturn(cancelled);
+
+        MeetingResponse out = service.endFromRecordingPage(id);
+
+        assertEquals(MeetingStatus.CANCELLED.name(), out.getStatus());
+        verify(recordingService).clearRecordingState(id);
+        verify(meetingService).cancelDraftMeeting(id);
+        verify(meetingService, never()).endMeeting(anyString());
+    }
+
     private static Meeting meeting(String id, String status) {
         Meeting m = new Meeting();
         m.setId(id);

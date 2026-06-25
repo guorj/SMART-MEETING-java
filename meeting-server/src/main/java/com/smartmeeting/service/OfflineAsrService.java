@@ -30,6 +30,7 @@ public class OfflineAsrService {
     private final MeetingMapper meetingMapper;
     private final ParticipantMapper participantMapper;
     private final MeetingAudioMaterializerService meetingAudioMaterializerService;
+    private final AudioNormalizeService audioNormalizeService;
     private final OfflineCorrectionService correctionService;
     private final MeetingMinuteProperties minuteProperties;
     private final DomainEventPublisher domainEventPublisher;
@@ -59,6 +60,17 @@ public class OfflineAsrService {
         }
         String effectivePath = meetingAudioMaterializerService.materialize(
                 meetingId, audioPath, meeting.getSourceAudioUrl());
+        if (effectivePath == null || effectivePath.isBlank()) {
+            log.error("Offline ASR skipped: audio missing for meeting {}", meetingId);
+            return;
+        }
+
+        var normalized = audioNormalizeService.normalize(meetingId, effectivePath);
+        if (!normalized.usableForAsr()) {
+            log.warn("Offline ASR skipped due to audio quality: meetingId={}, status={}, message={}",
+                    meetingId, normalized.qualityStatus(), normalized.getQuality().getMessage());
+            return;
+        }
 
         List<Participant> participants = participantMapper.selectList(
                 new LambdaQueryWrapper<Participant>().eq(Participant::getMeetingId, meetingId));
@@ -70,7 +82,7 @@ public class OfflineAsrService {
                 .toList();
 
         OfflineTranscribeRequest request = OfflineTranscribeRequest.of(
-                meetingId, effectivePath, resolvedFeatureIds, participants.size());
+                meetingId, normalized.getNormalizedPath(), resolvedFeatureIds, participants.size());
         correctionService.correct(request);
     }
 

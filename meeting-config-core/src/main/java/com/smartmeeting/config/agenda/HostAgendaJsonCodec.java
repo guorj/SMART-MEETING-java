@@ -90,6 +90,9 @@ public final class HostAgendaJsonCodec {
                 if (item.getDetail() != null && !item.getDetail().isBlank()) {
                     n.put("detail", item.getDetail().trim());
                 }
+                if (item.getOabpTaskSql() != null && !item.getOabpTaskSql().isBlank()) {
+                    n.put("oabpTaskSql", item.getOabpTaskSql().strip());
+                }
                 List<HostAgendaDocBinding> docs = normalizedDocs(item);
                 if (!docs.isEmpty()) {
                     ArrayNode docArr = n.putArray("docs");
@@ -357,6 +360,10 @@ public final class HostAgendaJsonCodec {
         String detail = n.path("detail").asText("").trim();
         if (!detail.isEmpty()) {
             item.setDetail(detail);
+        }
+        String oabpSql = n.path("oabpTaskSql").asText("").trim();
+        if (!oabpSql.isEmpty()) {
+            item.setOabpTaskSql(oabpSql);
         }
         List<HostAgendaDocBinding> docs = new ArrayList<>();
         JsonNode docsNode = n.path("docs");

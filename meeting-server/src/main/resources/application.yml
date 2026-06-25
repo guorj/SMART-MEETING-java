@@ -121,6 +121,21 @@ meeting:
   database:
     # 启动时只读校验会序飞书种子（不写库）；关闭：MEETING_DB_VALIDATE_SEED=false
     validate-seed-on-startup: ${MEETING_DB_VALIDATE_SEED:true}
+  datasource:
+    external:
+      oabp:
+        # [部署/密钥] 同 MySQL 实例 oabp 库（项目任务等）；默认关闭，启用：MEETING_DB_OABP_ENABLED=true
+        enabled: ${MEETING_DB_OABP_ENABLED:true}
+        url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/${DB_OABP_NAME:oabp}?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
+        username: ${DB_USERNAME:intelligence}
+        password: ${DB_PASSWORD:intelligence@2026}
+        driver-class-name: com.mysql.cj.jdbc.Driver
+        hikari:
+          maximum-pool-size: ${DB_OABP_POOL_MAX:10}
+          minimum-idle: 2
+          connection-timeout: 10000
+        max-query-rows: ${DB_OABP_MAX_QUERY_ROWS:500}
+        query-timeout-seconds: ${DB_OABP_QUERY_TIMEOUT:10}
   todo:
     # [冷启动] 待办到期提醒 Cron；Admin 只读 mirror
     reminder-enabled: ${MEETING_TODO_REMINDER_ENABLED:false}
@@ -183,6 +198,17 @@ meeting:
     queue-maxsize: 100
     # 写盘 flush 间隔（帧数）
     write-flush-interval: 25
+    # 离线 ASR 前是否标准化到 16k mono s16le
+    normalize-enabled: true
+    # 标准化输出文件名后缀
+    normalized-suffix: ".normalized.16k-mono.pcm"
+    # ffmpeg 可执行路径（WAV/MP3/M4A 或复杂 raw PCM 转码）
+    ffmpeg-path: ${MEETING_AUDIO_FFMPEG_PATH:ffmpeg}
+    ffmpeg-timeout-sec: 120
+    # 质量检测阈值（标准化后 PCM）
+    quality-min-duration-ms: 1000
+    quality-min-absmax: 100
+    quality-min-rms: 10.0
   # ----- [冷启动] 主持运行时 timing（Admin 只读 mirror）-----
   host:
     runtime:

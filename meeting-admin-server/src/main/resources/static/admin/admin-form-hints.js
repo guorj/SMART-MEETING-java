@@ -47,6 +47,7 @@
       configName: '资料 config_name，须与会务预设内唯一；weekly-jobs 按此引用。',
       resourceSlot: '资料槽位序号，同会序内从 0 递增。',
       feishuUrl: '飞书 docx / bitable / sheet 链接；保存后用于会中拉取与对比任务。',
+      oabpTaskSql: '可选。oabp 库只读 SELECT（单条、无分号），会中追加「项目任务」表格；须 meeting-server 启用 MEETING_DB_OABP_ENABLED。',
       localUpload: '支持 doc/docx、ppt/pptx、pdf、xls/xlsx、csv 与常见图片；ppt/pdf 单文件最大 50MB，可多选；旧版 .ppt 建议转为 pptx 以便会中幻灯片预览。',
       configRole: {
         SOURCE: 'SOURCE：可作为周报对比源资料。',

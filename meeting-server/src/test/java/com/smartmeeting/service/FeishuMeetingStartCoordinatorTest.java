@@ -62,7 +62,7 @@ class FeishuMeetingStartCoordinatorTest {
         request.setPresetTypeCode(8);
         when(feishuService.getUserNameByUserId("ou_alan")).thenReturn("Alan");
         when(jwtUtil.generateOperatorMeetingToken(any(), any(), any(), any())).thenReturn("tok-8");
-        when(meetingWebPageUrls.recordingPageUrl(any(), any())).thenReturn("https://host/rec/m-8?token=tok-8");
+        when(meetingWebPageUrls.recordingPageUrlWithAutostart(any(), any())).thenReturn("https://host/rec/m-8?token=tok-8&autostart=1");
         when(cardBuilder.buildMeetingCreatedNotifyCard(any(), any(), any())).thenReturn("{}");
         when(feishuService.sendInteractiveCardToUserId(any(), any())).thenReturn(true);
     }

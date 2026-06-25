@@ -4,7 +4,10 @@ import com.smartmeeting.api.dto.internal.VoiceprintRelabelResult;
 import com.smartmeeting.config.MeetingVoiceprintProperties;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.TranscriptSegment;
+import com.smartmeeting.enums.AudioQualityStatus;
 import com.smartmeeting.exception.BusinessException;
+import com.smartmeeting.model.AudioNormalizeResult;
+import com.smartmeeting.model.AudioQualityReport;
 import com.smartmeeting.repository.MeetingMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -32,6 +35,8 @@ class OfflineVoiceprintRelabelServiceTest {
     @Mock
     private MeetingAudioMaterializerService meetingAudioMaterializerService;
     @Mock
+    private AudioNormalizeService audioNormalizeService;
+    @Mock
     private TranscriptSegmentHelper transcriptSegmentHelper;
     @Mock
     private OfflineSpeakerLabeler offlineSpeakerLabeler;
@@ -51,10 +56,29 @@ class OfflineVoiceprintRelabelServiceTest {
         service = new OfflineVoiceprintRelabelService(
                 meetingMapper,
                 meetingAudioMaterializerService,
+                audioNormalizeService,
                 transcriptSegmentHelper,
                 voiceprintProperties,
                 offlineSpeakerLabeler,
                 voiceprintService);
+    }
+
+    private void stubUsableNormalize(String path) {
+        when(audioNormalizeService.normalize(eq(MEETING_ID), eq(path)))
+                .thenReturn(AudioNormalizeResult.builder()
+                        .meetingId(MEETING_ID)
+                        .originalPath(path)
+                        .normalizedPath(path)
+                        .quality(AudioQualityReport.builder()
+                                .durationMs(5000)
+                                .rms(100)
+                                .absmax(5000)
+                                .nonzeroRatio(0.5)
+                                .status(AudioQualityStatus.OK)
+                                .message("ok")
+                                .build())
+                        .converted(false)
+                        .build());
     }
 
     @Test
@@ -74,6 +98,7 @@ class OfflineVoiceprintRelabelServiceTest {
         when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(true);
         when(meetingAudioMaterializerService.materialize(eq(MEETING_ID), eq(pcm.toString()), isNull()))
                 .thenReturn(pcm.toString());
+        stubUsableNormalize(pcm.toString());
         when(transcriptSegmentHelper.listAllSegments(MEETING_ID))
                 .thenReturn(List.of(before))
                 .thenReturn(List.of(after));

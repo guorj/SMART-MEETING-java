@@ -167,6 +167,8 @@ AdminModules.register({
             .map(v => v.trim())
             .filter(Boolean);
         }
+        const oabpEl = tr.querySelector('.ag-oabp-sql');
+        if (oabpEl) bundleItems[i].oabpTaskSql = oabpEl.value.trim();
       });
     };
 
@@ -200,6 +202,7 @@ AdminModules.register({
           title: r.title.trim(),
           minutes: r.minutes || 10,
           owners: (r.owners || []).filter(Boolean),
+          oabpTaskSql: (r.oabpTaskSql || '').trim() || null,
           bindings: normalizeBindingSlots(r.bindings || []).map(b => ({
             id: b.id || null,
             configName: b.configName,
@@ -779,7 +782,7 @@ AdminModules.register({
         renderAgendaTable();
         autoSaveBundle();
       };
-      el.querySelectorAll('.ag-title, .ag-min, .ag-owners').forEach(inp => {
+      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql').forEach(inp => {
         inp.addEventListener('blur', () => autoSaveBundle());
       });
       el.querySelectorAll('.ag-owner-add').forEach(btn => btn.onclick = () => {
@@ -1388,6 +1391,7 @@ AdminModules.register({
         const tags = [];
         if (row.hasRollCallKeyword) tags.push('<span class="tag">检点</span>');
         if (row.hasOrphanDocs) tags.push('<span class="tag tag-warn">含未挂载资料</span>');
+        if ((row.oabpTaskSql || '').trim()) tags.push('<span class="tag tag-oabp">项目任务 SQL</span>');
         const tagHtml = tags.length ? `<div class="agenda-tags">${tags.join('')}</div>` : '';
         const bindings = row.bindings || [];
         const ownersText = (row.owners || []).join(', ');
@@ -1438,7 +1442,14 @@ AdminModules.register({
           bindings.forEach((d, bi) => { html += renderDocTile(d, i, bi); });
           html += '</div>';
         }
-        html += '</section></div></article>';
+        html += `</section>
+            <section class="agenda-card-oabp">
+              <div class="agenda-doc-toolbar">
+                <span class="agenda-doc-label">oabp 项目任务 SQL</span>
+              </div>
+              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT task_name, ... FROM jq_project_task_tracking WHERE deleted = 0" title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
+              <p class="doc-inline-hint-block">${AdminHints.presets.oabpTaskSql}</p>
+            </section></div></article>`;
       });
       html += '</div><div class="agenda-footer"><button type="button" class="ui-btn ui-btn-secondary" id="ag-add-row">+ 会序项</button></div>';
       el.innerHTML = html;

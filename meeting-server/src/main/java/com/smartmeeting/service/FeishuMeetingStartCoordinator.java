@@ -90,7 +90,7 @@ public class FeishuMeetingStartCoordinator {
         meetingPreStageService.runPreStage(meetingId, meeting.getPresetTypeCode());
 
         String recordingToken = ensureRecordingToken(meetingId, openId);
-        String recordingUrl = meetingWebPageUrls.recordingPageUrl(meetingId, recordingToken);
+        String recordingUrl = meetingWebPageUrls.recordingPageUrlWithAutostart(meetingId, recordingToken);
         meetingMapper.update(null, new LambdaUpdateWrapper<Meeting>()
                 .eq(Meeting::getId, meetingId)
                 .set(Meeting::getRecordingToken, recordingToken));
@@ -138,7 +138,9 @@ public class FeishuMeetingStartCoordinator {
             log.warn("Detected existing active meeting, returned existing flow: openId={}, meetingId={}",
                     openId, meeting.getId());
         } else {
-            sendCreatedNotifyCard(openId, chatId, meeting.getId(), meeting.getTitle(), recordingUrl);
+            String draftUrl = meetingWebPageUrls.recordingPageUrlWithAutostart(
+                    meeting.getId(), recordingToken);
+            sendCreatedNotifyCard(openId, chatId, meeting.getId(), meeting.getTitle(), draftUrl);
             log.info("Reused existing draft meeting: openId={}, meetingId={}, preset={}",
                     openId, meeting.getId(), meeting.getPresetTypeCode());
         }

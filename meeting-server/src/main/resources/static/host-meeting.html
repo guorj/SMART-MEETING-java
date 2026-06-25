@@ -135,7 +135,7 @@
               <button class="btn-secondary ui-btn ui-btn-secondary" type="button" id="btnExtendTopic" disabled><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> 确认加时</button>
             </div>
             <div class="control-danger-zone">
-              <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
+              <button class="btn-danger ui-btn ui-btn-danger" type="button" id="btnEnd" disabled title="请先点击「开始会议」后再结束"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6"/></svg> 结束会议</button>
             </div>
             <div class="roll-call-wrap" id="rollCallWrap" style="display:none">
               <h3>会议检点</h3>
@@ -223,6 +223,7 @@
     (function () {
       const params = new URLSearchParams(location.search);
       const token = params.get('token');
+      const autostartRequested = params.get('autostart') === '1';
       const parts = location.pathname.split('/').filter(Boolean);
       const meetingId = parts[parts.length - 1] || '';
 
@@ -295,6 +296,10 @@
       let recTimerRunning = false;
       let meetingLive = false;
       let meetingCancelled = false;
+      /** DB 侧会议已在进行（STARTED/RECORDING/PAUSED），即使主持 runtime 已丢失 */
+      let meetingServerActive = false;
+      /** DB 侧会议已结束或纪要处理中 */
+      let meetingTerminal = false;
       /** 本场是否已启动主持会话（POST /start 或 adopt active）；结束前不重置 */
       let hostSessionStarted = false;
       let startInFlight = false;
@@ -594,6 +599,7 @@
         if (k === 'SHEET') return '电子表格';
         if (k === 'TASKLIST') return '任务清单';
         if (k === 'LOCAL') return '本地资料';
+        if (k === 'OABP') return '项目任务';
         return '飞书资料';
       }
 
@@ -1738,6 +1744,7 @@
         if (k === 'wiki') return 'feishu-kind-wiki';
         if (k === 'sheet') return 'feishu-kind-sheet';
         if (k === 'tasklist') return 'feishu-kind-tasklist';
+        if (k === 'oabp') return 'feishu-kind-oabp';
         return 'feishu-kind-unknown';
       }
 
@@ -3453,6 +3460,35 @@
         }
       }
 
+      function syncEndMeetingButton() {
+        if (!canOperate) return;
+        var endBtn = document.getElementById('btnEnd');
+        if (!endBtn) return;
+        endBtn.disabled = !(hostSessionStarted || meetingLive || meetingServerActive);
+        endBtn.title = endBtn.disabled ? '请先点击「开始会议」后再结束' : '';
+      }
+
+      function isNotStartedMeetingStatus(st) {
+        return st === 'ISSUE_COLLECTING' || st === 'INVITED';
+      }
+
+      function isServerActiveMeetingStatus(st) {
+        return st === 'STARTED' || st === 'RECORDING' || st === 'PAUSED';
+      }
+
+      function isTerminalMeetingStatus(st) {
+        return st === 'PROCESSING' || st === 'COMPLETED' || st === 'TODO_TRACKING';
+      }
+
+      function clearAutostartQueryParam() {
+        if (!autostartRequested || !history.replaceState) return;
+        try {
+          var clean = new URL(location.href);
+          clean.searchParams.delete('autostart');
+          history.replaceState(null, '', clean.pathname + clean.search + clean.hash);
+        } catch (e) { /* ignore */ }
+      }
+
       function syncLiveMeetingChrome(obj) {
         if (!canOperate) return;
         var btnStart = document.getElementById('btnStartMeeting');
@@ -3468,6 +3504,7 @@
             showCopyViewerLinkButton();
           }
           syncRecordingReconnectUi(obj);
+          syncEndMeetingButton();
           return;
         }
         if (btnStart) {
@@ -3477,6 +3514,7 @@
         }
         setMeetingPausedUI(false);
         syncRecordingReconnectUi(null);
+        syncEndMeetingButton();
       }
 
       function wireRecorderCallbacks() {
@@ -3586,6 +3624,7 @@
           if (meetingLive) {
             meetingLive = false;
             hostSessionStarted = false;
+            meetingServerActive = false;
             stopHostStatePoll();
             syncLiveMeetingChrome(null);
             clearAudioSessionStorage();
@@ -3898,6 +3937,8 @@
           if (j.code !== 0 || !j.data) return;
           var d = j.data;
           meetingCancelled = d.status === 'CANCELLED';
+          meetingTerminal = isTerminalMeetingStatus(d.status);
+          meetingServerActive = isServerActiveMeetingStatus(d.status);
           if (meetingCancelled) {
             updateMeetingStatusBadge('已取消', 'danger');
             showErr('会议已取消，不能开始。请返回工作台重新创建会议。');
@@ -3906,6 +3947,17 @@
               startBtn.disabled = true;
               startBtn.textContent = '会议已取消';
             }
+          } else if (meetingTerminal) {
+            updateMeetingStatusBadge(d.status === 'COMPLETED' ? '已结束' : '纪要生成中', 'neutral');
+            showErr('本场会议已结束或正在生成纪要，不能重新开始。');
+            var startBtnTerminal = document.getElementById('btnStartMeeting');
+            if (startBtnTerminal) {
+              startBtnTerminal.disabled = true;
+              startBtnTerminal.textContent = meetingTerminal && d.status === 'COMPLETED' ? '会议已结束' : '纪要生成中';
+            }
+          } else if (meetingServerActive) {
+            updateMeetingStatusBadge(d.status === 'PAUSED' ? '已暂停' : '进行中', d.status === 'PAUSED' ? 'warning' : 'success');
+            showErr('主持会话已中断。请点击「开始会议」恢复主持并「重连录音」，或直接「结束会议」。');
           }
           if (d.title) {
             updateMeetingHeader(d.title, pageEntryLabel());
@@ -4057,11 +4109,21 @@
             if (meetingCancelled) {
               btnStartInit.disabled = true;
               btnStartInit.textContent = '会议已取消';
+            } else if (meetingTerminal) {
+              btnStartInit.disabled = true;
             } else if (!hostSessionStarted && !meetingLive) {
               btnStartInit.disabled = false;
-              btnStartInit.textContent = '开始会议';
+              btnStartInit.textContent = autostartRequested ? '正在开始…' : '开始会议';
             }
+            syncEndMeetingButton();
             showCopyViewerLinkButton();
+            if (autostartRequested && canOperate && !meetingCancelled && !meetingTerminal && !meetingServerActive
+                && !hostSessionStarted && !meetingLive) {
+              if (window.HostMeetingRail && typeof HostMeetingRail.openDrawer === 'function') {
+                HostMeetingRail.openDrawer({ pinned: true, scrollTo: 'control' });
+              }
+              startMeetingFlow();
+            }
           }
         });
       setMeetingPausedUI(false);
@@ -4122,7 +4184,7 @@
         rBtn.style.display = paused ? 'inline-block' : 'none';
       }
 
-      document.getElementById('btnStartMeeting').onclick = async function () {
+      async function startMeetingFlow() {
         if (!canOperate || startInFlight || hostSessionStarted || meetingCancelled) return;
         showErr('');
         const btn = document.getElementById('btnStartMeeting');
@@ -4130,18 +4192,20 @@
         btn.textContent = '连接中…';
         startInFlight = true;
         try {
-          await connectRecorder();
           var st = await beginHostSession();
+          await connectRecorder();
           if (st && st.topics && st.topics.length) {
             plannedTopicsCache = st.topics.map(hostTopicToCacheItem);
           }
           meetingLive = true;
+          meetingServerActive = true;
           lastHostStateObj = st;
           renderHostState(st);
           showCopyViewerLinkButton();
           startHostStatePoll();
           syncLiveMeetingChrome(st);
           btn.textContent = '会议进行中';
+          clearAutostartQueryParam();
         } catch (e) {
           showErr('会议启动失败：' + (e.message || e));
           if (recorder) {
@@ -4152,15 +4216,21 @@
           updateRecordingStatusUI('idle');
           meetingLive = false;
           hostSessionStarted = false;
+          meetingServerActive = false;
           clearAudioSessionStorage();
           stopHostStatePoll();
           btn.disabled = false;
           btn.textContent = '开始会议';
           setMeetingPausedUI(false);
           syncRecordingReconnectUi(null);
+          syncEndMeetingButton();
         } finally {
           startInFlight = false;
         }
+      }
+
+      document.getElementById('btnStartMeeting').onclick = function () {
+        startMeetingFlow();
       };
 
       var btnReconnectInit = document.getElementById('btnReconnectRecording');
@@ -4252,6 +4322,10 @@
       };
 
       document.getElementById('btnEnd').onclick = async function () {
+        if (!(hostSessionStarted || meetingLive || meetingServerActive)) {
+          showErr('会议尚未开始，请先点击「开始会议」。若要取消预约，请返回工作台点击「取消预约」。');
+          return;
+        }
         if (!confirm('确定结束会议并生成纪要？')) return;
         showErr('');
         const endBtn = document.getElementById('btnEnd');

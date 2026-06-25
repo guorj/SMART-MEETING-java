@@ -6,6 +6,7 @@ import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.entity.MeetingTypePreset;
 import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.service.cache.MeetingPresetCacheService;
+import com.smartmeeting.service.oabp.OabpAgendaTaskPartBuilder;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -30,6 +31,11 @@ class PresetAgendaDocServiceTest {
         }
     }
 
+    private PresetAgendaDocService newService(MeetingTypePresetMapper presetMapper) {
+        return new PresetAgendaDocService(
+                presetMapper, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null));
+    }
+
     @Test
     void enrichHostAgendaItems_doesNotOverrideExistingUrl() {
         HostAgendaItemDto item = new HostAgendaItemDto();
@@ -46,7 +52,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = newService(presetMapper);
         svc.enrichHostAgendaItems(1, items);
         assertEquals("https://x.feishu.cn/docx/doxExisting", items.get(1).getFeishuDocUrl());
     }
@@ -64,7 +70,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = newService(presetMapper);
         svc.enrichHostAgendaItems(1, items);
         assertEquals(1, items.get(0).getFeishuDocs().size());
         assertEquals("https://x.feishu.cn/docx/doxFromJson", items.get(0).getFeishuDocUrl());
@@ -82,7 +88,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = newService(presetMapper);
         Meeting meeting = new Meeting();
         meeting.setPresetTypeCode(1);
         var refs = svc.resolveAllResources(meeting, 1, null);
@@ -98,7 +104,7 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = newService(presetMapper);
         Meeting meeting = new Meeting();
         meeting.setPresetTypeCode(1);
         meeting.setHostAgenda("""
@@ -122,14 +128,15 @@ class PresetAgendaDocServiceTest {
                 """);
         MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
         when(presetMapper.selectById(1)).thenReturn(preset);
-        PresetAgendaDocService svc = new PresetAgendaDocService(presetMapper, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = newService(presetMapper);
         svc.enrichHostAgendaItems(1, items);
         assertEquals("https://x.feishu.cn/docx/doxFromPreset", items.get(0).getFeishuDocUrl());
     }
 
     @Test
     void resolveDocumentId_prefersRuntimeUrl() {
-        PresetAgendaDocService svc = new PresetAgendaDocService(null, presetCache, null, null, JSON);
+        PresetAgendaDocService svc = new PresetAgendaDocService(
+                null, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null));
         String id = svc.resolveDocumentId(null, 0, "https://x.feishu.cn/docx/doxRuntime");
         assertEquals("doxRuntime", id);
         assertNull(svc.resolveDocumentId(null, 0, ""));

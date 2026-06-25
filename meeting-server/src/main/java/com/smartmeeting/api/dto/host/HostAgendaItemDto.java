@@ -24,4 +24,6 @@ public class HostAgendaItemDto {
     private String feishuDocUrl;
     /** 可选：同一会序多条资料（base/docx/wiki），优先级高于单条 feishuDocUrl */
     private List<FeishuDocRefDto> feishuDocs;
+    /** 可选：oabp 库只读 SQL（jq_project_task_tracking 等），会序资料区表格展示 */
+    private String oabpTaskSql;
 }

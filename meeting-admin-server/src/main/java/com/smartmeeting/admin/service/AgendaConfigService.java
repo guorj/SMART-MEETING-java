@@ -16,6 +16,7 @@ import com.smartmeeting.config.agenda.HostAgendaItem;
 import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
 import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import com.smartmeeting.config.agenda.PresetScheduleConfigCodec;
+import com.smartmeeting.config.oabp.OabpReadOnlySqlValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -222,6 +223,10 @@ public class AgendaConfigService {
                 }
                 issues.addAll(validateBindingSnapshot(seq, b, configNames));
             }
+            String oabpIssue = OabpReadOnlySqlValidator.validateOptional(item.getOabpTaskSql());
+            if (oabpIssue != null) {
+                issues.add("会序 " + seq + "「" + item.getTitle().trim() + "」oabpTaskSql: " + oabpIssue);
+            }
         }
         issues.addAll(findCrossPresetConfigNameConflicts(presetTypeCode, configNames));
         return issues;
@@ -305,6 +310,7 @@ public class AgendaConfigService {
                     .minutes(item.getMinutes())
                     .owners(item.getOwners() != null ? new ArrayList<>(item.getOwners()) : new ArrayList<>())
                     .hasRollCallKeyword(item.getTitle() != null && item.getTitle().contains("检点"))
+                    .oabpTaskSql(item.getOabpTaskSql())
                     .bindings(bindings)
                     .build());
         }
@@ -339,13 +345,27 @@ public class AgendaConfigService {
         assertConfigNamesUniqueAcrossPresets(presetTypeCode, configNames);
 
         List<HostAgendaItem> coreItems = new ArrayList<>();
-        for (HostAgendaBundleItemDto item : items) {
+        for (int i = 0; i < items.size(); i++) {
+            HostAgendaBundleItemDto item = items.get(i);
             if (item.getTitle() == null || item.getTitle().isBlank()) {
                 continue;
+            }
+            String oabpSql = item.getOabpTaskSql();
+            if (oabpSql != null && !oabpSql.isBlank()) {
+                try {
+                    oabpSql = OabpReadOnlySqlValidator.validateAndNormalize(oabpSql);
+                } catch (IllegalArgumentException e) {
+                    throw new BusinessException("会序 " + (i + 1) + " oabpTaskSql: " + e.getMessage());
+                }
+            } else {
+                oabpSql = null;
             }
             HostAgendaItem hi = new HostAgendaItem();
             hi.setTitle(item.getTitle().trim());
             hi.setMinutes(item.getMinutes() != null && item.getMinutes() > 0 ? item.getMinutes() : 10);
+            if (oabpSql != null) {
+                hi.setOabpTaskSql(oabpSql);
+            }
             if (item.getOwners() != null && !item.getOwners().isEmpty()) {
                 List<String> owners = item.getOwners().stream()
                         .filter(v -> v != null && !v.isBlank())

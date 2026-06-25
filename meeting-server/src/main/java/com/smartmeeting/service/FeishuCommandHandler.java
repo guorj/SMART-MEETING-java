@@ -65,6 +65,7 @@ public class FeishuCommandHandler {
     private final AgendaFillCampaignService agendaFillCampaignService;
     private final TranscriptMapper transcriptMapper;
     private final PostMeetingOrchestrator postMeetingOrchestrator;
+    private final MeetingRecordingSessionEndService meetingRecordingSessionEndService;
     private final DashboardGrantService dashboardGrantService;
     private final TodoService todoService;
     private final TodoReasonPendingStore todoReasonPendingStore;
@@ -594,7 +595,8 @@ public class FeishuCommandHandler {
                 activeQuery.eq(Meeting::getCreatorId, openId);
                 activeQuery.in(Meeting::getStatus, 
                     MeetingStatus.STARTED.name(), 
-                    MeetingStatus.RECORDING.name());
+                    MeetingStatus.RECORDING.name(),
+                    MeetingStatus.PAUSED.name());
                 meeting = meetingMapper.selectOne(activeQuery);
             }
 
@@ -612,7 +614,8 @@ public class FeishuCommandHandler {
             // 状态校验
             String currentStatus = meeting.getStatus();
             if (!MeetingStatus.STARTED.name().equals(currentStatus) &&
-                !MeetingStatus.RECORDING.name().equals(currentStatus)) {
+                !MeetingStatus.RECORDING.name().equals(currentStatus) &&
+                !MeetingStatus.PAUSED.name().equals(currentStatus)) {
                 feishuService.sendMessage(chatId, 
                     "会议「" + meeting.getTitle() + "」当前状态为" + currentStatus + "，无需结束");
                 return;
@@ -622,8 +625,7 @@ public class FeishuCommandHandler {
             String processingCard = cardBuilder.buildProcessingCard(meeting.getTitle());
             feishuService.sendInteractiveCard(chatId, processingCard);
 
-            // 结束会议（触发纪要生成）
-            MeetingResponse response = meetingService.endMeeting(meeting.getId());
+            MeetingResponse response = meetingRecordingSessionEndService.endFromRecordingPage(meeting.getId());
 
             log.info("会议已结束: meetingId={}, status={}", meeting.getId(), response.getStatus());
 
