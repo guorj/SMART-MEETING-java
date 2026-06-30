@@ -69,6 +69,10 @@ VALUES
     -- Web
     ('meeting.web.static-cache-seconds', 'web', '300', '静态资源缓存秒数', NOW()),
     ('meeting.web.page-cache-buster', 'web', '""', '录音/主持页 URL 缓存破除', NOW()),
+    -- 飞书 VC 云端录制（妙记音视频 File B）
+    ('meeting.vc.recording-enabled', 'vc', 'false', '飞书 VC 云端录制总开关', NOW()),
+    ('meeting.vc.auto-record', 'vc', 'true', '日历事件 auto_record（recording-enabled=true 时生效）', NOW()),
+    ('meeting.vc.callback-timeout-min', 'vc', '15', 'recording_ready 回调等待超时（分钟）', NOW()),
     -- OpenClaw
     ('openclaw.enabled', 'openclaw', 'true', 'OpenClaw 增强', NOW()),
     ('openclaw.skill-mode', 'openclaw', 'true', 'OpenClaw Skill 模式', NOW()),

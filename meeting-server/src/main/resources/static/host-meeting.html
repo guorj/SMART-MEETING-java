@@ -626,7 +626,9 @@
       }
 
       function topicHasWeeklyReport(topic) {
-        return !!(topic && topic.generatedReportUrl && String(topic.generatedReportUrl).trim());
+        if (!topic) return false;
+        if (topic.generatedReportRunId) return true;
+        return !!(topic.generatedReportUrl && String(topic.generatedReportUrl).trim());
       }
 
       function topicHasOutputFeishuDoc(topic) {
@@ -892,7 +894,10 @@
             at.textContent = '生成时间：' + reportAt;
             reportBlock.appendChild(at);
           }
-          if (apiReport && apiReport.contentType && apiReport.structuredContent) {
+          // v0.26：优先结构化 items（库内）
+          if (apiReport && apiReport.items && apiReport.items.length >= 0 && apiReport.runId) {
+            renderWeeklyItemsBlock(reportBlock, apiReport);
+          } else if (apiReport && apiReport.contentType && apiReport.structuredContent) {
             var body = document.createElement('div');
             body.className = 'feishu-doc-body';
             if (renderStructuredContent(body, {
@@ -915,9 +920,12 @@
             err.textContent = apiReport.fetchError;
             reportBlock.appendChild(err);
           }
-          var reportUrl = (apiReport && apiReport.generatedReportUrl) || topic.generatedReportUrl;
-          var reportLink = buildFeishuOpenLink(reportUrl, 'DOCX');
-          if (reportLink) reportBlock.appendChild(reportLink);
+          // 无 runId 时才渲染旧飞书外链（过渡期）
+          if (!(apiReport && apiReport.runId)) {
+            var reportUrl = (apiReport && apiReport.generatedReportUrl) || topic.generatedReportUrl;
+            var reportLink = buildFeishuOpenLink(reportUrl, 'DOCX');
+            if (reportLink) reportBlock.appendChild(reportLink);
+          }
           panel.appendChild(reportBlock);
         }
         if (topicHasOutputFeishuDoc(topic) && topic.outputFeishuDocUrl !== topic.generatedReportUrl) {
@@ -929,6 +937,54 @@
           var outLink = buildFeishuOpenLink(topic.outputFeishuDocUrl, '');
           if (outLink) outBlock.appendChild(outLink);
           panel.appendChild(outBlock);
+        }
+      }
+
+      /**
+       * 渲染 v0.26 结构化事项三组（延期/已完成/进行中）。无事项的组显示「无」。
+       */
+      function renderWeeklyItemsBlock(reportBlock, apiReport) {
+        var items = apiReport.items || [];
+        var groups = [
+          { key: 'DELAYED', label: '延期事项' },
+          { key: 'COMPLETED', label: '已完成事项' },
+          { key: 'IN_PROGRESS', label: '进行中事项' }
+        ];
+        groups.forEach(function (g) {
+          var h = document.createElement('div');
+          h.className = 'weekly-items-group';
+          var gh = document.createElement('p');
+          gh.className = 'weekly-items-group-title';
+          gh.textContent = g.label;
+          h.appendChild(gh);
+          var groupItems = items.filter(function (it) { return it.category === g.key; });
+          if (!groupItems.length) {
+            var none = document.createElement('p');
+            none.className = 'muted';
+            none.textContent = '无';
+            h.appendChild(none);
+          } else {
+            var ul = document.createElement('ul');
+            ul.className = 'weekly-items-list';
+            groupItems.forEach(function (it) {
+              var li = document.createElement('li');
+              var assignee = it.assignee ? it.assignee : '未提及';
+              var time = it.timeNode ? it.timeNode : '未提及';
+              li.textContent = '事项：' + it.matterName
+                + '，责任人：' + assignee
+                + '，时间节点：' + time
+                + '，状态：' + it.statusLabel;
+              ul.appendChild(li);
+            });
+            h.appendChild(ul);
+          }
+          reportBlock.appendChild(h);
+        });
+        if (apiReport.fetchError) {
+          var err = document.createElement('div');
+          err.className = 'feishu-fetch-error';
+          err.textContent = apiReport.fetchError;
+          reportBlock.appendChild(err);
         }
       }
 
@@ -2485,6 +2541,156 @@
         });
       }
 
+      var OABP_STATUS_ORDER = ['已延期', '已完成', '进行中', '未开始'];
+      var OABP_STATUS_CLASS = {
+        '已延期': 'task-status-delayed',
+        '已完成': 'task-status-done',
+        '进行中': 'task-status-open',
+        '未开始': 'task-status-pending'
+      };
+
+      function oabpStatusBadgeClass(label) {
+        return OABP_STATUS_CLASS[label] || 'task-status-pending';
+      }
+
+      function renderOabpSheetCell(td, header, value) {
+        var text = value != null ? String(value) : '';
+        if (header === '状态' && text) {
+          var badge = document.createElement('span');
+          badge.className = 'task-status-badge ' + oabpStatusBadgeClass(text);
+          badge.textContent = text;
+          td.appendChild(badge);
+          return;
+        }
+        if (header === '进度' && text !== '') {
+          var num = parseFloat(String(text).replace('%', ''));
+          if (!isNaN(num)) {
+            var pct = num <= 1 ? Math.round(num * 100) : Math.round(num);
+            pct = Math.max(0, Math.min(100, pct));
+            var bar = document.createElement('div');
+            bar.className = 'bitable-progress-bar';
+            bar.innerHTML = '<span style="width:' + pct + '%"></span>';
+            var label = document.createElement('span');
+            label.className = 'bitable-progress-label';
+            label.textContent = pct + '%';
+            td.appendChild(bar);
+            td.appendChild(label);
+            return;
+          }
+        }
+        if ((header === '长期任务' || header === '待办事项') && (text.length > 100 || text.indexOf('\n') >= 0)) {
+          td.className = 'cell-long-text';
+          var box = document.createElement('div');
+          box.className = 'feishu-field-value-long';
+          box.textContent = text;
+          td.appendChild(box);
+          return;
+        }
+        td.textContent = text;
+        if (header === '进度' || header === '截止日期' || header === '开始日期') {
+          td.className = 'cell-numeric';
+        }
+      }
+
+      function groupOabpRowsByStatus(headers, rows) {
+        var statusIdx = headers.indexOf('状态');
+        if (statusIdx < 0) return [{ title: '', rows: rows || [] }];
+        var buckets = {};
+        (rows || []).forEach(function (row) {
+          var status = row && row.length > statusIdx ? String(row[statusIdx] || '').trim() : '';
+          if (!status) status = '未开始';
+          if (!buckets[status]) buckets[status] = [];
+          buckets[status].push(row);
+        });
+        var sections = [];
+        OABP_STATUS_ORDER.forEach(function (status) {
+          if (buckets[status] && buckets[status].length) {
+            sections.push({ title: status, rows: buckets[status] });
+            delete buckets[status];
+          }
+        });
+        Object.keys(buckets).forEach(function (status) {
+          sections.push({ title: status, rows: buckets[status] });
+        });
+        return sections;
+      }
+
+      function renderOabpTaskSheetTable(parentEl, headers, rows) {
+        var scroll = document.createElement('div');
+        scroll.className = 'structured-table-scroll';
+        var table = document.createElement('table');
+        table.className = 'structured-data-table structured-data-table-sticky oabp-task-table';
+        if (headers && headers.length) {
+          var thead = document.createElement('thead');
+          var headRow = document.createElement('tr');
+          headers.forEach(function (h) {
+            var th = document.createElement('th');
+            th.textContent = h || '';
+            headRow.appendChild(th);
+          });
+          thead.appendChild(headRow);
+          table.appendChild(thead);
+        }
+        var tbody = document.createElement('tbody');
+        (rows || []).forEach(function (row) {
+          var tr = document.createElement('tr');
+          (row || []).forEach(function (cell, colIdx) {
+            var td = document.createElement('td');
+            renderOabpSheetCell(td, headers[colIdx] || '', cell);
+            tr.appendChild(td);
+          });
+          tbody.appendChild(tr);
+        });
+        table.appendChild(tbody);
+        scroll.appendChild(table);
+        parentEl.appendChild(scroll);
+      }
+
+      function renderOabpTaskSheet(el, data, opts) {
+        if (!data) return false;
+        var headers = data.headers || [];
+        var rows = filterSheetDataRows(data.rows || []);
+        var trimmed = trimSheetTrailingEmptyColumns(headers, rows);
+        headers = trimmed.headers;
+        rows = trimmed.rows;
+        if (!headers.length && !rows.length) return false;
+        var root = document.createElement('div');
+        root.className = 'structured-oabp-task-root';
+        if (data.sheetName) {
+          var title = document.createElement('h3');
+          title.className = 'structured-oabp-task-title';
+          title.textContent = data.sheetName;
+          root.appendChild(title);
+        }
+        var sections = groupOabpRowsByStatus(headers, rows);
+        if (sections.length <= 1 && (!sections[0] || !sections[0].title)) {
+          var singleWrap = document.createElement('div');
+          singleWrap.className = 'structured-sheet structured-oabp-task-sheet';
+          renderOabpTaskSheetTable(singleWrap, headers, rows);
+          root.appendChild(singleWrap);
+        } else {
+          sections.forEach(function (section) {
+            var block = document.createElement('div');
+            block.className = 'structured-oabp-task-group structured-sheet';
+            var heading = document.createElement('div');
+            heading.className = 'structured-oabp-status-heading ' + oabpStatusBadgeClass(section.title);
+            var badge = document.createElement('span');
+            badge.className = 'task-status-badge ' + oabpStatusBadgeClass(section.title);
+            badge.textContent = section.title;
+            heading.appendChild(badge);
+            var count = document.createElement('span');
+            count.className = 'structured-oabp-status-count';
+            count.textContent = section.rows.length + ' 项';
+            heading.appendChild(count);
+            block.appendChild(heading);
+            renderOabpTaskSheetTable(block, headers, section.rows);
+            root.appendChild(block);
+          });
+        }
+        el.appendChild(root);
+        return true;
+      }
+
       function renderExcelWorkbook(el, wb, opts) {
         if (!wb || !wb.sheets || !wb.sheets.length) return;
         wb.sheets.forEach(function (sheet) {
@@ -2731,7 +2937,11 @@
             prefetchAgendaImages(p.images);
           }
           if (p.structuredContent && p.contentType) {
-            rendered = renderStructuredContent(body, p, opts);
+            if (p.docKind === 'OABP' && p.contentType === 'sheet_cells') {
+              rendered = renderOabpTaskSheet(body, p.structuredContent, opts);
+            } else {
+              rendered = renderStructuredContent(body, p, opts);
+            }
           }
           if (!rendered && p.plainText) {
             appendFeishuDocBodyContent(body, p.plainText, p.docKind);

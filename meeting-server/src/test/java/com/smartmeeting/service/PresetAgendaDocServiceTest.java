@@ -33,7 +33,7 @@ class PresetAgendaDocServiceTest {
 
     private PresetAgendaDocService newService(MeetingTypePresetMapper presetMapper) {
         return new PresetAgendaDocService(
-                presetMapper, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null));
+                presetMapper, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null), null);
     }
 
     @Test
@@ -136,7 +136,7 @@ class PresetAgendaDocServiceTest {
     @Test
     void resolveDocumentId_prefersRuntimeUrl() {
         PresetAgendaDocService svc = new PresetAgendaDocService(
-                null, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null));
+                null, presetCache, null, null, JSON, new OabpAgendaTaskPartBuilder(JSON, null), null);
         String id = svc.resolveDocumentId(null, 0, "https://x.feishu.cn/docx/doxRuntime");
         assertEquals("doxRuntime", id);
         assertNull(svc.resolveDocumentId(null, 0, ""));

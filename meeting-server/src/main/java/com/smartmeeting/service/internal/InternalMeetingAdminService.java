@@ -65,6 +65,29 @@ public class InternalMeetingAdminService {
         }
     }
 
+    /**
+     * 写入妙记 minute_token（Admin 手动补录或 webhook 兜底）。
+     * <p>
+     * 用于 webhook 未到或丢失时，运维从飞书妙记页面拿到 token 后手动写入，
+     * 后续「重新生成纪要」会自动走 File B 转写。
+     *
+     * @param meetingId   会议 ID
+     * @param minuteToken 妙记 token（24 字符）；空串视为清除
+     * @param recordingUrl 妙记页面 URL（可选，便于人工核对）
+     */
+    public void setVcMinuteToken(String meetingId, String minuteToken, String recordingUrl) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            throw new BusinessException(404, "会议不存在: " + meetingId);
+        }
+        String token = minuteToken == null ? "" : minuteToken.trim();
+        meeting.setVcMinuteToken(token.isBlank() ? null : token);
+        if (recordingUrl != null && !recordingUrl.isBlank()) {
+            meeting.setVcRecordingUrl(recordingUrl.trim());
+        }
+        meetingMapper.updateById(meeting);
+    }
+
     private List<Meeting> resolveTargets(int preset, List<String> meetingIds) {
         if (meetingIds != null && !meetingIds.isEmpty()) {
             LambdaQueryWrapper<Meeting> q = new LambdaQueryWrapper<>();

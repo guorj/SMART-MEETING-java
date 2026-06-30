@@ -38,6 +38,7 @@
 - **改期**：`PATCH /api/v1/meetings/{id}/schedule`（或 Dashboard/Admin 桥接）；更新 DB 后若 `room_id` 已有飞书 event_id 则 PATCH 日历（`need_notification` 通知参会人）。
 - **会前日历** 步骤 `pre-calendar-create`：`calendarMode=upsert`（有 event 则更新）；预约型默认读 `scheduled_time`。
 - **飞书视频会议**：Dashboard 预约与流水线创建日历时，**默认**绑定飞书原生 VC（`vchat.vcType=vc`，日历详情出现 `vc.feishu.cn/j/...` 与「发起视频会议」）。Admin 步骤 config 可关闭（`vchat.enabled=false`）或改为 `third_party`（填 `meetingUrl` 指向智能会议录音页）。
+- **飞书云录制接入（2026-06-28）**：开启 `meeting.vc.recording-enabled=true` 后，预约会议建会时日历事件自动设 `auto_record=true`，飞书侧会议结束后推送 `vc.meeting.recording_ready_v1` 回调，系统提取 `minute_token` 落库。会后离线转写优先用妙记音视频（File B，`{meetingId}_vc.pcm`）覆盖远程参会人声音；无 token 或下载失败时回退浏览器 PCM（File A）。webhook 未到时 Admin 可在会议详情页手动填入 `vcMinuteToken`，点「重新生成纪要」补走 File B。详见 [feishu-vc-recording-design.md](feishu-vc-recording-design.md)。
 - 步骤 config 示例：`{"roomHint":"3楼会议室","durationMinutes":60,"attendeeSource":"participants_and_creator","calendarMode":"upsert","startTimeSource":"scheduled_time","vchat":{"enabled":true,"vcType":"vc"}}`。
 - **Admin 会议管理**：全字段可读；未开始会议可编辑基本信息/议程/改期；`roomId` 展示为飞书 calendar event_id（只读）。
 

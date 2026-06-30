@@ -1,10 +1,11 @@
 # 飞书 VC 云端录制接入设计（修订版）
 
-> 文档版本：2026-06-20  
-> 状态：**修订完成，待实施**  
+> 文档版本：2026-06-28  
+> 状态：**P1-P4 已落地（File B 音视频路径）**；File C 妙记转录直写与 A+B 合并暂不实施  
 > 关联：[开关手册.md](开关手册.md) §3.4、[USER-MANUAL.md](USER-MANUAL.md) §2.1  
 > 前置问题：浏览器麦克风无法采集飞书会议中远程参会人的语音  
-> 修订说明：原 v2026-06-10 方案经 API 文档验证存在 3 个致命缺陷，本版改为「日历自动录制 + 妙记 API」路径
+> 修订说明：原 v2026-06-10 方案经 API 文档验证存在 3 个致命缺陷，本版改为「日历自动录制 + 妙记 API」路径  
+> 2026-06-28 修订：明确范围仅为 File B（妙记音视频），不做 File C（妙记转录直写）与 A+B 合并
 
 ---
 
@@ -402,11 +403,11 @@ RecordingService.stopRecording()
 | 阶段 | 内容 | 状态 |
 |------|------|------|
 | P0 | 文档修订（本文档） | ✅ 已完成 |
-| P1 | 飞书权限申请（妙记 4 scope + `recording_ready` 事件订阅） | 待启动 |
-| P2 | `FeishuMinutesService` + 回调处理 + ffmpeg 转码 + meeting 关联 | 待启动 |
-| P3 | `AudioSourceResolver` + 离线 ASR / 转录直写对接 | 待启动 |
-| P4 | 日历 `autoRecord` 联动 + 开关热更 + 生产验证 | 待启动 |
-| P5 | （可选）妙记转录直取 + artifacts 纪要增强 | 待启动 |
+| P1 | 飞书权限申请（妙记 4 scope + `recording_ready` 事件订阅） | ✅ 妙记 scope 已开 + 数据权限全员已配；⚠️ `vc.meeting.recording_ready_v1` 事件订阅待用户在开发者后台操作 |
+| P2 | `FeishuMinutesService` + 回调处理 + ffmpeg 转码 + meeting 关联 | ✅ 已落地（`FeishuMinutesService`、`FeishuMinutesCallbackHandler`、`FeishuWebhookController` 事件分支） |
+| P3 | `AudioSourceResolver` + 离线 ASR 对接 | ✅ 已落地（有 File B 用 B，无则 A，不阻塞等待，不合并） |
+| P4 | 日历 `autoRecord` 联动 + 开关热更 + 生产验证 | ✅ 已落地（`MeetingVcProperties` + `MeetingRuntimeConfigLoader` 热更 + `syncScheduledMeeting` 联动） |
+| P5 | （可选）妙记转录直取 + artifacts 纪要增强 | ⏸️ 暂不实施（当前仅需 File B 音视频） |
 
 ---
 

@@ -131,13 +131,32 @@ export function formatTodayLocal() {
 }
 
 /**
+ * 飞书记录幂等键前缀（jq_project_task_tracking / jq_todos_task remark）。
+ * @param {string} recId
+ * @returns {string}
+ */
+export function buildFeishuRecIdRemark(recId) {
+  return `[feishu:recId=${recId}]`;
+}
+
+/**
+ * jq_todos_subtask 幂等键。
+ * @param {string} recId
+ * @param {number} subIndex 0-based 执行人下标
+ * @returns {string}
+ */
+export function buildFeishuSubtaskRemark(recId, subIndex) {
+  return `[feishu:recId=${recId}:sub=${subIndex}]`;
+}
+
+/**
  * @param {string} recId
  * @param {string[]} assigneeNames
  * @param {string} longTerm
  * @returns {string}
  */
 export function buildRemark(recId, assigneeNames, longTerm) {
-  const parts = [`[feishu:recId=${recId}]`];
+  const parts = [buildFeishuRecIdRemark(recId)];
   if (assigneeNames.length > 1) {
     parts.push(`共同执行人：${assigneeNames.slice(1).join('、')}`);
   }
@@ -179,6 +198,7 @@ export function normalizeRecord(recId, cells, fieldMap, optionMap, ctx) {
     status,
     progress,
     assigneeNames,
+    longTerm,
     remark: buildRemark(recId, assigneeNames, longTerm),
     tenantId: ctx.tenantId,
     projectId: null,
@@ -243,6 +263,7 @@ export function parseFeishuBase(filePath) {
  * @property {number} status
  * @property {number} progress
  * @property {string[]} assigneeNames
+ * @property {string} longTerm
  * @property {string} remark
  * @property {string} tenantId
  * @property {null} projectId

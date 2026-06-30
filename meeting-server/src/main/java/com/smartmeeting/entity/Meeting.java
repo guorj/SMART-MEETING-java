@@ -68,6 +68,12 @@ public class Meeting {
     private String recordingUrl;
     /** 录音/主持页 JWT token，长度可达 200+ 字符 */
     private String recordingToken;
+    /** 飞书 VC 入会链接（日历 vchat.meeting_url，建会时持久化） */
+    private String vcMeetingUrl;
+    /** 妙记 token（从 recording_ready_v1 回调 event.url 后缀提取，24 字符） */
+    private String vcMinuteToken;
+    /** 妙记页面 URL（与回调 event.url 一致，便于人工核对） */
+    private String vcRecordingUrl;
     /** 记录创建时间 */
     private LocalDateTime createdAt;
     /** 记录最后更新时间 */

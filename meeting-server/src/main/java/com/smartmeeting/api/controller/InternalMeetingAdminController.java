@@ -3,6 +3,7 @@ package com.smartmeeting.api.controller;
 import com.smartmeeting.api.dto.ApiResponse;
 import com.smartmeeting.api.dto.internal.RefreshHostAgendaRequest;
 import com.smartmeeting.api.dto.internal.RefreshHostAgendaResult;
+import com.smartmeeting.api.dto.internal.SetVcMinuteTokenRequest;
 import com.smartmeeting.api.dto.internal.VoiceprintRelabelResult;
 import com.smartmeeting.config.InternalApiAuth;
 import com.smartmeeting.service.OfflineVoiceprintRelabelService;
@@ -48,5 +49,22 @@ public class InternalMeetingAdminController {
             HttpServletRequest httpRequest) {
         internalApiAuth.requireToken(httpRequest);
         return ApiResponse.ok(offlineVoiceprintRelabelService.relabel(meetingId));
+    }
+
+    /**
+     * 写入妙记 minute_token（Admin 手动补录）。
+     * <p>
+     * webhook 未到或丢失时，运维从飞书妙记页面拿 token 后手动写入，
+     * 后续「重新生成纪要」会自动走 File B 转写。
+     */
+    @PostMapping("/meetings/{meetingId}/vc-minute-token")
+    public ApiResponse<Void> setVcMinuteToken(
+            @PathVariable String meetingId,
+            @RequestBody SetVcMinuteTokenRequest request,
+            HttpServletRequest httpRequest) {
+        internalApiAuth.requireToken(httpRequest);
+        internalMeetingAdminService.setVcMinuteToken(meetingId,
+                request.getMinuteToken(), request.getRecordingUrl());
+        return ApiResponse.ok();
     }
 }

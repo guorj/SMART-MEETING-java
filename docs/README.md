@@ -7,6 +7,7 @@
 | 文档 | 作用 |
 |---|---|
 | [USER-MANUAL.md](USER-MANUAL.md) | 当前版本功能说明、运行流程、常见问题排查 |
+| [weekly-matter-comparison-USER-MANUAL.md](weekly-matter-comparison-USER-MANUAL.md) | 会前事项对比通报使用手册（v0.26 结果入库版） |
 | [开发计划.md](开发计划.md) | **已完成**：前台多人、并发 P0/P1、Dashboard 白名单（`dashboard.user_grants`） |
 | [版本迭代历史.md](版本迭代历史.md) | 版本时间线（0.01 起）+ **§7 发版规划至 2026-07-09**（每周 2 版） |
 | [开关手册.md](开关手册.md) | 已实现开关、建议开关、运维配置组合 |

@@ -169,6 +169,8 @@ AdminModules.register({
         }
         const oabpEl = tr.querySelector('.ag-oabp-sql');
         if (oabpEl) bundleItems[i].oabpTaskSql = oabpEl.value.trim();
+        const oabpShowEl = tr.querySelector('.ag-oabp-show');
+        if (oabpShowEl) bundleItems[i].oabpTaskShow = oabpShowEl.checked;
       });
     };
 
@@ -203,6 +205,7 @@ AdminModules.register({
           minutes: r.minutes || 10,
           owners: (r.owners || []).filter(Boolean),
           oabpTaskSql: (r.oabpTaskSql || '').trim() || null,
+          oabpTaskShow: r.oabpTaskShow !== false,
           bindings: normalizeBindingSlots(r.bindings || []).map(b => ({
             id: b.id || null,
             configName: b.configName,
@@ -213,6 +216,7 @@ AdminModules.register({
             originalFilename: isLocalBinding(b) ? b.originalFilename : null,
             mimeType: isLocalBinding(b) ? b.mimeType : null,
             enabled: b.enabled ?? 1,
+            showInHost: (b.showInHost !== false && b.showInHost !== 0) ? 1 : 0,
             configRole: b.configRole || 'SOURCE',
             bitableDisplayMode: b.bitableDisplayMode || null
           }))
@@ -496,6 +500,7 @@ AdminModules.register({
         originalFilename: null,
         mimeType: null,
         enabled: 1,
+        showInHost: true,
         configRole: 'SOURCE',
         bitableDisplayMode: null
       });
@@ -517,6 +522,7 @@ AdminModules.register({
           originalFilename: null,
           mimeType: null,
           enabled: 1,
+          showInHost: true,
           configRole: 'SOURCE',
           bitableDisplayMode: null
         });
@@ -589,6 +595,7 @@ AdminModules.register({
         originalFilename: local ? (prev.originalFilename || null) : null,
         mimeType: local ? (prev.mimeType || null) : null,
         enabled: 1,
+        showInHost: tile.querySelector('.inl-show-host')?.checked !== false,
         configRole: tile.querySelector('.inl-role').value,
         bitableDisplayMode: tile.querySelector('.inl-bdm').value || null
       };
@@ -684,6 +691,10 @@ AdminModules.register({
               <option value="RAW" ${bdm === 'RAW' ? 'selected' : ''}>RAW</option>
               <option value="GROUPED" ${bdm === 'GROUPED' ? 'selected' : ''}>GROUPED</option>
             </select>
+            <label class="agenda-oabp-show-label" title="${AdminHints.presets.showInHost.replace(/"/g, '&quot;')}">
+              <input type="checkbox" class="inl-show-host" ${d.showInHost !== false && d.showInHost !== 0 ? 'checked' : ''}/>
+              主持页展示
+            </label>
           </div>
           <p class="doc-inline-hint-block">角色：${AdminHints.presets.configRole.SOURCE} ${AdminHints.presets.configRole.OUTPUT} ${AdminHints.presets.configRole.BOTH} · 槽位：${AdminHints.presets.resourceSlot} · 展示：${AdminHints.presets.bitableDisplayMode['']} / ${AdminHints.presets.bitableDisplayMode.RAW} / ${AdminHints.presets.bitableDisplayMode.GROUPED}</p>
           <div class="doc-inline-row">
@@ -742,6 +753,8 @@ AdminModules.register({
         }
       }
       const kindPill = local ? '<span class="meta-pill meta-local">本地</span>' : '';
+      const hostHiddenPill = (d.showInHost === false || d.showInHost === 0)
+        ? '<span class="meta-pill tag-muted">主持页隐藏</span>' : '';
       return `<div class="doc-tile doc-tile-view doc-tile-clickable ui-surface-card" data-i="${agendaIndex}" data-bi="${bindingIndex}" tabindex="0" title="点击编辑">
         <div class="doc-tile-main">
           <div class="doc-tile-head">
@@ -750,6 +763,11 @@ AdminModules.register({
             <span class="meta-pill">槽位 ${d.resourceSlot ?? 0}</span>
             ${kindPill}
             ${bdm}
+            ${hostHiddenPill}
+            <label class="agenda-oabp-show-label doc-tile-show-host" title="${AdminHints.presets.showInHost.replace(/"/g, '&quot;')}" onclick="event.stopPropagation()">
+              <input type="checkbox" class="ag-doc-show" data-i="${agendaIndex}" data-bi="${bindingIndex}" ${d.showInHost !== false && d.showInHost !== 0 ? 'checked' : ''}/>
+              主持页展示
+            </label>
           </div>
           ${contentInner}
         </div>
@@ -782,8 +800,20 @@ AdminModules.register({
         renderAgendaTable();
         autoSaveBundle();
       };
-      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql').forEach(inp => {
+      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql, .ag-oabp-show').forEach(inp => {
         inp.addEventListener('blur', () => autoSaveBundle());
+      });
+      el.querySelectorAll('.ag-oabp-show').forEach(inp => {
+        inp.addEventListener('change', () => autoSaveBundle());
+      });
+      el.querySelectorAll('.ag-doc-show').forEach(inp => {
+        inp.addEventListener('change', () => {
+          const i = +inp.dataset.i;
+          const bi = +inp.dataset.bi;
+          if (!bundleItems[i] || !bundleItems[i].bindings || !bundleItems[i].bindings[bi]) return;
+          bundleItems[i].bindings[bi].showInHost = inp.checked;
+          autoSaveBundle();
+        });
       });
       el.querySelectorAll('.ag-owner-add').forEach(btn => btn.onclick = () => {
         const i = +btn.dataset.i;
@@ -1391,7 +1421,11 @@ AdminModules.register({
         const tags = [];
         if (row.hasRollCallKeyword) tags.push('<span class="tag">检点</span>');
         if (row.hasOrphanDocs) tags.push('<span class="tag tag-warn">含未挂载资料</span>');
-        if ((row.oabpTaskSql || '').trim()) tags.push('<span class="tag tag-oabp">项目任务 SQL</span>');
+        if ((row.oabpTaskSql || '').trim()) {
+          tags.push(row.oabpTaskShow === false
+            ? '<span class="tag tag-oabp tag-muted">项目任务 SQL（主持页隐藏）</span>'
+            : '<span class="tag tag-oabp">项目任务 SQL</span>');
+        }
         const tagHtml = tags.length ? `<div class="agenda-tags">${tags.join('')}</div>` : '';
         const bindings = row.bindings || [];
         const ownersText = (row.owners || []).join(', ');
@@ -1446,8 +1480,12 @@ AdminModules.register({
             <section class="agenda-card-oabp">
               <div class="agenda-doc-toolbar">
                 <span class="agenda-doc-label">oabp 项目任务 SQL</span>
+                <label class="agenda-oabp-show-label" title="${AdminHints.presets.oabpTaskShow.replace(/"/g, '&quot;')}">
+                  <input type="checkbox" class="ag-oabp-show" ${row.oabpTaskShow !== false ? 'checked' : ''}/>
+                  主持页展示
+                </label>
               </div>
-              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT task_name, ... FROM jq_project_task_tracking WHERE deleted = 0" title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
+              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT 待办事项, ... FROM jq_todos_task ..." title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
               <p class="doc-inline-hint-block">${AdminHints.presets.oabpTaskSql}</p>
             </section></div></article>`;
       });

@@ -36,13 +36,18 @@ CREATE TABLE IF NOT EXISTS int_meeting (
     doc_token            VARCHAR(100) NULL     COMMENT '飞书文档token',
     recording_url        VARCHAR(500) NULL     COMMENT '历史完整URL（已废弃写入，仅只读兼容）',
     recording_token      VARCHAR(2048) NULL    COMMENT '录音页面JWT（持久化token，URL由base-url动态拼接）',
+    -- v0.25 飞书 VC 云端录制接入（妙记音视频）
+    vc_meeting_url       VARCHAR(512) NULL     COMMENT '飞书VC入会链接（日历vchat.meeting_url）',
+    vc_minute_token      VARCHAR(64)  NULL     COMMENT '妙记token（recording_ready回调提取，24字符）',
+    vc_recording_url     VARCHAR(512) NULL     COMMENT '妙记页面URL（回调event.url）',
     created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
     INDEX idx_meeting_status (status),
     INDEX idx_meeting_creator (creator_id),
     INDEX idx_meeting_previous (previous_meeting_id),
-    INDEX idx_meeting_company_group (company, group_name)
+    INDEX idx_meeting_company_group (company, group_name),
+    INDEX idx_meeting_vc_minute_token (vc_minute_token)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='会议主表';
 
 CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
@@ -248,6 +253,7 @@ CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
     feishu_folder_token   VARCHAR(128)    NULL     COMMENT '可选：Doc 创建目录 token',
     last_run_at           DATETIME        NULL     COMMENT '最近一次执行时间',
     last_run_status       VARCHAR(20)     NULL     COMMENT 'SUCCESS|FAILED',
+    last_run_id           BIGINT UNSIGNED NULL     COMMENT '最近一次成功 run id（指向 int_weekly_matter_comparison_run.id）',
     last_run_error        TEXT            NULL     COMMENT '失败时错误摘要',
     created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -255,6 +261,45 @@ CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
     UNIQUE KEY uk_weekly_comparison_job_name (job_name)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   COMMENT='每周事项对比定时任务（feishu-scheduled-bot + matter-progress-core）';
+
+-- v0.26 会前事项对比通报结果入库（run + item 两表，一行一事）
+CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_run (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '运行批次主键；host_agenda.generatedReportRunId 指向此 id',
+    job_id              BIGINT UNSIGNED NULL     COMMENT '关联 int_weekly_matter_comparison_job.id；手动补录可为 NULL',
+    output_config_name  VARCHAR(64)     NOT NULL COMMENT '写回目标 docs.configName（OUTPUT/BOTH）',
+    preset_type_code    TINYINT UNSIGNED NULL     COMMENT '冗余 preset code 1-5',
+    agenda_index        INT UNSIGNED    NULL     COMMENT '冗余 host_agenda items 下标',
+    title               VARCHAR(200)    NOT NULL COMMENT '通报标题（output_doc_title_tpl 渲染）',
+    item_count          INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '本批次事项条数',
+    generation_status   VARCHAR(20)     NOT NULL DEFAULT 'READY' COMMENT 'READY|FAILED|PARTIAL',
+    generated_at        DATETIME        NOT NULL COMMENT '本次生成时间',
+    run_error           TEXT            NULL     COMMENT 'FAILED/PARTIAL 摘要',
+    created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_wmc_run_output_time (output_config_name, generated_at DESC),
+    INDEX idx_wmc_run_job (job_id),
+    INDEX idx_wmc_run_preset_agenda (preset_type_code, agenda_index, generated_at DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='会前事项对比通报运行批次（每次执行一条，历史保留）';
+
+CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_item (
+    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    run_id              BIGINT UNSIGNED NOT NULL COMMENT '所属批次 int_weekly_matter_comparison_run.id',
+    category            VARCHAR(16)     NOT NULL COMMENT '分组：DELAYED|COMPLETED|IN_PROGRESS',
+    matter_name         VARCHAR(500)    NOT NULL COMMENT '事项内容',
+    assignee            VARCHAR(200)    NULL     COMMENT '责任人；缺失统一存 NULL',
+    time_node           VARCHAR(200)    NULL     COMMENT '时间节点（截止/计划/完成时间，原文保留）',
+    status_label        VARCHAR(32)     NOT NULL COMMENT '状态文案：延期|已完成|进行中（须与 category 一致）',
+    sort_order          INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '组内排序',
+    source_config_name  VARCHAR(64)     NULL     COMMENT '可选：来源 SOURCE configName',
+    created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    INDEX idx_wmc_item_run (run_id, category, sort_order),
+    INDEX idx_wmc_item_run_category (run_id, category),
+    CONSTRAINT fk_wmc_item_run FOREIGN KEY (run_id)
+        REFERENCES int_weekly_matter_comparison_run (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  COMMENT='会前事项对比通报明细（一行一个事项）';
 
 -- v0.12 系统参数（meeting-admin-server 写，meeting-server reload）
 CREATE TABLE IF NOT EXISTS int_meeting_system_config (

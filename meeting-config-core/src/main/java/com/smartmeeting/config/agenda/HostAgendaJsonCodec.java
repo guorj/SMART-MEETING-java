@@ -92,6 +92,7 @@ public final class HostAgendaJsonCodec {
                 }
                 if (item.getOabpTaskSql() != null && !item.getOabpTaskSql().isBlank()) {
                     n.put("oabpTaskSql", item.getOabpTaskSql().strip());
+                    n.put("oabpTaskShow", item.getOabpTaskShow() == null || item.getOabpTaskShow());
                 }
                 List<HostAgendaDocBinding> docs = normalizedDocs(item);
                 if (!docs.isEmpty()) {
@@ -172,23 +173,35 @@ public final class HostAgendaJsonCodec {
         return Optional.of(new AgendaReportBinding(
                 row.getGeneratedReportUrl(),
                 row.getGeneratedReportAt(),
+                row.getGeneratedReportRunId(),
                 outputFeishu));
     }
 
     public static Optional<LocatedDoc> findDocByConfigName(String hostAgendaJson, String configName,
                                                              ObjectMapper mapper) {
+        return findDocContextByConfigName(hostAgendaJson, configName, mapper)
+                .map(ctx -> new LocatedDoc(ctx.agendaIndex(), ctx.doc()));
+    }
+
+    /**
+     * 按 configName 定位 docs[] 条目，并携带父会序项 {@code oabpTaskSql}（weekly-comparison SOURCE 用）。
+     */
+    public static Optional<DocContext> findDocContextByConfigName(String hostAgendaJson, String configName,
+                                                                  ObjectMapper mapper) {
         if (configName == null || configName.isBlank()) {
             return Optional.empty();
         }
         String name = configName.trim();
         List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
         for (int i = 0; i < items.size(); i++) {
-            if (items.get(i).getDocs() == null) {
+            HostAgendaItem item = items.get(i);
+            if (item.getDocs() == null) {
                 continue;
             }
-            for (HostAgendaDocBinding doc : items.get(i).getDocs()) {
+            for (HostAgendaDocBinding doc : item.getDocs()) {
                 if (doc != null && name.equals(doc.getConfigName())) {
-                    return Optional.of(new LocatedDoc(i, doc));
+                    String sql = item.getOabpTaskSql() != null ? item.getOabpTaskSql().strip() : null;
+                    return Optional.of(new DocContext(i, doc, sql));
                 }
             }
         }
@@ -225,6 +238,39 @@ public final class HostAgendaJsonCodec {
         return toJson(mapper, items);
     }
 
+    /**
+     * v0.26：写回最新 run id 与生成时间（不再写 URL）。保留旧 generatedReportUrl 只读兼容。
+     */
+    public static String updateGeneratedReportRun(ObjectMapper mapper, String hostAgendaJson, String configName,
+                                                   Long runId, LocalDateTime generatedAt) {
+        if (hostAgendaJson == null || hostAgendaJson.isBlank() || configName == null || configName.isBlank()) {
+            return hostAgendaJson;
+        }
+        String name = configName.trim();
+        Optional<LocatedDoc> located = findDocByConfigName(hostAgendaJson, name, mapper);
+        if (located.isEmpty()) {
+            return hostAgendaJson;
+        }
+        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
+        LocatedDoc loc = located.get();
+        if (loc.agendaIndex() >= items.size()) {
+            return hostAgendaJson;
+        }
+        HostAgendaItem item = items.get(loc.agendaIndex());
+        if (item.getDocs() == null) {
+            return hostAgendaJson;
+        }
+        for (int j = 0; j < item.getDocs().size(); j++) {
+            HostAgendaDocBinding d = item.getDocs().get(j);
+            if (d != null && name.equals(d.getConfigName())) {
+                d.setGeneratedReportRunId(runId);
+                d.setGeneratedReportAt(generatedAt);
+                break;
+            }
+        }
+        return toJson(mapper, items);
+    }
+
     public static AgendaDocBindingSnapshot toSnapshot(HostAgendaDocBinding doc, int presetTypeCode, int agendaIndex) {
         return AgendaDocBindingSnapshot.builder()
                 .configName(doc.getConfigName())
@@ -237,10 +283,12 @@ public final class HostAgendaJsonCodec {
                 .originalFilename(doc.getOriginalFilename())
                 .mimeType(doc.getMimeType())
                 .enabled(doc.isEnabled() ? 1 : 0)
+                .showInHost(doc.isShowInHost() ? 1 : 0)
                 .configRole(doc.getRole() != null ? doc.getRole() : "SOURCE")
                 .bitableDisplayMode(doc.getBitableDisplayMode())
                 .generatedReportUrl(doc.getGeneratedReportUrl())
                 .generatedReportAt(doc.getGeneratedReportAt())
+                .generatedReportRunId(doc.getGeneratedReportRunId())
                 .build();
     }
 
@@ -269,8 +317,10 @@ public final class HostAgendaJsonCodec {
                 .mimeType(snap.getMimeType())
                 .bitableDisplayMode(snap.getBitableDisplayMode())
                 .enabled(snap.getEnabled() == null || snap.getEnabled() == 1)
+                .showInHost(snap.isShowInHost())
                 .generatedReportUrl(snap.getGeneratedReportUrl())
                 .generatedReportAt(snap.getGeneratedReportAt())
+                .generatedReportRunId(snap.getGeneratedReportRunId())
                 .build();
     }
 
@@ -329,6 +379,10 @@ public final class HostAgendaJsonCodec {
     public record LocatedDoc(int agendaIndex, HostAgendaDocBinding doc) {
     }
 
+    /** docs[] 定位结果 + 父会序 {@code oabpTaskSql}。 */
+    public record DocContext(int agendaIndex, HostAgendaDocBinding doc, String oabpTaskSql) {
+    }
+
     /** 从 host_agenda JSON 收集所有 LOCAL 资料的 fileId（用于下载鉴权）。 */
     public static List<String> collectLocalFileIds(ObjectMapper mapper, String hostAgendaJson) {
         List<String> ids = new ArrayList<>();
@@ -364,6 +418,11 @@ public final class HostAgendaJsonCodec {
         String oabpSql = n.path("oabpTaskSql").asText("").trim();
         if (!oabpSql.isEmpty()) {
             item.setOabpTaskSql(oabpSql);
+        }
+        if (n.has("oabpTaskShow")) {
+            item.setOabpTaskShow(n.path("oabpTaskShow").asBoolean(true));
+        } else {
+            item.setOabpTaskShow(true);
         }
         List<HostAgendaDocBinding> docs = new ArrayList<>();
         JsonNode docsNode = n.path("docs");
@@ -476,6 +535,18 @@ public final class HostAgendaJsonCodec {
         if (genUrl.isEmpty()) {
             genUrl = d.path("generated_report_url").asText("").trim();
         }
+        Long genRunId = null;
+        if (d.has("generatedReportRunId") && !d.path("generatedReportRunId").isNull()) {
+            genRunId = d.path("generatedReportRunId").asLong(0);
+            if (genRunId == 0) {
+                genRunId = null;
+            }
+        } else if (d.has("generated_report_run_id") && !d.path("generated_report_run_id").isNull()) {
+            genRunId = d.path("generated_report_run_id").asLong(0);
+            if (genRunId == 0) {
+                genRunId = null;
+            }
+        }
         return HostAgendaDocBinding.builder()
                 .configName(configName.isEmpty() ? null : configName)
                 .role(role.isEmpty() ? "SOURCE" : role)
@@ -487,8 +558,10 @@ public final class HostAgendaJsonCodec {
                 .mimeType(mimeType.isEmpty() ? null : mimeType)
                 .bitableDisplayMode(bdm.isEmpty() ? null : bdm)
                 .enabled(!d.has("enabled") || d.path("enabled").asInt(1) == 1)
+                .showInHost(!d.has("showInHost") || d.path("showInHost").asBoolean(true))
                 .generatedReportUrl(genUrl.isEmpty() ? null : genUrl)
                 .generatedReportAt(genAt)
+                .generatedReportRunId(genRunId)
                 .build();
     }
 
@@ -534,8 +607,12 @@ public final class HostAgendaJsonCodec {
             n.put("bitableDisplayMode", doc.getBitableDisplayMode());
         }
         n.put("enabled", doc.isEnabled());
+        n.put("showInHost", doc.isShowInHost());
         if (doc.getGeneratedReportUrl() != null && !doc.getGeneratedReportUrl().isBlank()) {
             n.put("generatedReportUrl", doc.getGeneratedReportUrl().trim());
+        }
+        if (doc.getGeneratedReportRunId() != null) {
+            n.put("generatedReportRunId", doc.getGeneratedReportRunId());
         }
         if (doc.getGeneratedReportAt() != null) {
             n.put("generatedReportAt", doc.getGeneratedReportAt().format(ISO_LOCAL));

@@ -126,9 +126,9 @@ meeting:
       oabp:
         # [部署/密钥] 同 MySQL 实例 oabp 库（项目任务等）；默认关闭，启用：MEETING_DB_OABP_ENABLED=true
         enabled: ${MEETING_DB_OABP_ENABLED:true}
-        url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/${DB_OABP_NAME:oabp}?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
-        username: ${DB_USERNAME:intelligence}
-        password: ${DB_PASSWORD:intelligence@2026}
+        url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/${DB_OABP_NAME:oabp_pro}?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
+        username: ${DB_USERNAME:oabp}
+        password: ${DB_PASSWORD:oabp@2026}
         driver-class-name: com.mysql.cj.jdbc.Driver
         hikari:
           maximum-pool-size: ${DB_OABP_POOL_MAX:10}
@@ -161,6 +161,15 @@ meeting:
     # false：单进程 LocalEventBus（offline-asr + minute-generate + todo-extract）
     # true ：KafkaProducer + MinuteGenerateConsumer + OfflineAsrConsumer + TodoExtractConsumer
     enabled: ${KAFKA_ENABLED:false}
+  # ----- [冷启动] 飞书 VC 云端录制接入（业务开关 → Admin 热更）-----
+  # 详见 docs/feishu-vc-recording-design.md
+  vc:
+    # 飞书 VC 云端录制总开关；关闭时建会不传 auto_record、不处理 recording_ready 回调
+    recording-enabled: ${MEETING_VC_RECORDING_ENABLED:false}
+    # recording-enabled=true 时，日历事件是否设置 auto_record=true
+    auto-record: true
+    # 等待 recording_ready 回调超时（分钟，保留字段，当前实现不阻塞等待）
+    callback-timeout-min: 15
   # [部署/密钥] 对外根 URL（飞书卡片链接、JWT 跳转、录音/主持页入口），须与浏览器实际访问一致
   base-url: ${BASE_URL:http://localhost:8765/meeting-server}
   # ----- [部署/密钥] 会序本地上传资料（与 meeting-admin-server 共用目录）-----

@@ -608,6 +608,18 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.82rem;
 }
+.agenda-oabp-show-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  margin-left: auto;
+  white-space: nowrap;
+}
+.agenda-oabp-show-label input { margin: 0; }
+.doc-tile-show-host { margin-left: auto; }
+.tag.tag-muted { opacity: 0.72; }
 .agenda-doc-toolbar {
   display: flex;
   align-items: center;

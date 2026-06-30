@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartmeeting.service.FeishuCommandHandler;
 import com.smartmeeting.service.FeishuCommandRouter;
+import com.smartmeeting.service.FeishuMinutesCallbackHandler;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore;
 import com.smartmeeting.session.FeishuStartMeetingPendingStore.Kind;
 import com.smartmeeting.session.FeishuUserLastGroupChatStore;
@@ -60,6 +61,7 @@ public class FeishuWebhookController {
     private final FeishuCommandHandler commandHandler;
     private final FeishuStartMeetingPendingStore startMeetingPendingStore;
     private final FeishuUserLastGroupChatStore feishuUserLastGroupChatStore;
+    private final FeishuMinutesCallbackHandler feishuMinutesCallbackHandler;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${meeting.feishu.encrypt-key:}")
@@ -75,15 +77,18 @@ public class FeishuWebhookController {
      * @param commandHandler             指令与卡片动作业务处理
      * @param startMeetingPendingStore   多步建会会话状态
      * @param feishuUserLastGroupChatStore 用户最近活跃会话（卡片无 chatId 时回退）
+     * @param feishuMinutesCallbackHandler 飞书妙记录制完成回调处理
      */
     public FeishuWebhookController(FeishuCommandRouter commandRouter,
                                    FeishuCommandHandler commandHandler,
                                    FeishuStartMeetingPendingStore startMeetingPendingStore,
-                                   FeishuUserLastGroupChatStore feishuUserLastGroupChatStore) {
+                                   FeishuUserLastGroupChatStore feishuUserLastGroupChatStore,
+                                   FeishuMinutesCallbackHandler feishuMinutesCallbackHandler) {
         this.commandRouter = commandRouter;
         this.commandHandler = commandHandler;
         this.startMeetingPendingStore = startMeetingPendingStore;
         this.feishuUserLastGroupChatStore = feishuUserLastGroupChatStore;
+        this.feishuMinutesCallbackHandler = feishuMinutesCallbackHandler;
     }
 
     /**
@@ -165,6 +170,9 @@ public class FeishuWebhookController {
                 } else if ("im.chat.access_event.bot_p2p_chat_entered_v1".equals(eventType)) {
                     JsonNode finalBody = body;
                     CompletableFuture.runAsync(() -> handleBotP2pChatEntered(finalBody));
+                } else if ("vc.meeting.recording_ready_v1".equals(eventType)) {
+                    JsonNode finalBody = body;
+                    CompletableFuture.runAsync(() -> feishuMinutesCallbackHandler.handleRecordingReady(finalBody));
                 }
 
                 // 返回成功响应（飞书要求，必须在1s内返回）
@@ -624,6 +632,12 @@ public class FeishuWebhookController {
                 if ("im.chat.access_event.bot_p2p_chat_entered_v1".equals(eventType)) {
                     JsonNode finalBody = body;
                     CompletableFuture.runAsync(() -> handleBotP2pChatEntered(finalBody));
+                    log.info("[traceId={}] Feishu /callback delegated as event subscription: {}", traceId, eventType);
+                    return ResponseEntity.ok(Map.of("code", 0, "msg", "success"));
+                }
+                if ("vc.meeting.recording_ready_v1".equals(eventType)) {
+                    JsonNode finalBody = body;
+                    CompletableFuture.runAsync(() -> feishuMinutesCallbackHandler.handleRecordingReady(finalBody));
                     log.info("[traceId={}] Feishu /callback delegated as event subscription: {}", traceId, eventType);
                     return ResponseEntity.ok(Map.of("code", 0, "msg", "success"));
                 }

@@ -25,4 +25,6 @@ public class HostAgendaBundleItemDto {
     private List<AgendaDocBindingSnapshot> bindings = new ArrayList<>();
     /** 可选：oabp 库只读 SELECT，主持页展示为「项目任务」表格 */
     private String oabpTaskSql;
+    /** 是否在主持页展示 oabp 项目任务；默认 true */
+    private Boolean oabpTaskShow;
 }

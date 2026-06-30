@@ -1838,6 +1838,9 @@ public class MeetingHostSessionService {
             o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
             if (rt.presetTypeCode != null && rt.presetTypeCode > 0) {
                 presetAgendaDocService.findReportBindingForAgenda(rt.presetTypeCode, i).ifPresent(b -> {
+                    if (b.generatedReportRunId() != null) {
+                        o.put("generatedReportRunId", b.generatedReportRunId());
+                    }
                     if (b.generatedReportUrl() != null && !b.generatedReportUrl().isBlank()) {
                         o.put("generatedReportUrl", b.generatedReportUrl());
                     }

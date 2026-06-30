@@ -57,6 +57,9 @@ public class OabpAgendaTaskPartBuilder {
         if (sql == null || sql.isBlank()) {
             return List.of();
         }
+        if (!isOabpTaskShowEnabled(meeting, agendaIndex, presetHostAgendaJson)) {
+            return List.of();
+        }
         if (queryService == null) {
             return List.of(disabledPart());
         }
@@ -105,6 +108,32 @@ public class OabpAgendaTaskPartBuilder {
             return null;
         }
         return item.getOabpTaskSql().strip();
+    }
+
+    private boolean isOabpTaskShowEnabled(Meeting meeting, int agendaIndex, String presetHostAgendaJson) {
+        Boolean fromMeeting = oabpTaskShowFromHostAgenda(
+                meeting != null ? meeting.getHostAgenda() : null, agendaIndex);
+        if (fromMeeting != null) {
+            return fromMeeting;
+        }
+        Boolean fromPreset = oabpTaskShowFromHostAgenda(presetHostAgendaJson, agendaIndex);
+        return fromPreset == null || fromPreset;
+    }
+
+    private Boolean oabpTaskShowFromHostAgenda(String hostAgendaJson, int agendaIndex) {
+        if (hostAgendaJson == null || hostAgendaJson.isBlank()) {
+            return null;
+        }
+        List<HostAgendaItem> items = PresetAgendaMergeEngine.parseHostAgendaItems(
+                objectMapper, hostAgendaJson);
+        if (agendaIndex < 0 || agendaIndex >= items.size()) {
+            return null;
+        }
+        HostAgendaItem item = items.get(agendaIndex);
+        if (item == null || item.getOabpTaskSql() == null || item.getOabpTaskSql().isBlank()) {
+            return null;
+        }
+        return item.getOabpTaskShow() == null || item.getOabpTaskShow();
     }
 
     private static AgendaDocPartDto disabledPart() {

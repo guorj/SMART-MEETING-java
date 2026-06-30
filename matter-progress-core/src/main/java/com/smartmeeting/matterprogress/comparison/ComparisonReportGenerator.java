@@ -1,22 +1,19 @@
 package com.smartmeeting.matterprogress.comparison;
 
 import com.smartmeeting.matterprogress.model.MinuteSnapshot;
-import com.smartmeeting.matterprogress.model.SourceDocSnapshot;
+import com.smartmeeting.matterprogress.model.ParsedComparisonItems;
+import com.smartmeeting.matterprogress.model.SourceDataSnapshot;
 
 import java.util.List;
 
-/**
- * 会前事项对比通报 Markdown 生成器（OpenClaw 主路径 / LLM 可选降级）。
- */
+/** 对比报告生成（Legacy 路径）。返回结构化事项列表。 */
 public interface ComparisonReportGenerator {
 
     /**
-     * 将飞书资料快照与纪要列表生成对比报告 Markdown。
-     *
-     * @param jobId   定时 Job ID（OpenClaw taskId 与会话隔离用）
-     * @param sources 飞书资料快照
-     * @param minutes 会议纪要快照
-     * @return Markdown 正文；失败时返回 {@code null}
+     * @param jobId   任务 ID
+     * @param sources oabp SOURCE 快照
+     * @param minutes 纪要快照
+     * @return 解析结果（success=false 表示整体失败 → run FAILED）
      */
-    String generate(long jobId, List<SourceDocSnapshot> sources, List<MinuteSnapshot> minutes);
+    ParsedComparisonItems generate(long jobId, List<SourceDataSnapshot> sources, List<MinuteSnapshot> minutes);
 }

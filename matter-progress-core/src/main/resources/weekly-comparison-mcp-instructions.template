@@ -1,119 +1,81 @@
-## 会前事项对比 — 执行手册（重构版）
+## 会前事项对比 — 执行手册（oabp SOURCE + items JSON 输出）
 
 ### 0. 使用哪个 Skill、哪些 MCP（必须遵守）
 
 | 类型 | 名称 | 用途 |
 |------|------|------|
 | **Skill** | `matter-progress` | 本任务专用（已由 Bot 以 `/skill:matter-progress` 触发） |
-| **MCP 读多维表** | `lark-mcp__bitable_v1_appTableField_list` | 读 SOURCE 表字段结构 |
-| **MCP 读多维表** | `lark-mcp__bitable_v1_appTableRecord_search` | 分页读 SOURCE 全部记录 |
-| **MCP 读纪要** | `meeting-mysql__mysql_query` | 执行 [minute_query_sql] 读 `content_markdown` |
-| **MCP 写通报 Doc** | `lark-mcp__docx_v1_document_create` + `lark-mcp__docx_v1_documentBlockChildren_create` | 创建并批量写入对比通报（Gateway `-t` 须放行） |
-| **MCP 读 docx** | `lark-mcp__docx_v1_document_rawContent` | URL 含 `/docx/` 时读正文 |
-| **MCP 读 wiki** | `lark-mcp__wiki_v2_space_getNode` | URL 含 `/wiki/` 时解析节点再读 docx/bitable |
+| **MCP 读 SOURCE（oabp）** | `meeting-mysql__mysql_query` | 执行 [source_oabp_sql] 中每条 SELECT（只读） |
+| **MCP 读纪要** | `meeting-mysql__mysql_query` | 执行 [minute_query_sql] 读 `content_markdown`（库 `intelligence`） |
 
-- 飞书租户应用：**{{weeklyComparisonFeishuAppId}}**（与 Bot `feishu.weekly-comparison.app-id` 一致）
-- **禁止**臆造数据；读不到的 URL 在报告中标注「未读取」及原因。
-- **禁止**只输出摘要而不建 Doc。
-- **禁止**不读取最新数据使用缓存。
+- **不再调用 lark-mcp 写飞书 Doc**；产物由 Bot 入库。
+- oabp 默认 schema：**{{oabpSchema}}**（同实例可用 `schema.table` 限定）
+- **禁止**臆造数据；读不到的 SQL 在 items 中省略该 config 的事项。
+- **禁止**修改 Bot 下发的 SQL 文本；原样执行。
 
-### 1. 读取 SOURCE（事项表 / 资料）— 用 lark-mcp
+### 1. 读取 SOURCE（oabp 事项表）— 用 meeting-mysql__mysql_query
 
-对数据块 **[source_feishu_urls]** 每一组 `config` + `url`：
+对数据块 **[source_oabp_sql]** 每一组 `config` + `schema` + `sql`：
 
-**A. URL 含 `/base/{app_token}`（多维表格）**
-1. `lark-mcp__bitable_v1_appTableField_list`(app_token, table_id) 了解列名。
-2. `lark-mcp__bitable_v1_appTableRecord_search`(app_token, table_id, page_size=500) 分页拉全表，直至无 page_token。
-3. 将每条记录整理为：事项名称、负责人、状态、计划/完成时间、优先级等（按实际字段名映射）。
-4. 在报告中按 `config=` 分段（如 preset1-comp-agenda-02）。
-
-**B. URL 含 `/wiki/` 或 `/docx/`**
-- docx：`lark-mcp__docx_v1_document_rawContent`；wiki：`lark-mcp__wiki_v2_space_getNode` 后按 obj_type 读 docx 或 bitable。
-- 若 Gateway 未放行：在报告中说明该链接未能通过 MCP 读取，不要编造数据。
-
-{{outputReferenceSection}}
+1. 调用 **`meeting-mysql__mysql_query`**，**原样**执行 `sql=` 后的 SELECT（禁止改写、禁止追加 DML）。
+2. 将每条记录整理为：事项名称、负责人、状态、计划/完成时间等（按实际列名映射）。
+3. 查询失败时在 items 中省略该 config 的事项，并在最终回复正文简述原因。
 
 ### 2. 读取会议纪要正文 — 用 meeting-mysql__mysql_query
 
-1. 调用 **`meeting-mysql__mysql_query`**，SQL 见数据块 **[minute_query_sql]**（库 `intelligence`，勿连 localhost）。
+1. 调用 **`meeting-mysql__mysql_query`**，SQL 见数据块 **[minute_query_sql]**（库 `intelligence`）。
 2. 对每行：`meeting_id`、`title`、`content_markdown`（空则尝试 `content_url`）。
 3. 仅使用 `generation_status='READY'` 的纪要。
 
 ### 3. 数据处理（用于判定待办状态）
 
-在内存中完成下列处理，不要把中间分析写入最终文档：
+在内存中完成处理，不要把中间分析写入最终回复：
 
 前提：最终生成报告数据记录与会议纪要中一致，只统计纪要中提及事项的完成状况
-1. 从 SOURCE 与会议纪要中抽取所有事项、责任人、时间节点（完成时间、截止时间/计划时间须分开识别，勿混用）。
-2. 以会议纪要作为主,对同名/同责任人/同关键词事项做归并，**每条事项仅归入一个分组**，如果会议纪要中未提及，则该事项不计入统计（互斥，禁止重复出现在多个分组）。
+1. 从 SOURCE 与会议纪要中抽取所有事项、责任人、时间节点（完成时间、截止时间/计划时间须分开识别）。
+2. 以会议纪要为主，对同名/同责任人/同关键词事项做归并，**每条事项仅归入一个分组**，会议纪要中未提及的事项不计入。
 3. **状态 → 分组映射（硬性）**：
-   - **延期事项**：状态含「延期/逾期/超期/过期」；或状态非终态且**有**计划截止日且截止日早于当日（与多维表「无截止不归延期」一致）。
-   - **已完成事项**：状态为「已完成/已关闭/已办结/已完成 ✅」等终态，或纪要明确已办结。
-   - **进行中事项**：其余非终态事项（含「未完成/未开始/进行中」且**未**满足延期条件）。
-4. **禁止错放**：状态字段为「已完成」的条目**不得**写入延期或进行中分组；状态为「进行中」且未延期的**不得**写入延期分组。
-5. 若 SOURCE 与纪要冲突，以 SOURCE 多维表状态字段为准；仍无法判断时归入「进行中」并在事项文案标注「状态待确认」。
-6. **输出前自检**：逐条核对「状态」与所在分组标题一致，不一致则重新归类后再写入 Doc。
+   - **延期事项**（`DELAYED`）：状态含「延期/逾期/超期/过期」；或状态非终态且有计划截止日且截止日早于当日。
+   - **已完成事项**（`COMPLETED`）：状态为「已完成/已关闭/已办结」等终态。
+   - **进行中事项**（`IN_PROGRESS`）：其余非终态事项。
+4. **禁止错放**：状态为「已完成」不得入延期/进行中；状态为「进行中」且未延期不得入延期。
+5. 若 SOURCE 与纪要冲突，以 SOURCE oabp 表状态字段为准。
+6. **输出前自检**：逐条核对「状态」与所在分组一致。
 
-### 4. 输出规范（最终文档只允许以下内容）
+### 4. 输出协议（必须遵守）
 
-最终文档正文只输出截图同款结构，且不得追加差异清单、附录、来源会议等其他内容。
+**不写飞书 Doc**。最终回复正文只输出一个 JSON 块（Bot 解析后批量入库）：
 
-#### 4.1 固定标题与时间
+```
+-----BEGIN_WEEKLY_COMPARISON_ITEMS-----
+{
+  "generatedAt": "YYYY-MM-DD HH:mm:ss",
+  "items": [
+    {
+      "category": "DELAYED",
+      "matterName": "事项内容",
+      "assignee": "责任人姓名",
+      "timeNode": "2026-06-20",
+      "statusLabel": "延期",
+      "sortOrder": 1,
+      "sourceConfigName": "preset1-comp-agenda-02"
+    }
+  ]
+}
+-----END_WEEKLY_COMPARISON_ITEMS-----
+```
 
-第 1 行：
-- `# 会议纪要待办事项`
+字段约束：
 
-第 2 行：
-- `生成时间：YYYY-MM-DD HH:mm:ss`
+- `category`：枚举 `DELAYED` | `COMPLETED` | `IN_PROGRESS`，须与 `statusLabel` 一致
+- `statusLabel`：仅允许 `延期` / `已完成` / `进行中`
+- `matterName`：必填
+- `assignee` / `timeNode` / `sourceConfigName`：缺失时**省略该字段**（不要写「未提及」字符串）
+- `sourceConfigName`：单 SQL 时填该 SQL 所属 config；多 SOURCE 共享 SQL 时按事项归属填，无法判断省略
+- 某组无事项：`items` 数组中不出现该 category 的条目（不插占位行）
+- 组内排序：
+  - `DELAYED`：按逾期程度从重到轻（sortOrder 递增）
+  - `COMPLETED`：按完成时间降序
+  - `IN_PROGRESS`：按截止日升序
 
-#### 4.2 固定分组与顺序
-
-必须严格按以下顺序输出 3 组（组标题用二级标题 `##`，顺序不可调换）：
-
-1. `## 延期事项`
-2. `## 已完成事项`
-3. `## 进行中事项`
-
-#### 4.3 每项输出字段（禁止来源会议字段）
-
-每条事项按一行输出，字段要求如下（缺失写「未提及」）：
-
-- `事项`：任务内容
-- `责任人`：纪要或 SOURCE 中指派人
-- `时间节点`：延期/进行中写截止或计划时间；已完成写**实际完成时间**，无完成时间则写截止时间/计划时间
-- `状态`：必须与所在分组一致，仅允许：`延期` / `已完成` / `进行中`（禁止在延期组写「进行中」或「已完成」）
-
-推荐格式：
-- `- 事项：...，责任人：...，时间节点：...，状态：...`
-
-若某分组无数据，输出：
-- `- 无`
-
-#### 4.4 组内排序（必须遵守）
-
-- **延期事项**：按逾期天数**从多到少**（或截止日**从早到晚**）排列，最紧急的在前。
-- **已完成事项**：按**完成时间**降序；无完成时间时用**截止时间/计划时间**降序；仍无日期的排在该组**末尾**。
-- **进行中事项**：有截止日的按截止日**升序**（临近到期在前）；无截止日的排在有截止日之后。
-
-### 5. 生成飞书通报 Doc 并写入正文（MCP 写 Doc，必须完成）
-
-1. 调用 **`lark-mcp__docx_v1_document_create`** 创建文档：
-   - 标题：`{{outputDocTitle}}`
-{{folderTokenLine}}   - 从响应取 `document_id`（即根 block_id）与 Doc URL。
-2. 将第 4 节产出的完整 Markdown **按行**转为文本 block（`block_type=2`，每行一个 `text_run`）。
-3. 调用 **`lark-mcp__docx_v1_documentBlockChildren_create`** 向根 block 追加 children：
-   - 路径：`document_id` = 步骤 1 的 ID；**`block_id` = `document_id`**（根 block）。
-   - **每批最多 50 个 children**；200 行正文应 ≤ 5 次 MCP 调用。
-   - **禁止**逐行单独调用 MCP（一行一次会超时）。
-   - 遇 429 限频可短暂等待后重试同一批。
-4. 记录浏览器可打开的 **完整 docx URL** 供步骤 7 使用。
-
-### 6. 写回 MySQL（可选；Bot JDBC 会补写）
-
-生产 `meeting-mysql` 常为只读账号，**优先**在步骤 7 输出 `generatedReportUrl=`，由 Bot JDBC 写回 `{{outputConfigName}}`。
-若 MCP 具备写权限且 UPDATE 成功亦可；失败不影响任务成功判定。
-
-### 7. 回复 Bot（必填）
-
-最后一行且仅一行：
-generatedReportUrl=<步骤 5 的飞书 Doc 完整 URL>
+**禁止**在 JSON 块外输出 Markdown 通报正文、飞书 Doc URL、`generatedReportUrl=` 等旧格式。

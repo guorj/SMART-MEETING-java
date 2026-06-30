@@ -75,6 +75,26 @@ public class JdbcWeeklyComparisonJobRepository {
                 jobId);
     }
 
+    /**
+     * v0.26：成功时同步写 last_run_id。
+     */
+    public void updateRunResult(long jobId, String status, String error, Instant at, Long lastRunId) {
+        jdbc.update(
+                """
+                UPDATE int_weekly_matter_comparison_job
+                SET last_run_at = ?, last_run_status = ?, last_run_error = ?,
+                    last_run_id = CASE WHEN ? = 'SUCCESS' THEN ? ELSE last_run_id END,
+                    updated_at = NOW()
+                WHERE id = ?
+                """,
+                java.sql.Timestamp.from(at != null ? at : Instant.now()),
+                status,
+                error,
+                status,
+                lastRunId,
+                jobId);
+    }
+
     private WeeklyComparisonJob mapRow(java.sql.ResultSet rs) throws java.sql.SQLException {
         List<String> names;
         try {

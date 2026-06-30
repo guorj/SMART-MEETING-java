@@ -8,6 +8,7 @@
  */
 import mysql from 'mysql2/promise';
 import { parseFeishuBase } from './feishu-base-parser.mjs';
+import { connectOabp, resolveAssigneeId, DEFAULT_OABP_DATABASE } from './oabp-db.mjs';
 
 const IMPORT_CREATOR = 'import-feishu-base';
 const DEFAULT_BASE_FILE = 'F:/obsidian/Projects/📋综合管理事项代办清单.base';
@@ -44,37 +45,8 @@ Options:
   --help              Show this help
 
 Environment (oabp MySQL, same as application.yml):
-  DB_HOST, DB_PORT, DB_OABP_NAME, DB_USERNAME, DB_PASSWORD
+  DB_HOST, DB_PORT, DB_OABP_NAME (default oabp_pro), DB_USERNAME, DB_PASSWORD
 `);
-}
-
-/**
- * @returns {Promise<import('mysql2/promise').Connection>}
- */
-async function connectOabp() {
-  return mysql.createConnection({
-    host: process.env.DB_HOST || '60.205.1.17',
-    port: Number(process.env.DB_PORT || 3306),
-    user: process.env.DB_USERNAME || 'intelligence',
-    password: process.env.DB_PASSWORD || 'intelligence@2026',
-    database: process.env.DB_OABP_NAME || 'oabp',
-    timezone: '+08:00',
-  });
-}
-
-/**
- * @param {import('mysql2/promise').Connection} conn
- * @param {string} nickname
- * @returns {Promise<number|null>}
- */
-async function resolveAssigneeId(conn, nickname) {
-  if (!nickname) return null;
-  const [rows] = await conn.query(
-    'SELECT id FROM system_users WHERE nickname = ? AND (deleted = 0 OR deleted IS NULL) LIMIT 1',
-    [nickname],
-  );
-  if (!rows.length) return null;
-  return Number(rows[0].id);
 }
 
 /**
@@ -225,7 +197,9 @@ async function importRecords(records, dryRun) {
 
 async function main() {
   const opts = parseArgs(process.argv);
+  const schema = process.env.DB_OABP_NAME || DEFAULT_OABP_DATABASE;
   console.log(`Parsing: ${opts.file}`);
+  console.log(`Target schema: ${schema}`);
   const parsed = parseFeishuBase(opts.file);
   if (opts.tenantId) {
     for (const r of parsed.records) {

@@ -10,7 +10,9 @@ import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
 import com.smartmeeting.config.agenda.AgendaDocRoleRules;
 import com.smartmeeting.config.agenda.AgendaReportBinding;
 import com.smartmeeting.config.agenda.HostAgendaDtoConverter;
+import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
 import com.smartmeeting.config.agenda.HostAgendaFeishuDocRef;
+import com.smartmeeting.config.agenda.HostAgendaDocBinding;
 import com.smartmeeting.config.agenda.HostAgendaItem;
 import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import com.smartmeeting.config.feishu.FeishuResourceKind;
@@ -55,6 +57,7 @@ public class PresetAgendaDocService {
     private final AgendaMaterialStorageService agendaMaterialStorageService;
     private final ObjectMapper objectMapper;
     private final OabpAgendaTaskPartBuilder oabpAgendaTaskPartBuilder;
+    private final com.smartmeeting.service.weekly.WeeklyComparisonReportQueryService weeklyComparisonReportQueryService;
 
     public PresetBundle refreshPresetBundle(int presetTypeCode) {
         if (presetTypeCode <= 0) {
@@ -203,10 +206,12 @@ public class PresetAgendaDocService {
             boolean hasWeekly = weeklyReport != null && weeklyReport.getGeneratedReportUrl() != null
                     && !weeklyReport.getGeneratedReportUrl().isBlank();
             if (materialParts.isEmpty() && !hasWeekly) {
-                throw new BusinessException(404,
-                        "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
-                                ? "「" + agendaTitle + "」" : "")
-                                + " 未配置资料");
+                if (!hasAgendaMaterialConfigured(meeting, agendaIndex, presetAgendaJson)) {
+                    throw new BusinessException(404,
+                            "会序 " + (agendaIndex + 1) + (agendaTitle != null && !agendaTitle.isBlank()
+                                    ? "「" + agendaTitle + "」" : "")
+                                    + " 未配置资料");
+                }
             }
             return AgendaDocContentResponse.builder()
                     .agendaIndex(agendaIndex)
@@ -278,41 +283,73 @@ public class PresetAgendaDocService {
             return Optional.empty();
         }
         return findReportBindingForAgenda(meeting.getPresetTypeCode(), agendaIndex)
-                .filter(b -> b.generatedReportUrl() != null && !b.generatedReportUrl().isBlank())
+                .filter(b -> b.hasAnyReport())
                 .map(b -> {
-                    String url = b.generatedReportUrl().trim();
+                    // v0.26：优先 runId → 读 run + items
+                    if (b.generatedReportRunId() != null) {
+                        return buildFromRun(b.generatedReportRunId());
+                    }
+                    // 过渡期 fallback：旧 generatedReportUrl → 飞书拉取
+                    return buildFromLegacyUrl(b, meeting, agendaIndex);
+                });
+    }
+
+    private AgendaWeeklyReportDto buildFromRun(long runId) {
+        return weeklyComparisonReportQueryService.findRunById(runId)
+                .map(run -> {
+                    var items = weeklyComparisonReportQueryService.findItemsByRunId(runId);
+                    String genAt = run.getGeneratedAt() != null ? run.getGeneratedAt().toString() : null;
                     AgendaWeeklyReportDto.AgendaWeeklyReportDtoBuilder builder = AgendaWeeklyReportDto.builder()
-                            .generatedReportUrl(url);
-                    if (b.generatedReportAt() != null) {
-                        builder.generatedReportAt(b.generatedReportAt().toString());
-                    }
-                    FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
-                    if (ref == null || ref.kind() == FeishuResourceKind.UNKNOWN || !ref.canFetchPlainText()) {
-                        builder.fetchError("无法内嵌拉取通报正文，请点击下方链接在飞书中打开");
-                        return builder.build();
-                    }
-                    try {
-                        AgendaDocPartDto.AgendaDocPartDtoBuilder partScratch = AgendaDocPartDto.builder();
-                        if (applyStructuredFeishuPart(partScratch, ref, meeting)) {
-                            AgendaDocPartDto part = partScratch.build();
-                            builder.contentType(part.getContentType());
-                            builder.structuredContent(part.getStructuredContent());
-                        } else {
-                            String text = feishuService.fetchResourcePlainText(ref);
-                            if (text != null && !text.isBlank()) {
-                                builder.plainText(text.trim());
-                            } else {
-                                builder.fetchError("通报 Doc 已读取但正文为空");
-                            }
-                        }
-                    } catch (BusinessException e) {
-                        builder.fetchError(e.getMessage());
-                    } catch (Exception e) {
-                        log.warn("fetch weekly report agendaIndex={}: {}", agendaIndex, e.getMessage());
-                        builder.fetchError("拉取通报失败: " + e.getMessage());
+                            .runId(runId)
+                            .title(run.getTitle())
+                            .itemCount(run.getItemCount())
+                            .generationStatus(run.getGenerationStatus())
+                            .items(items)
+                            .generatedReportAt(genAt);
+                    if ("FAILED".equals(run.getGenerationStatus()) || "PARTIAL".equals(run.getGenerationStatus())) {
+                        builder.fetchError(run.getRunError());
                     }
                     return builder.build();
-                });
+                })
+                .orElseGet(() -> AgendaWeeklyReportDto.builder()
+                        .runId(runId)
+                        .fetchError("run id=" + runId + " 不存在")
+                        .build());
+    }
+
+    private AgendaWeeklyReportDto buildFromLegacyUrl(AgendaReportBinding b, Meeting meeting, int agendaIndex) {
+        String url = b.generatedReportUrl().trim();
+        AgendaWeeklyReportDto.AgendaWeeklyReportDtoBuilder builder = AgendaWeeklyReportDto.builder()
+                .generatedReportUrl(url);
+        if (b.generatedReportAt() != null) {
+            builder.generatedReportAt(b.generatedReportAt().toString());
+        }
+        FeishuResourceRef ref = FeishuResourceResolver.resolve(url);
+        if (ref == null || ref.kind() == FeishuResourceKind.UNKNOWN || !ref.canFetchPlainText()) {
+            builder.fetchError("无法内嵌拉取通报正文，请点击下方链接在飞书中打开");
+            return builder.build();
+        }
+        try {
+            AgendaDocPartDto.AgendaDocPartDtoBuilder partScratch = AgendaDocPartDto.builder();
+            if (applyStructuredFeishuPart(partScratch, ref, meeting)) {
+                AgendaDocPartDto part = partScratch.build();
+                builder.contentType(part.getContentType());
+                builder.structuredContent(part.getStructuredContent());
+            } else {
+                String text = feishuService.fetchResourcePlainText(ref);
+                if (text != null && !text.isBlank()) {
+                    builder.plainText(text.trim());
+                } else {
+                    builder.fetchError("通报 Doc 已读取但正文为空");
+                }
+            }
+        } catch (BusinessException e) {
+            builder.fetchError(e.getMessage());
+        } catch (Exception e) {
+            log.warn("fetch weekly report agendaIndex={}: {}", agendaIndex, e.getMessage());
+            builder.fetchError("拉取通报失败: " + e.getMessage());
+        }
+        return builder.build();
     }
 
     public String resolveFeishuDocUrl(Meeting meeting, int agendaIndex, String runtimeDocUrl) {
@@ -407,5 +444,44 @@ public class PresetAgendaDocService {
             return !list.isEmpty();
         }
         return true;
+    }
+
+    /**
+     * 会序是否配置了任意资料（含主持页隐藏的），用于区分「未配置」与「全部隐藏」。
+     */
+    private boolean hasAgendaMaterialConfigured(Meeting meeting, int agendaIndex, String presetAgendaJson) {
+        if (itemHasMaterialContent(HostAgendaJsonCodec.parseItemAtIndex(
+                objectMapper, meeting != null ? meeting.getHostAgenda() : null, agendaIndex))) {
+            return true;
+        }
+        return itemHasMaterialContent(HostAgendaJsonCodec.parseItemAtIndex(
+                objectMapper, presetAgendaJson, agendaIndex));
+    }
+
+    private static boolean itemHasMaterialContent(HostAgendaItem item) {
+        if (item == null) {
+            return false;
+        }
+        if (item.getOabpTaskSql() != null && !item.getOabpTaskSql().isBlank()) {
+            return true;
+        }
+        if (item.getDocs() != null) {
+            for (HostAgendaDocBinding doc : item.getDocs()) {
+                if (doc == null || !doc.isEnabled()) {
+                    continue;
+                }
+                if (doc.isLocalStorage()) {
+                    if (doc.getFileId() != null && !doc.getFileId().isBlank()) {
+                        return true;
+                    }
+                } else if (doc.getUrl() != null && !doc.getUrl().isBlank()) {
+                    return true;
+                }
+            }
+        }
+        if (item.getFeishuDocUrl() != null && !item.getFeishuDocUrl().isBlank()) {
+            return true;
+        }
+        return item.getFeishuDocs() != null && !item.getFeishuDocs().isEmpty();
     }
 }

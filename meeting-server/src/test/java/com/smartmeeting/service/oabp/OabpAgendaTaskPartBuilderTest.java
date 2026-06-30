@@ -61,4 +61,15 @@ class OabpAgendaTaskPartBuilderTest {
         assertEquals("sheet_cells", parts.get(0).getContentType());
         assertNotNull(parts.get(0).getStructuredContent());
     }
+
+    @Test
+    void buildParts_emptyWhenShowDisabled() {
+        OabpAgendaTaskQueryService queryService = mock(OabpAgendaTaskQueryService.class);
+        OabpAgendaTaskPartBuilder builder = new OabpAgendaTaskPartBuilder(JSON, queryService);
+        Meeting meeting = new Meeting();
+        meeting.setHostAgenda("""
+                {"version":2,"items":[{"title":"议题1","oabpTaskSql":"SELECT 1 AS n","oabpTaskShow":false}]}
+                """);
+        assertTrue(builder.buildParts(meeting, 0).isEmpty());
+    }
 }

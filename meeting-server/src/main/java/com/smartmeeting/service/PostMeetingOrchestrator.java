@@ -33,6 +33,7 @@ public class PostMeetingOrchestrator {
     private final OfflineAsrService offlineAsrService;
     private final MinuteGenerationService minuteGenerationService;
     private final AudioCacheService audioCacheService;
+    private final AudioSourceResolver audioSourceResolver;
 
     /**
      * 会议结束后的异步编排入口。
@@ -131,9 +132,20 @@ public class PostMeetingOrchestrator {
 
     /** DB/入参无路径时，若 WebSocket cache 已落盘则回填 {@code audio_path}。 */
     private String resolveAudioWithCacheFallback(Meeting meeting, String audioPath) {
-        String resolved = resolveAudioPath(audioPath, meeting);
-        if (resolved != null && !resolved.isBlank()) {
-            return resolved;
+        // 优先：AudioSourceResolver 尝试拉妙记音视频（File B），失败回退 File A
+        AudioSourceResolver.AudioSource resolved = audioSourceResolver.resolve(meeting.getId());
+        if (resolved != null && resolved.path() != null) {
+            String vcPath = resolved.path().toString();
+            meeting.setAudioPath(vcPath);
+            meetingMapper.updateById(meeting);
+            log.info("Post-meeting using File B (vc_recording): meetingId={}, path={}", meeting.getId(), vcPath);
+            return vcPath;
+        }
+
+        // 回退：原 File A 逻辑
+        String resolvedAudio = resolveAudioPath(audioPath, meeting);
+        if (resolvedAudio != null && !resolvedAudio.isBlank()) {
+            return resolvedAudio;
         }
         return audioCacheService.findExistingCachePath(meeting.getId())
                 .map(cached -> {

@@ -311,6 +311,7 @@ public class AgendaConfigService {
                     .owners(item.getOwners() != null ? new ArrayList<>(item.getOwners()) : new ArrayList<>())
                     .hasRollCallKeyword(item.getTitle() != null && item.getTitle().contains("检点"))
                     .oabpTaskSql(item.getOabpTaskSql())
+                    .oabpTaskShow(item.getOabpTaskShow() == null || item.getOabpTaskShow())
                     .bindings(bindings)
                     .build());
         }
@@ -365,6 +366,7 @@ public class AgendaConfigService {
             hi.setMinutes(item.getMinutes() != null && item.getMinutes() > 0 ? item.getMinutes() : 10);
             if (oabpSql != null) {
                 hi.setOabpTaskSql(oabpSql);
+                hi.setOabpTaskShow(item.getOabpTaskShow() == null || item.getOabpTaskShow());
             }
             if (item.getOwners() != null && !item.getOwners().isEmpty()) {
                 List<String> owners = item.getOwners().stream()

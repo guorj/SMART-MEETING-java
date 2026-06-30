@@ -21,4 +21,5 @@ public class MeetingAdminUpdateRequest {
     private String audioPath;
     private String docUrl;
     private String docToken;
+    private String vcMinuteToken;
 }

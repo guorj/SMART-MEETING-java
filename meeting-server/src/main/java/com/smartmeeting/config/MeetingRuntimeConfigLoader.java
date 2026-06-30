@@ -28,6 +28,7 @@ public class MeetingRuntimeConfigLoader {
     private final MeetingVoiceprintProperties voiceprintProperties;
     private final MeetingIsvProperties isvProperties;
     private final MeetingWebProperties webProperties;
+    private final MeetingVcProperties vcProperties;
     private final OpenClawProperties openClawProperties;
     private final ObjectMapper objectMapper;
     private final DashboardGrantService dashboardGrantService;
@@ -43,6 +44,7 @@ public class MeetingRuntimeConfigLoader {
                                       MeetingVoiceprintProperties voiceprintProperties,
                                       MeetingIsvProperties isvProperties,
                                       MeetingWebProperties webProperties,
+                                      MeetingVcProperties vcProperties,
                                       OpenClawProperties openClawProperties,
                                       ObjectMapper objectMapper,
                                       @Lazy DashboardGrantService dashboardGrantService) {
@@ -57,6 +59,7 @@ public class MeetingRuntimeConfigLoader {
         this.voiceprintProperties = voiceprintProperties;
         this.isvProperties = isvProperties;
         this.webProperties = webProperties;
+        this.vcProperties = vcProperties;
         this.openClawProperties = openClawProperties;
         this.objectMapper = objectMapper;
         this.dashboardGrantService = dashboardGrantService;
@@ -143,6 +146,7 @@ public class MeetingRuntimeConfigLoader {
         copyBean(new MeetingIsvProperties(), isvProperties);
 
         copyBean(new MeetingWebProperties(), webProperties);
+        copyBean(new MeetingVcProperties(), vcProperties);
         copyBean(new OpenClawProperties(), openClawProperties);
     }
 
@@ -236,6 +240,9 @@ public class MeetingRuntimeConfigLoader {
                 case "meeting.isv.min-segment-ms-for-slice" -> isvProperties.setMinSegmentMsForSlice(parseInt(node));
                 case "meeting.web.static-cache-seconds" -> webProperties.setStaticCacheSeconds(parseInt(node));
                 case "meeting.web.page-cache-buster" -> webProperties.setPageCacheBuster(parseString(node, ""));
+                case "meeting.vc.recording-enabled" -> vcProperties.setRecordingEnabled(parseBoolean(node));
+                case "meeting.vc.auto-record" -> vcProperties.setAutoRecord(parseBoolean(node));
+                case "meeting.vc.callback-timeout-min" -> vcProperties.setCallbackTimeoutMin(parseInt(node));
                 case "openclaw.enabled" -> openClawProperties.setEnabled(parseBoolean(node));
                 case "openclaw.skill-mode" -> openClawProperties.setSkillMode(parseBoolean(node));
                 case "openclaw.timeout-seconds" -> openClawProperties.setTimeoutSeconds(parseInt(node));

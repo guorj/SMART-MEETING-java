@@ -139,20 +139,26 @@ LIMIT 1
 
 ## weekly-comparison-mcp 模式（会前对比通报）
 
-当 prompt 含 **`mode=weekly-comparison-mcp`** 时，**覆盖**上文「只输出 Markdown 三部分」规则，改按 Bot 下发的 **执行手册** 完成全链路：
+当 prompt 含 **`mode=weekly-comparison-mcp`** 时，**覆盖**上文「只输出 Markdown 三部分」规则，改按 Bot 下发的 **执行手册** 完成全链路（v0.26 结果入库版）：
 
-1. 读 SOURCE（bitable / docx / wiki MCP）
-2. 读纪要（`meeting-mysql__mysql_query` + `[minute_query_sql]`）
-3. 内存中交叉对比，生成**完整对比报告 Markdown**（分组与排序以执行手册为准，摘要如下）：
-   - **分组顺序**：`## 延期事项` → `## 已完成事项` → `## 进行中事项`
-   - **互斥归类**：每条仅入一组；`状态=已完成` 不得入延期/进行中；未逾期不得入延期
-   - **组内排序**：已完成按完成时间（无则截止时间）**降序**；延期按逾期程度从重到轻
-4. **MCP 写飞书 Doc**（必须）：
-   - `lark-mcp__docx_v1_document_create`（`title` = `outputDocTitle`，可选 `folder_token`）
-   - `lark-mcp__docx_v1_documentBlockChildren_create`：根 **`block_id` = `document_id`**；Markdown 按行转 `block_type=2` 文本 block；**每批 ≤50 个 children**；禁止逐行单独 MCP
-5. 回复末行（必填）：`generatedReportUrl=<完整 docx URL>`（Bot JDBC 写回 `generated_report_url`）
+1. 读 SOURCE（**oabp**）：对 `[source_oabp_sql]` 每条用 `meeting-mysql__mysql_query` **原样**执行 SELECT（禁止改 SQL）；schema 通常 `oabp_pro`
+2. 读纪要（`meeting-mysql__mysql_query` + `[minute_query_sql]`，库 `intelligence`）
+3. 内存中交叉对比，生成结构化事项列表
+4. **输出 items JSON 块**（不写飞书 Doc）：
+   ```
+   -----BEGIN_WEEKLY_COMPARISON_ITEMS-----
+   { "generatedAt":"...","items":[{"category":"DELAYED","matterName":"...","assignee":"...","timeNode":"...","statusLabel":"延期","sortOrder":1,"sourceConfigName":"..."}] }
+   -----END_WEEKLY_COMPARISON_ITEMS-----
+   ```
+   - `category`：`DELAYED`/`COMPLETED`/`IN_PROGRESS`，须与 `statusLabel` 一致
+   - `matterName` 必填；`assignee`/`timeNode`/`sourceConfigName` 缺失时省略字段（不写「未提及」字符串）
+   - 某组无事项：items 中不出现该 category 条目
 
-**主持会序通报**（无 `mode=weekly-comparison-mcp`）：仍只输出上文三部分 Markdown，**不**调用 docx 写工具。
+Bot 解析 JSON 块后批量 INSERT `int_weekly_matter_comparison_run` + `int_weekly_matter_comparison_item`，写回 `host_agenda.generatedReportRunId`。
+
+**未配置 `oabpTaskSql` 的 SOURCE 不会下发任务**（Bot fail-fast）。**禁止**用 lark-mcp 写飞书 Doc 替代 items JSON 输出。
+
+**主持会序通报**（无 `mode=weekly-comparison-mcp`）：仍只输出上文三部分 Markdown，**不**调用任何写工具。
 
 ## Tool 名称核对
 

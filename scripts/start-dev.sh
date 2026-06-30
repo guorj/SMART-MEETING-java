@@ -170,6 +170,8 @@ check_deps() {
 
 do_compile() {
   local modules="$1"
+  echo "[..] install meeting-config-core (供 spring-boot:run 依赖) ..."
+  run_mvn -pl meeting-config-core install -DskipTests -q
   echo "[..] install -pl $modules -am (install 到本地仓库供 spring-boot:run) ..."
   run_mvn -pl "$modules" -am install -DskipTests -q
   echo "[OK] install done"

@@ -24,4 +24,6 @@ public class MeetingUpdateRequest {
     private String audioPath;
     private String docUrl;
     private String docToken;
+    /** 妙记 token（Admin 手动填入，触发 File B 下载与离线转写） */
+    private String vcMinuteToken;
 }

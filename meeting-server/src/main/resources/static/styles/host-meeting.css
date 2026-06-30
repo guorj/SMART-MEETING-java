@@ -1115,6 +1115,17 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .task-status-badge { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; }
 .task-status-badge.task-status-done { background: var(--color-success-bg, #dcfce7); color: var(--color-success, #16a34a); }
 .task-status-badge.task-status-open { background: var(--color-info-bg, #e0f2fe); color: var(--color-info, #0284c7); }
+.task-status-badge.task-status-delayed { background: #fee2e2; color: #dc2626; }
+.task-status-badge.task-status-pending { background: #f1f5f9; color: #64748b; }
+.structured-oabp-task-root { display: flex; flex-direction: column; gap: 14px; }
+.structured-oabp-task-title { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.structured-oabp-task-group { margin: 0; }
+.structured-oabp-status-heading {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 8px; padding: 0;
+}
+.structured-oabp-status-count { font-size: 12px; color: var(--color-text-muted, #64748b); font-weight: 500; }
+.oabp-task-table td:first-child { min-width: 12em; max-width: 28em; }
 .structured-slide-deck { display: flex; flex-direction: column; gap: 10px; }
 .structured-slide-image { max-width: 100%; border-radius: 8px; border: 1px solid var(--sm-border, #e2e8f0); background: #fff; }
 .structured-slide-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

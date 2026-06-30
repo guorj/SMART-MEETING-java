@@ -99,7 +99,7 @@ public final class PresetAgendaMergeEngine {
             HostAgendaItem fromTemplate = HostAgendaJsonCodec.parseItemAtIndex(mapper, presetHostAgendaJson, agendaIndex);
             if (fromTemplate != null && fromTemplate.getDocs() != null) {
                 for (HostAgendaDocBinding doc : fromTemplate.getDocs()) {
-                    if (doc != null && AgendaDocRoleRules.isSourceRoleForMerge(
+                    if (doc != null && doc.isShowInHost() && AgendaDocRoleRules.isSourceRoleForMerge(
                             HostAgendaJsonCodec.toSnapshot(doc, presetTypeCode, agendaIndex))) {
                         FeishuDocRefs.addFromDocBinding(refs, doc);
                     }
@@ -113,7 +113,7 @@ public final class PresetAgendaMergeEngine {
                 return FeishuDocRefs.mergeDistinct(refs);
             }
             for (AgendaDocBindingSnapshot cfg : agendaBindings) {
-                if (AgendaDocRoleRules.isSourceRoleForMerge(cfg)) {
+                if (cfg.isShowInHost() && AgendaDocRoleRules.isSourceRoleForMerge(cfg)) {
                     FeishuDocRefs.addFromBinding(refs, cfg);
                 }
             }
@@ -152,6 +152,7 @@ public final class PresetAgendaMergeEngine {
                 return Optional.of(new AgendaReportBinding(
                         row.getGeneratedReportUrl(),
                         row.getGeneratedReportAt(),
+                        row.getGeneratedReportRunId(),
                         outputFeishu));
             }
         }
@@ -259,7 +260,7 @@ public final class PresetAgendaMergeEngine {
     private static void addHostAgendaItemFeishuRefs(List<FeishuResourceRef> refs, HostAgendaItem item) {
         if (item.getDocs() != null) {
             for (HostAgendaDocBinding doc : item.getDocs()) {
-                if (doc != null && AgendaDocRoleRules.isSourceRoleForMerge(
+                if (doc != null && doc.isShowInHost() && AgendaDocRoleRules.isSourceRoleForMerge(
                         HostAgendaJsonCodec.toSnapshot(doc, 0, 0))) {
                     FeishuDocRefs.addFromDocBinding(refs, doc);
                 }

@@ -88,4 +88,27 @@ class HostAgendaJsonCodecLocalTest {
         assertEquals(AgendaStorageKind.LOCAL, back.getStorageKind());
         assertEquals("uuid-img", back.getFileId());
     }
+
+    @Test
+    void roundTripShowInHostOnDoc() {
+        HostAgendaDocBinding feishu = HostAgendaDocBinding.builder()
+                .configName("preset1-weekly")
+                .role("SOURCE")
+                .slot(0)
+                .url("https://example.feishu.cn/base/abc123")
+                .showInHost(false)
+                .enabled(true)
+                .build();
+        HostAgendaItem item = new HostAgendaItem();
+        item.setTitle("综合通报");
+        item.setMinutes(10);
+        item.setDocs(List.of(feishu));
+
+        String json = HostAgendaJsonCodec.toJson(mapper, List.of(item));
+        assertTrue(json.contains("\"showInHost\":false"));
+
+        List<HostAgendaItem> parsed = HostAgendaJsonCodec.parseItems(mapper, json);
+        assertEquals(1, parsed.size());
+        assertFalse(parsed.get(0).getDocs().get(0).isShowInHost());
+    }
 }

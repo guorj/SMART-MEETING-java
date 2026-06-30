@@ -4,7 +4,10 @@
   "type": "module",
   "scripts": {
     "import-feishu-base": "node import-feishu-base-to-oabp.mjs",
-    "test:import-feishu-base": "node --test import-feishu-base-to-oabp.test.mjs"
+    "import-feishu-base-jq-todos": "node import-feishu-base-to-jq-todos.mjs",
+    "import-feishu-oabp-all": "node import-all-feishu-to-oabp.mjs",
+    "test:import-feishu-base": "node --test import-feishu-base-to-oabp.test.mjs",
+    "test:import-feishu-base-jq-todos": "node --test import-feishu-base-to-jq-todos.test.mjs"
   },
   "dependencies": {
     "mysql2": "^3.14.0"

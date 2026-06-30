@@ -374,6 +374,9 @@ public class MeetingService {
         resp.setHasMinute(hasDoc || meetingMinuteService.exists(meeting.getId()));
         resp.setRecordingUrl(meetingWebPageUrls.resolveRecordingPageUrl(
                 meeting.getId(), meeting.getRecordingToken(), meeting.getRecordingUrl()));
+        resp.setVcMeetingUrl(meeting.getVcMeetingUrl());
+        resp.setVcMinuteToken(meeting.getVcMinuteToken());
+        resp.setVcRecordingUrl(meeting.getVcRecordingUrl());
         resp.setCreatedAt(meeting.getCreatedAt());
         resp.setUpdatedAt(meeting.getUpdatedAt());
 

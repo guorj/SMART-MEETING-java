@@ -39,6 +39,12 @@ public class MeetingResponse {
     /** 库内或飞书是否存在可查阅的纪要 */
     private Boolean hasMinute;
     private String recordingUrl;
+    /** 飞书 VC 入会链接（建会时持久化） */
+    private String vcMeetingUrl;
+    /** 妙记 token（recording_ready 回调写入；Admin 可手动填入触发 File B 转写） */
+    private String vcMinuteToken;
+    /** 妙记页面 URL（回调 event.url，便于人工核对） */
+    private String vcRecordingUrl;
     private List<ParticipantDTO> participants;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -93,6 +93,10 @@ public class MeetingAdminUpdateService {
         if (request.getDocToken() != null) {
             meeting.setDocToken(request.getDocToken());
         }
+        if (request.getVcMinuteToken() != null) {
+            String token = request.getVcMinuteToken().trim();
+            meeting.setVcMinuteToken(token.isBlank() ? null : token);
+        }
 
         meetingMapper.updateById(meeting);
         log.info("Meeting updated via admin: meetingId={}", meetingId);

@@ -17,13 +17,14 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Weekly comparison OpenClaw full-delegate: WS dispatch only; Skill + MCP read/write Doc.
+ * Weekly comparison OpenClaw full-delegate: WS dispatch; Agent uses meeting-mysql for oabp SOURCE + minutes.
  * Bot parses {@code generatedReportUrl=} and JDBC writeback.
  */
 public class OpenClawMcpWeeklyComparisonDelegate {
@@ -35,7 +36,6 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             Pattern.CASE_INSENSITIVE);
 
     private static final String INSTRUCTIONS_TEMPLATE = loadClasspathUtf8("/weekly-comparison-mcp-instructions.template");
-    private static final String OUTPUT_REF_SNIPPET = loadClasspathUtf8("/weekly-comparison-mcp-output-ref.snippet");
 
     private final OpenClawGatewayWsClient gatewayClient;
     private final ObjectMapper objectMapper;
@@ -46,6 +46,32 @@ public class OpenClawMcpWeeklyComparisonDelegate {
     private final int timeoutSeconds;
     private final boolean skillMode;
     private final String weeklyComparisonFeishuAppId;
+    private final String defaultOabpSchema;
+
+    public OpenClawMcpWeeklyComparisonDelegate(
+            OpenClawGatewayWsClient gatewayClient,
+            ObjectMapper objectMapper,
+            String gatewayUrl,
+            String authToken,
+            String deviceToken,
+            String sessionKey,
+            int timeoutSeconds,
+            boolean skillMode,
+            String weeklyComparisonFeishuAppId,
+            String defaultOabpSchema) {
+        this.gatewayClient = gatewayClient;
+        this.objectMapper = objectMapper;
+        this.gatewayUrl = gatewayUrl;
+        this.authToken = authToken;
+        this.deviceToken = deviceToken;
+        this.sessionKey = sessionKey;
+        this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 120;
+        this.skillMode = skillMode;
+        this.weeklyComparisonFeishuAppId = weeklyComparisonFeishuAppId != null ? weeklyComparisonFeishuAppId : "";
+        this.defaultOabpSchema = defaultOabpSchema != null && !defaultOabpSchema.isBlank()
+                ? defaultOabpSchema.trim()
+                : MatterProgressConfigRow.DEFAULT_OABP_SCHEMA;
+    }
 
     public OpenClawMcpWeeklyComparisonDelegate(
             OpenClawGatewayWsClient gatewayClient,
@@ -57,15 +83,8 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             int timeoutSeconds,
             boolean skillMode,
             String weeklyComparisonFeishuAppId) {
-        this.gatewayClient = gatewayClient;
-        this.objectMapper = objectMapper;
-        this.gatewayUrl = gatewayUrl;
-        this.authToken = authToken;
-        this.deviceToken = deviceToken;
-        this.sessionKey = sessionKey;
-        this.timeoutSeconds = timeoutSeconds > 0 ? timeoutSeconds : 120;
-        this.skillMode = skillMode;
-        this.weeklyComparisonFeishuAppId = weeklyComparisonFeishuAppId != null ? weeklyComparisonFeishuAppId : "";
+        this(gatewayClient, objectMapper, gatewayUrl, authToken, deviceToken, sessionKey,
+                timeoutSeconds, skillMode, weeklyComparisonFeishuAppId, MatterProgressConfigRow.DEFAULT_OABP_SCHEMA);
     }
 
     public boolean isAvailable() {
@@ -78,12 +97,17 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             WeeklyComparisonJob job,
             List<MatterProgressConfigRow> sourceRows,
             Optional<MatterProgressConfigRow> outputRow,
-            boolean readOutputFeishuDocUrl) {
+            boolean readOutputFeishuDocUrl,
+            com.smartmeeting.matterprogress.report.WeeklyComparisonItemsJsonParser itemsParser) {
         if (!isAvailable()) {
             return McpWeeklyComparisonResult.failed("OpenClaw Gateway not configured (gateway-url / auth-token)");
         }
         if (!skillMode) {
             return McpWeeklyComparisonResult.failed("weekly-comparison MCP requires openclaw.skill-mode=true");
+        }
+        String validationError = validateSourceRows(sourceRows, job);
+        if (validationError != null) {
+            return McpWeeklyComparisonResult.failed(validationError);
         }
 
         String taskId = OpenClawTaskIds.weeklyComparison(job.id());
@@ -99,26 +123,46 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         try {
             String body = gatewayClient.sendChatMessage(
                     gatewayUrl, authToken, deviceToken, sessionKeyForTask,
-                    prompt, timeoutSeconds, runKey, "generatedReportUrl=");
+                    prompt, timeoutSeconds, runKey, "END_WEEKLY_COMPARISON_ITEMS-----");
             if (body == null || body.isBlank()) {
                 return McpWeeklyComparisonResult.failed("OpenClaw empty reply");
             }
             String reply = OpenClawReplyExtractor.extractFromBody(body);
-            String reportUrl = extractReportUrl(reply != null ? reply : body);
-            log.info("OpenClaw MCP weekly-comparison done: jobId={} replyLength={} extractedUrl={}",
-                    job.id(), reply != null ? reply.length() : 0, reportUrl);
-            if (reportUrl == null || reportUrl.isBlank()) {
-                String preview = reply != null && reply.length() > 200
-                        ? reply.substring(0, 200) + "…"
-                        : reply;
+            String text = reply != null ? reply : body;
+            com.smartmeeting.matterprogress.model.ParsedComparisonItems parsed = itemsParser.parse(text);
+            log.info("OpenClaw MCP weekly-comparison done: jobId={} replyLength={} items={} discarded={} success={}",
+                    job.id(), text.length(), parsed.items().size(), parsed.discardedCount(), parsed.success());
+            if (!parsed.success()) {
+                String preview = text.length() > 200 ? text.substring(0, 200) + "…" : text;
                 return McpWeeklyComparisonResult.failed(
-                        "OpenClaw 未产出 generatedReportUrl=（Agent 可能未执行 MCP 写 Doc）；replyPreview=" + preview);
+                        "Agent items 解析失败: " + parsed.errorMessage() + "; replyPreview=" + preview);
             }
-            return McpWeeklyComparisonResult.ok(reply, reportUrl);
+            return McpWeeklyComparisonResult.ok(text, parsed);
         } catch (Exception e) {
             log.warn("OpenClaw MCP weekly-comparison WS failed: jobId={} {}", job.id(), e.getMessage());
             return McpWeeklyComparisonResult.failed(e.getMessage());
         }
+    }
+
+    static String validateSourceRows(List<MatterProgressConfigRow> sourceRows, WeeklyComparisonJob job) {
+        if (sourceRows == null || sourceRows.isEmpty()) {
+            return "无有效 SOURCE 行（需 oabpTaskSql + SOURCE/BOTH + enabled）";
+        }
+        List<String> names = job.sourceConfigNames();
+        if (names != null && !names.isEmpty()) {
+            for (String name : names) {
+                boolean ok = sourceRows.stream().anyMatch(r -> name.equals(r.configName()) && r.hasOabpTaskSql());
+                if (!ok) {
+                    return "SOURCE 未配置 oabpTaskSql 或无效: " + name;
+                }
+            }
+        }
+        for (MatterProgressConfigRow row : sourceRows) {
+            if (!row.hasOabpTaskSql()) {
+                return "SOURCE 未配置 oabpTaskSql: " + row.configName();
+            }
+        }
+        return null;
     }
 
     private String buildMcpSkillPrompt(
@@ -139,17 +183,13 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             map.put("minuteQueryType", nullToEmpty(job.minuteQueryType()));
             map.put("readOutputFeishuDocUrl", String.valueOf(readOutputFeishuDocUrl));
             map.put("weeklyComparisonFeishuAppId", weeklyComparisonFeishuAppId);
-            map.put("mcpLarkRead", "lark-mcp__bitable_v1_appTableField_list,lark-mcp__bitable_v1_appTableRecord_search");
             map.put("mcpMysql", "meeting-mysql__mysql_query");
-            map.put("mcpDocxWrite", "lark-mcp__docx_v1_document_create,lark-mcp__docx_v1_documentBlockChildren_create,lark-mcp__docx_v1_document_rawContent,lark-mcp__wiki_v2_space_getNode");
+            map.put("oabpSchema", defaultOabpSchema);
             map.put("minuteTable", "int_meeting_minute");
             map.put("minuteBodyColumn", "content_markdown");
             map.put("minuteFallbackColumn", "content_url");
             map.put("minuteStatusRequired", "READY");
-            map.put("writebackTable", "int_matter_progress_doc_config");
-            map.put("writebackWhereColumn", "config_name");
-            map.put("writebackUrlColumn", "generated_report_url");
-            map.put("writebackAtColumn", "generated_report_at");
+            map.put("outputProtocol", "BEGIN/END_WEEKLY_COMPARISON_ITEMS JSON block (no Feishu Doc write)");
         });
         String dataBlock = buildStructuredDataBlock(job, sourceRows, outputRow, readOutputFeishuDocUrl);
         return header + "\n\n" + dataBlock + "\n\n" + buildMcpTaskInstructions(job, readOutputFeishuDocUrl);
@@ -169,13 +209,11 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             sb.append(name).append('\n');
         }
 
-        sb.append("[source_feishu_urls]\n");
+        sb.append("[source_oabp_sql]\n");
         for (MatterProgressConfigRow row : sourceRows) {
-            if (row.feishuDocUrl() == null || row.feishuDocUrl().isBlank()) {
-                continue;
-            }
             sb.append("config=").append(row.configName()).append('\n');
-            sb.append("url=").append(row.feishuDocUrl().trim()).append('\n');
+            sb.append("schema=").append(row.resolvedOabpSchemaHint()).append('\n');
+            sb.append("sql=").append(row.oabpTaskSql().strip()).append('\n');
             sb.append("---\n");
         }
 
@@ -197,9 +235,12 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         sb.append(buildMinuteQuerySql(job)).append('\n');
 
         sb.append("[mysql_target]\n");
-        sb.append("hint=meeting-mysql MCP must use same DB as feishu-scheduled-bot, not localhost:3306\n");
+        sb.append("hint=meeting-mysql MCP: minutes use database=intelligence; SOURCE SQL runs against oabp schema\n");
         sb.append("database=intelligence\n");
+        sb.append("oabp_schema=").append(defaultOabpSchema).append('\n');
         sb.append("tables=int_meeting_minute,int_matter_progress_doc_config\n");
+        sb.append("oabp_note=Execute each source sql as-is (tables may be unqualified if MCP default DB is oabp); "
+                + "or prefix tables with oabp_schema e.g. ").append(defaultOabpSchema).append(".jq_project_task_tracking\n");
 
         sb.append("-----END_WEEKLY_COMPARISON_DATA-----");
         return sb.toString();
@@ -217,17 +258,11 @@ public class OpenClawMcpWeeklyComparisonDelegate {
     }
 
     private String buildMcpTaskInstructions(WeeklyComparisonJob job, boolean readOutputFeishuDocUrl) {
-        String outputReferenceSection = readOutputFeishuDocUrl ? OUTPUT_REF_SNIPPET + "\n" : "";
-        String folderTokenLine = "";
-        if (job.feishuFolderToken() != null && !job.feishuFolderToken().isBlank()) {
-            folderTokenLine = "   - folder_token: " + job.feishuFolderToken().trim() + "\n";
-        }
         return INSTRUCTIONS_TEMPLATE
                 .replace("{{weeklyComparisonFeishuAppId}}", weeklyComparisonFeishuAppId)
                 .replace("{{outputDocTitle}}", formatTitle(job.outputDocTitleTpl()))
                 .replace("{{outputConfigName}}", nullToEmpty(job.outputConfigName()))
-                .replace("{{folderTokenLine}}", folderTokenLine)
-                .replace("{{outputReferenceSection}}", outputReferenceSection);
+                .replace("{{oabpSchema}}", defaultOabpSchema);
     }
 
     private static String loadClasspathUtf8(String resourcePath) {
@@ -346,11 +381,11 @@ public class OpenClawMcpWeeklyComparisonDelegate {
     public record McpWeeklyComparisonResult(
             boolean success,
             String replyText,
-            String extractedReportUrl,
+            com.smartmeeting.matterprogress.model.ParsedComparisonItems parsedItems,
             String errorMessage) {
 
-        static McpWeeklyComparisonResult ok(String reply, String reportUrl) {
-            return new McpWeeklyComparisonResult(true, reply, reportUrl, null);
+        static McpWeeklyComparisonResult ok(String reply, com.smartmeeting.matterprogress.model.ParsedComparisonItems parsed) {
+            return new McpWeeklyComparisonResult(true, reply, parsed, null);
         }
 
         static McpWeeklyComparisonResult failed(String error) {

@@ -3,6 +3,7 @@ package com.smartmeeting.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartmeeting.config.MeetingVcProperties;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.pipeline.executor.PipelineExecutorSupport;
 import com.smartmeeting.repository.MeetingMapper;
@@ -27,17 +28,38 @@ public class MeetingCalendarSyncService {
     private final CalendarAttendeeResolver calendarAttendeeResolver;
     private final ObjectMapper objectMapper;
     private final PipelineExecutorSupport pipelineSupport;
+    private final MeetingVcProperties vcProperties;
 
     public record SyncResult(boolean success, String action, String eventId, String message,
                              int invitedCount, String vcMeetingUrl) {
     }
 
     public SyncResult syncScheduledMeeting(Meeting meeting) {
-        return syncScheduledMeeting(meeting, DEFAULT_DURATION_MINUTES, "", true, CalendarVchatOptions.defaults());
+        return syncScheduledMeeting(meeting, DEFAULT_DURATION_MINUTES, "", true, resolveVchatOptionsForSchedule());
     }
 
     public SyncResult syncScheduledMeeting(Meeting meeting, int durationMinutes, String roomHint, boolean upsert) {
-        return syncScheduledMeeting(meeting, durationMinutes, roomHint, upsert, CalendarVchatOptions.defaults());
+        return syncScheduledMeeting(meeting, durationMinutes, roomHint, upsert, resolveVchatOptionsForSchedule());
+    }
+
+    /**
+     * 预约会议路径的 vchat 选项：
+     * {@code meeting.vc.recording-enabled=true} 时按配置覆盖 autoRecord；
+     * 否则用 {@link CalendarVchatOptions#defaults()}（autoRecord=false）。
+     */
+    private CalendarVchatOptions resolveVchatOptionsForSchedule() {
+        if (!vcProperties.isRecordingEnabled()) {
+            return CalendarVchatOptions.defaults();
+        }
+        return new CalendarVchatOptions(
+                true,
+                CalendarVchatOptions.VC_TYPE_VC,
+                "",
+                "only_event_attendees",
+                true,
+                vcProperties.isAutoRecord(),
+                true,
+                5);
     }
 
     public SyncResult syncScheduledMeeting(Meeting meeting, int durationMinutes, String roomHint, boolean upsert,
@@ -185,6 +207,9 @@ public class MeetingCalendarSyncService {
             return new SyncResult(false, "create", "", create.message(), 0, "");
         }
         meeting.setRoomId(create.eventId());
+        if (create.vcMeetingUrl() != null && !create.vcMeetingUrl().isBlank()) {
+            meeting.setVcMeetingUrl(create.vcMeetingUrl());
+        }
         meetingMapper.updateById(meeting);
         log.info("Meeting calendar created: meetingId={}, eventId={}, invitedCount={}, vcMeetingUrl={}",
                 meeting.getId(), create.eventId(), create.invitedCount(), create.vcMeetingUrl());

@@ -45,6 +45,7 @@ class MeetingRuntimeConfigLoaderTest {
                 new MeetingVoiceprintProperties(),
                 new MeetingIsvProperties(),
                 new MeetingWebProperties(),
+                new MeetingVcProperties(),
                 new OpenClawProperties(),
                 new ObjectMapper(),
                 dashboardGrantService);
@@ -92,7 +93,8 @@ class MeetingRuntimeConfigLoaderTest {
                 new MeetingTodoProperties(), new MeetingPipelineProperties(),
                 new MeetingSchedulerProperties(), new MeetingNotificationProperties(),
                 new MeetingVoiceprintProperties(), new MeetingIsvProperties(),
-                new MeetingWebProperties(), new OpenClawProperties(),
+                new MeetingWebProperties(), new MeetingVcProperties(),
+                new OpenClawProperties(),
                 new ObjectMapper(), dashboardGrantService);
 
         loader.reload();
@@ -128,7 +130,8 @@ class MeetingRuntimeConfigLoaderTest {
                 new MeetingTodoProperties(), new MeetingPipelineProperties(),
                 new MeetingSchedulerProperties(), new MeetingNotificationProperties(),
                 new MeetingVoiceprintProperties(), new MeetingIsvProperties(),
-                new MeetingWebProperties(), new OpenClawProperties(),
+                new MeetingWebProperties(), new MeetingVcProperties(),
+                new OpenClawProperties(),
                 new ObjectMapper(), dashboardGrantService);
 
         loader.reload();

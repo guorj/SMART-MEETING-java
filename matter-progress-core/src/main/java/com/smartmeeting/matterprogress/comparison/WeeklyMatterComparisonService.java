@@ -3,14 +3,21 @@ package com.smartmeeting.matterprogress.comparison;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.matterprogress.config.MatterProgressConfigRepository;
-import com.smartmeeting.matterprogress.model.MatterProgressConfigRow;
 import com.smartmeeting.matterprogress.feishu.FeishuDocClient;
 import com.smartmeeting.matterprogress.job.JdbcWeeklyComparisonJobRepository;
 import com.smartmeeting.matterprogress.minute.MeetingMinuteQuery;
+import com.smartmeeting.matterprogress.model.MatterProgressConfigRow;
 import com.smartmeeting.matterprogress.model.MinuteSnapshot;
-import com.smartmeeting.matterprogress.model.SourceDocSnapshot;
+import com.smartmeeting.matterprogress.model.ParsedComparisonItems;
+import com.smartmeeting.matterprogress.model.SourceDataSnapshot;
+import com.smartmeeting.matterprogress.model.WeeklyComparisonItem;
 import com.smartmeeting.matterprogress.model.WeeklyComparisonJob;
 import com.smartmeeting.matterprogress.model.WeeklyComparisonResult;
+import com.smartmeeting.matterprogress.model.WeeklyComparisonRun;
+import com.smartmeeting.matterprogress.oabp.OabpSourceQuery;
+import com.smartmeeting.matterprogress.report.JdbcWeeklyComparisonItemRepository;
+import com.smartmeeting.matterprogress.report.JdbcWeeklyComparisonRunRepository;
+import com.smartmeeting.matterprogress.report.WeeklyComparisonItemsJsonParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -24,9 +31,10 @@ import java.util.Optional;
 /**
  * 会前对比 Facade。
  * <ul>
- *   <li><b>MCP 全托管</b>（{@code delegateToMcp=true}）：仅 WS 下发任务 → OpenClaw + MCP 读飞书/库、写 Doc、入库</li>
- *   <li><b>Legacy</b>：Java 预读飞书/纪要 → LLM 或 OpenClaw（带正文）→ Java 写 Doc</li>
+ *   <li><b>MCP 全托管</b>：WS 下发 oabp SQL → Agent 查库 → 返回 items JSON → Bot 入库</li>
+ *   <li><b>Legacy</b>：Java 查 oabp + LLM 产 Markdown → 解析为 items → Bot 入库</li>
  * </ul>
+ * <p>v0.26：产物入库（run + item 两表），不再写飞书 Doc。
  */
 public class WeeklyMatterComparisonService {
 
@@ -38,6 +46,10 @@ public class WeeklyMatterComparisonService {
     private final FeishuDocClient feishuDocClient;
     private final ComparisonReportGenerator reportGenerator;
     private final OpenClawMcpWeeklyComparisonDelegate mcpDelegate;
+    private final OabpSourceQuery oabpSourceQuery;
+    private final JdbcWeeklyComparisonRunRepository runRepository;
+    private final JdbcWeeklyComparisonItemRepository itemRepository;
+    private final WeeklyComparisonItemsJsonParser itemsJsonParser;
     private final ObjectMapper objectMapper;
     private final boolean readOutputFeishuDocUrl;
     private final boolean delegateToMcp;
@@ -50,6 +62,10 @@ public class WeeklyMatterComparisonService {
             FeishuDocClient feishuDocClient,
             ComparisonReportGenerator reportGenerator,
             OpenClawMcpWeeklyComparisonDelegate mcpDelegate,
+            OabpSourceQuery oabpSourceQuery,
+            JdbcWeeklyComparisonRunRepository runRepository,
+            JdbcWeeklyComparisonItemRepository itemRepository,
+            WeeklyComparisonItemsJsonParser itemsJsonParser,
             ObjectMapper objectMapper,
             boolean readOutputFeishuDocUrl,
             boolean delegateToMcp,
@@ -60,6 +76,10 @@ public class WeeklyMatterComparisonService {
         this.feishuDocClient = feishuDocClient;
         this.reportGenerator = reportGenerator;
         this.mcpDelegate = mcpDelegate;
+        this.oabpSourceQuery = oabpSourceQuery;
+        this.runRepository = runRepository;
+        this.itemRepository = itemRepository;
+        this.itemsJsonParser = itemsJsonParser;
         this.objectMapper = objectMapper;
         this.readOutputFeishuDocUrl = readOutputFeishuDocUrl;
         this.delegateToMcp = delegateToMcp;
@@ -88,7 +108,7 @@ public class WeeklyMatterComparisonService {
         }
     }
 
-    private WeeklyComparisonResult runJobViaOpenClawMcp(WeeklyComparisonJob job, Instant started) throws Exception {
+    private WeeklyComparisonResult runJobViaOpenClawMcp(WeeklyComparisonJob job, Instant started) {
         if (mcpDelegate == null || !mcpDelegate.isAvailable()) {
             if (legacyFallbackOnMcpFailure) {
                 log.warn("OpenClaw MCP 不可用，降级 Legacy 流水线: jobId={}", job.id());
@@ -100,16 +120,12 @@ public class WeeklyMatterComparisonService {
 
         MatterProgressConfigRow outputRow = configRepository.findByConfigName(job.outputConfigName())
                 .orElseThrow(() -> new IllegalStateException("OUTPUT 配置不存在: " + job.outputConfigName()));
-
-        Instant reportAtBefore = outputRow.generatedReportAt();
-        String reportUrlBefore = outputRow.generatedReportUrl();
-
-        List<MatterProgressConfigRow> sourceRows = configRepository.loadSources(job.sourceConfigNames());
-        log.info("Weekly comparison MCP dispatch jobId={} sourceRows={} (no Java pre-fetch)",
+        List<MatterProgressConfigRow> sourceRows = loadAndValidateSourceRows(job);
+        log.info("Weekly comparison MCP dispatch jobId={} sourceRows={} (oabp SQL via Agent)",
                 job.id(), sourceRows.size());
 
         OpenClawMcpWeeklyComparisonDelegate.McpWeeklyComparisonResult mcpResult = mcpDelegate.execute(
-                job, sourceRows, Optional.of(outputRow), readOutputFeishuDocUrl);
+                job, sourceRows, Optional.of(outputRow), readOutputFeishuDocUrl, itemsJsonParser);
 
         if (!mcpResult.success()) {
             if (legacyFallbackOnMcpFailure) {
@@ -119,92 +135,132 @@ public class WeeklyMatterComparisonService {
             throw new IllegalStateException("OpenClaw MCP 失败: " + mcpResult.errorMessage());
         }
 
-        String reportUrl = resolveReportUrlAfterMcp(job, started, reportAtBefore, reportUrlBefore, mcpResult);
-        if (reportUrl == null || reportUrl.isBlank()) {
-            throw new IllegalStateException(
-                    "OpenClaw MCP 已完成但未写回 generated_report_url，请检查 Skill/MCP 是否执行 UPDATE 与创建 Doc");
-        }
-
-        MatterProgressConfigRow after = configRepository.findByConfigName(job.outputConfigName()).orElse(outputRow);
-        if (!reportUrl.equals(after.generatedReportUrl())) {
-            configRepository.writeGeneratedReport(job.outputConfigName(), reportUrl, Instant.now());
-            log.info("Weekly comparison MCP: Java 补写 generated_report_url jobId={}", job.id());
-        }
-
-        jobRepository.updateRunResult(job.id(), "SUCCESS", null, started);
-        log.info("Weekly comparison MCP success jobId={} docUrl={}", job.id(), reportUrl);
-        return WeeklyComparisonResult.success(job.id(), reportUrl);
+        ParsedComparisonItems parsed = mcpResult.parsedItems();
+        return persistRunAndItems(job, outputRow, parsed, started);
     }
 
-    private String resolveReportUrlAfterMcp(
-            WeeklyComparisonJob job,
-            Instant started,
-            Instant reportAtBefore,
-            String reportUrlBefore,
-            OpenClawMcpWeeklyComparisonDelegate.McpWeeklyComparisonResult mcpResult) {
-        if (mcpResult.extractedReportUrl() != null && !mcpResult.extractedReportUrl().isBlank()) {
-            return mcpResult.extractedReportUrl();
+    private WeeklyComparisonResult runJobLegacyPipeline(WeeklyComparisonJob job, Instant started) {
+        List<SourceDataSnapshot> sources = collectSourceData(job);
+        List<MinuteSnapshot> minutes;
+        try {
+            minutes = resolveMinutes(job);
+        } catch (Exception e) {
+            throw new IllegalStateException("纪要查询失败: " + e.getMessage(), e);
         }
-        MatterProgressConfigRow row = configRepository.findByConfigName(job.outputConfigName()).orElse(null);
-        if (row == null) {
-            return null;
-        }
-        String url = row.generatedReportUrl();
-        Instant at = row.generatedReportAt();
-        if (url != null && !url.isBlank()) {
-            if (reportUrlBefore == null || !url.equals(reportUrlBefore)) {
-                return url;
-            }
-            if (at != null && (reportAtBefore == null || at.isAfter(started.minusSeconds(2)))) {
-                return url;
-            }
-        }
-        return OpenClawMcpWeeklyComparisonDelegate.extractReportUrl(mcpResult.replyText());
-    }
-
-    private WeeklyComparisonResult runJobLegacyPipeline(WeeklyComparisonJob job, Instant started) throws Exception {
-        List<SourceDocSnapshot> sources = collectSourceDocs(job);
-        List<MinuteSnapshot> minutes = resolveMinutes(job);
         log.info("Weekly comparison collected jobId={} sources={} minutes={}", job.id(), sources.size(), minutes.size());
-        String markdown = reportGenerator.generate(job.id(), sources, minutes);
-        if (markdown == null || markdown.isBlank()) {
-            throw new IllegalStateException(
-                    "对比报告 Markdown 为空：请配置 feishu.weekly-comparison.openclaw.* 或 MEETING_LLM_API_KEY");
-        }
-        String title = formatTitle(job.outputDocTitleTpl());
-        String docUrl = feishuDocClient.createAndWriteMarkdown(job.feishuFolderToken(), title, markdown);
-        if (docUrl == null || docUrl.isBlank()) {
-            throw new IllegalStateException(
-                    "飞书 Doc 创建成功但未返回 URL，请检查 feishu.weekly-comparison.app-id/secret 与 folder_token");
-        }
-        configRepository.writeGeneratedReport(job.outputConfigName(), docUrl, Instant.now());
-        jobRepository.updateRunResult(job.id(), "SUCCESS", null, started);
-        log.info("Weekly comparison legacy success jobId={} docUrl={}", job.id(), docUrl);
-        return WeeklyComparisonResult.success(job.id(), docUrl);
+        ParsedComparisonItems parsed = reportGenerator.generate(job.id(), sources, minutes);
+        MatterProgressConfigRow outputRow = configRepository.findByConfigName(job.outputConfigName())
+                .orElseThrow(() -> new IllegalStateException("OUTPUT 配置不存在: " + job.outputConfigName()));
+        return persistRunAndItems(job, outputRow, parsed, started);
     }
 
     /**
-     * 收集待读飞书 URL：source_config_names + 可选 output 行 feishu_doc_url（Legacy 路径）。
+     * 入库 run + items，写回 host_agenda.runId 与 job.last_run_id。
      */
-    public List<SourceDocSnapshot> collectSourceDocs(WeeklyComparisonJob job) {
-        List<MatterProgressConfigRow> rows = configRepository.loadSources(job.sourceConfigNames());
-        List<SourceDocSnapshot> out = new ArrayList<>();
-        for (MatterProgressConfigRow row : rows) {
-            String text = feishuDocClient.fetchPlainText(row.feishuDocUrl());
-            out.add(new SourceDocSnapshot(row.configName(), row.feishuDocUrl(), text));
+    private WeeklyComparisonResult persistRunAndItems(WeeklyComparisonJob job,
+                                                      MatterProgressConfigRow outputRow,
+                                                      ParsedComparisonItems parsed,
+                                                      Instant started) {
+        String title = formatTitle(job.outputDocTitleTpl());
+        Instant generatedAt = Instant.now();
+        String runStatus = parsed.resolveRunStatus();
+        String runError = buildRunError(parsed);
+
+        WeeklyComparisonRun run = new WeeklyComparisonRun(
+                null,
+                job.id(),
+                job.outputConfigName(),
+                outputRow.presetTypeCode(),
+                outputRow.agendaIndex(),
+                title,
+                parsed.items().size(),
+                runStatus,
+                generatedAt,
+                runError);
+        long runId = runRepository.insertRun(run);
+
+        if (parsed.success() && !parsed.items().isEmpty()) {
+            itemRepository.batchInsert(runId, parsed.items());
+            runRepository.updateStatus(runId, parsed.items().size(), runStatus, runError);
+        } else if (parsed.success()) {
+            // 0 条事项但解析成功 → READY(item_count=0)
+            runRepository.updateStatus(runId, 0, WeeklyComparisonRun.READY, null);
+        } else {
+            runRepository.markFailed(runId, runError);
+            jobRepository.updateRunResult(job.id(), "FAILED", runError, started, runId);
+            log.warn("Weekly comparison parse failed jobId={} runId={} err={}", job.id(), runId, runError);
+            return WeeklyComparisonResult.failed(job.id(), runError);
         }
-        if (readOutputFeishuDocUrl) {
-            configRepository.findByConfigName(job.outputConfigName()).ifPresent(output -> {
-                if (output.feishuDocUrl() != null && !output.feishuDocUrl().isBlank()) {
-                    boolean already = rows.stream().anyMatch(r -> r.configName().equals(output.configName()));
-                    if (!already) {
-                        String text = feishuDocClient.fetchPlainText(output.feishuDocUrl());
-                        out.add(new SourceDocSnapshot(output.configName(), output.feishuDocUrl(), text));
-                    }
-                }
-            });
+
+        configRepository.writeGeneratedReportRun(job.outputConfigName(), runId, generatedAt);
+        jobRepository.updateRunResult(job.id(), "SUCCESS", null, started, runId);
+        log.info("Weekly comparison success jobId={} runId={} status={} items={}",
+                job.id(), runId, runStatus, parsed.items().size());
+
+        if (WeeklyComparisonRun.PARTIAL.equals(runStatus)) {
+            return WeeklyComparisonResult.partial(job.id(), runId, parsed.items().size());
+        }
+        return WeeklyComparisonResult.success(job.id(), runId, parsed.items().size());
+    }
+
+    private static String buildRunError(ParsedComparisonItems parsed) {
+        if (parsed.success() && parsed.discardedCount() == 0) {
+            return null;
+        }
+        if (!parsed.success()) {
+            return parsed.errorMessage();
+        }
+        return "部分事项解析被丢弃: " + parsed.discardedCount() + " 条（字段缺失或 statusLabel/category 不一致）";
+    }
+
+    /**
+     * 收集 oabp SOURCE 数据：每条 source_config 对应父会序 oabpTaskSql，Legacy 路径 Java 预查。
+     */
+    public List<SourceDataSnapshot> collectSourceData(WeeklyComparisonJob job) {
+        List<MatterProgressConfigRow> rows = loadAndValidateSourceRows(job);
+        if (oabpSourceQuery == null) {
+            throw new IllegalStateException(
+                    "Legacy 路径需要 oabp 数据源：请设置 feishu.weekly-comparison.oabp.enabled=true");
+        }
+        List<SourceDataSnapshot> out = new ArrayList<>();
+        for (MatterProgressConfigRow row : rows) {
+            String markdown = oabpSourceQuery.queryAsMarkdown(row.oabpTaskSql());
+            out.add(new SourceDataSnapshot(
+                    row.configName(),
+                    row.oabpTaskSql(),
+                    row.resolvedOabpSchemaHint(),
+                    markdown));
         }
         return out;
+    }
+
+    private List<MatterProgressConfigRow> loadAndValidateSourceRows(WeeklyComparisonJob job) {
+        List<String> names = job.sourceConfigNames();
+        if (names == null || names.isEmpty()) {
+            throw new IllegalStateException("job.source_config_names 为空");
+        }
+        List<MatterProgressConfigRow> rows = configRepository.loadSources(names);
+        List<String> missing = new ArrayList<>();
+        for (String name : names) {
+            boolean found = rows.stream().anyMatch(r -> name.equals(r.configName()));
+            if (!found) {
+                Optional<MatterProgressConfigRow> row = configRepository.findByConfigName(name);
+                if (row.isEmpty()) {
+                    missing.add(name + "（配置不存在）");
+                } else if (!row.get().hasOabpTaskSql()) {
+                    missing.add(name + "（父会序未配置 oabpTaskSql）");
+                } else {
+                    missing.add(name + "（非 SOURCE/BOTH 或未启用）");
+                }
+            }
+        }
+        if (!missing.isEmpty()) {
+            throw new IllegalStateException("SOURCE oabp 配置无效: " + String.join("; ", missing));
+        }
+        if (rows.isEmpty()) {
+            throw new IllegalStateException("无有效 SOURCE 行（需 oabpTaskSql + SOURCE/BOTH + enabled）");
+        }
+        return rows;
     }
 
     private List<MinuteSnapshot> resolveMinutes(WeeklyComparisonJob job) throws Exception {

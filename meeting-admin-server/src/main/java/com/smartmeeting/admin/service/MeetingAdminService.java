@@ -250,6 +250,9 @@ public class MeetingAdminService {
                 .docToken(m.getDocToken())
                 .recordingUrl(m.getRecordingUrl())
                 .recordingToken(m.getRecordingToken())
+                .vcMeetingUrl(m.getVcMeetingUrl())
+                .vcMinuteToken(m.getVcMinuteToken())
+                .vcRecordingUrl(m.getVcRecordingUrl())
                 .createdAt(m.getCreatedAt())
                 .updatedAt(m.getUpdatedAt())
                 .build();

@@ -34,6 +34,9 @@ public class Meeting {
     private String docToken;
     private String recordingUrl;
     private String recordingToken;
+    private String vcMeetingUrl;
+    private String vcMinuteToken;
+    private String vcRecordingUrl;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -41,7 +41,7 @@ public final class LocalAgendaMaterialPartBuilder {
             return List.of();
         }
         List<HostAgendaDocBinding> locals = item.getDocs().stream()
-                .filter(d -> d != null && d.isEnabled() && d.isLocalStorage() && isSourceRole(d))
+                .filter(d -> d != null && d.isEnabled() && d.isShowInHost() && d.isLocalStorage() && isSourceRole(d))
                 .toList();
         if (locals.isEmpty()) {
             return List.of();

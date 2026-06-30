@@ -2,6 +2,7 @@ package com.smartmeeting.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartmeeting.config.MeetingVcProperties;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.pipeline.executor.PipelineExecutorSupport;
 import com.smartmeeting.repository.MeetingMapper;
@@ -44,7 +45,8 @@ class MeetingCalendarSyncServiceTest {
                 meetingMapper,
                 calendarAttendeeResolver,
                 new ObjectMapper(),
-                new PipelineExecutorSupport(new ObjectMapper()));
+                new PipelineExecutorSupport(new ObjectMapper()),
+                new MeetingVcProperties());
     }
 
     @Test

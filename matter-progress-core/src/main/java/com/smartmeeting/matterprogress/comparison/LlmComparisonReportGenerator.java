@@ -2,7 +2,9 @@ package com.smartmeeting.matterprogress.comparison;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.smartmeeting.matterprogress.model.MinuteSnapshot;
-import com.smartmeeting.matterprogress.model.SourceDocSnapshot;
+import com.smartmeeting.matterprogress.model.ParsedComparisonItems;
+import com.smartmeeting.matterprogress.model.SourceDataSnapshot;
+import com.smartmeeting.matterprogress.report.WeeklyComparisonItemMarkdownParser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpEntity;
@@ -16,7 +18,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/** 使用直连 LLM 生成对比 Markdown（可选降级路径，主路径为 OpenClaw）。 */
+/**
+ * Legacy 路径：直连 LLM 生成 Markdown，再由 {@link WeeklyComparisonItemMarkdownParser} 解析为 items。
+ * <p>解析失败 → {@link ParsedComparisonItems#failed} → run FAILED（不写 READY+0 条）。
+ */
 public class LlmComparisonReportGenerator implements ComparisonReportGenerator {
 
     private static final Logger log = LoggerFactory.getLogger(LlmComparisonReportGenerator.class);
@@ -25,6 +30,7 @@ public class LlmComparisonReportGenerator implements ComparisonReportGenerator {
     private final String apiUrl;
     private final String apiKey;
     private final String model;
+    private final WeeklyComparisonItemMarkdownParser markdownParser = new WeeklyComparisonItemMarkdownParser();
 
     public LlmComparisonReportGenerator(RestTemplate restTemplate, String apiUrl, String apiKey, String model) {
         this.restTemplate = restTemplate;
@@ -33,25 +39,26 @@ public class LlmComparisonReportGenerator implements ComparisonReportGenerator {
         this.model = model != null && !model.isBlank() ? model : "deepseek-chat";
     }
 
-    /**
-     * 兼容旧调用方（无 jobId）。
-     */
-    public String generate(List<SourceDocSnapshot> sources, List<MinuteSnapshot> minutes) {
-        return generateWithLlm(sources, minutes);
-    }
-
     @Override
-    public String generate(long jobId, List<SourceDocSnapshot> sources, List<MinuteSnapshot> minutes) {
-        return generateWithLlm(sources, minutes);
+    public ParsedComparisonItems generate(long jobId, List<SourceDataSnapshot> sources, List<MinuteSnapshot> minutes) {
+        String markdown = generateMarkdown(sources, minutes);
+        if (markdown == null || markdown.isBlank()) {
+            return ParsedComparisonItems.failed("LLM 产出 Markdown 为空");
+        }
+        return markdownParser.parse(markdown);
     }
 
-    private String generateWithLlm(List<SourceDocSnapshot> sources, List<MinuteSnapshot> minutes) {
+    private String generateMarkdown(List<SourceDataSnapshot> sources, List<MinuteSnapshot> minutes) {
         StringBuilder user = new StringBuilder();
-        user.append("请输出 Markdown 格式的事项对比通报，含：概览、事项表快照、纪要摘录、差异清单、延期风险、附录链接。\n\n");
-        user.append("## 飞书资料\n");
-        for (SourceDocSnapshot s : sources) {
+        user.append("请输出 Markdown 格式的事项对比通报。\n");
+        user.append("必须严格按以下顺序输出三组（组标题用 `##`）：\n");
+        user.append("1. `## 延期事项`\n2. `## 已完成事项`\n3. `## 进行中事项`\n\n");
+        user.append("每条事项一行，格式：`- 事项：<内容>，责任人：<姓名>，时间节点：<时间>，状态：<延期|已完成|进行中>`\n");
+        user.append("某分组无数据输出 `- 无`。状态必须与所在分组一致。\n\n");
+        user.append("## oabp 事项表\n");
+        for (SourceDataSnapshot s : sources) {
             user.append("### ").append(s.configName()).append("\n");
-            user.append("URL: ").append(s.feishuDocUrl()).append("\n");
+            user.append("schema: ").append(s.oabpSchemaHint()).append("\n");
             String body = s.plainText() != null ? s.plainText() : "";
             if (body.length() > 8000) {
                 body = body.substring(0, 8000) + "…";
@@ -78,18 +85,17 @@ public class LlmComparisonReportGenerator implements ComparisonReportGenerator {
             Map<String, Object> body = new HashMap<>();
             body.put("model", model);
             body.put("messages", List.of(
-                    Map.of("role", "system", "content", "你是会议事项对比分析助手，输出简洁 Markdown。"),
-                    Map.of("role", "user", "content", user.toString())
-            ));
-            body.put("temperature", 0.35);
+                    Map.of("role", "system", "content", "你是会议事项对比分析助手，输出清晰 Markdown。"),
+                    Map.of("role", "user", "content", user.toString())));
+            body.put("temperature", 0.3);
             body.put("max_tokens", 4096);
-            ResponseEntity<JsonNode> response = restTemplate.exchange(
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
                     resolveChatUrl(), HttpMethod.POST, new HttpEntity<>(body, headers), JsonNode.class);
-            JsonNode json = response.getBody();
-            if (json != null && json.has("choices")) {
-                String content = json.get("choices").get(0).path("message").path("content").asText("").trim();
-                if (!content.isBlank()) {
-                    return content;
+            JsonNode root = resp.getBody();
+            if (root != null) {
+                JsonNode content = root.path("choices").path(0).path("message").path("content");
+                if (content.isTextual() && !content.asText().isBlank()) {
+                    return content.asText();
                 }
             }
         } catch (Exception e) {
@@ -98,18 +104,9 @@ public class LlmComparisonReportGenerator implements ComparisonReportGenerator {
         return fallbackMarkdown(sources, minutes);
     }
 
-    private static String fallbackMarkdown(List<SourceDocSnapshot> sources, List<MinuteSnapshot> minutes) {
-        StringBuilder sb = new StringBuilder("# 事项对比通报（自动生成）\n\n");
-        sb.append("## 概览\n\n共 ").append(sources.size()).append(" 份资料，")
-                .append(minutes.size()).append(" 份纪要。\n\n");
-        for (SourceDocSnapshot s : sources) {
-            sb.append("- 资料 **").append(s.configName()).append("**: ")
-                    .append(s.feishuDocUrl()).append("\n");
-        }
-        for (MinuteSnapshot m : minutes) {
-            sb.append("- 纪要 **").append(m.title()).append("** (").append(m.meetingId()).append(")\n");
-        }
-        return sb.toString();
+    private static String fallbackMarkdown(List<SourceDataSnapshot> sources, List<MinuteSnapshot> minutes) {
+        // fallback 不产出有效三组结构，解析器会返回 failed → run FAILED
+        return "# 事项对比通报（自动生成 - 无 LLM）\n\nLLM 未配置或调用失败，无法生成结构化事项。\n";
     }
 
     private String resolveChatUrl() {

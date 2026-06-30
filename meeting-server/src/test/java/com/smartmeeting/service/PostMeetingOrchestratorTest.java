@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.util.Optional;
 
@@ -24,6 +26,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 class PostMeetingOrchestratorTest {
 
     private static final String MEETING_ID = "meet-orchestrator";
@@ -42,6 +45,8 @@ class PostMeetingOrchestratorTest {
     private MinuteGenerationService minuteGenerationService;
     @Mock
     private AudioCacheService audioCacheService;
+    @Mock
+    private AudioSourceResolver audioSourceResolver;
 
     private MeetingAsrProperties asrProperties;
     private MeetingMinuteProperties minuteProperties;
@@ -52,6 +57,7 @@ class PostMeetingOrchestratorTest {
         asrProperties = new MeetingAsrProperties();
         minuteProperties = new MeetingMinuteProperties();
         when(audioCacheService.findExistingCachePath(any())).thenReturn(Optional.empty());
+        when(audioSourceResolver.resolve(any())).thenReturn(null);
         orchestrator = new PostMeetingOrchestrator(
                 meetingMapper,
                 asrProperties,
@@ -61,7 +67,8 @@ class PostMeetingOrchestratorTest {
                 meetingStateMachineService,
                 offlineAsrService,
                 minuteGenerationService,
-                audioCacheService);
+                audioCacheService,
+                audioSourceResolver);
     }
 
     @Test

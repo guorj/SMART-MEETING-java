@@ -171,6 +171,7 @@ AdminModules.register({
         ['sourceAudioUrl', m.sourceAudioUrl], ['audioPath', m.audioPath],
         ['docUrl', m.docUrl], ['docToken', m.docToken],
         ['recordingUrl', m.recordingUrl], ['recordingToken', m.recordingToken ? '(已设置)' : '-'],
+        ['vcMeetingUrl', m.vcMeetingUrl], ['vcMinuteToken', m.vcMinuteToken], ['vcRecordingUrl', m.vcRecordingUrl],
         ['主持页面', links.hostUrl || '-'], ['录音页面', links.recorderUrl || '-'],
         ['参会人数', participants.length || 0], ['线上/线下', onlineCount + ' / ' + offlineCount]
       ];
@@ -224,6 +225,7 @@ AdminModules.register({
           <label>audioPath<input name="audioPath" value="${esc(m.audioPath || '')}"/></label>
           <label>docUrl<input name="docUrl" value="${esc(m.docUrl || '')}"/></label>
           <label>docToken<input name="docToken" value="${esc(m.docToken || '')}"/></label>
+          <label>vcMinuteToken（妙记 token，写入后重新生成纪要走 File B）<input name="vcMinuteToken" value="${esc(m.vcMinuteToken || '')}"/></label>
           <h4>状态</h4>
           <label>status（仅可填 CANCELLED 取消未开始会议）
             <select name="status"${dis}><option value="">不修改</option><option value="CANCELLED">CANCELLED</option></select>
@@ -274,7 +276,8 @@ AdminModules.register({
             sourceAudioUrl: fd.get('sourceAudioUrl'),
             audioPath: fd.get('audioPath'),
             docUrl: fd.get('docUrl'),
-            docToken: fd.get('docToken')
+            docToken: fd.get('docToken'),
+            vcMinuteToken: fd.get('vcMinuteToken')
           };
           const st = fd.get('status');
           if (st) body.status = st;
