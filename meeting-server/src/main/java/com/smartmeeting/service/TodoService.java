@@ -14,13 +14,18 @@ import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
+import com.smartmeeting.service.oabp.OabpDecisionMakerResolver;
+import com.smartmeeting.service.oabp.OabpTodoStatusMapper;
+import com.smartmeeting.service.oabp.outbox.OabpOutboxPublisher;
 import com.smartmeeting.statemachine.MeetingEvent;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -43,6 +48,12 @@ public class TodoService {
     private final ParticipantMapper participantMapper;
     private final MeetingStateMachineService meetingStateMachineService;
     private final TodoPermissionService todoPermissionService;
+    /** oabp 同步发布门面；oabp 未启用时 Bean 不存在，用 ObjectProvider 安全获取 */
+    private final ObjectProvider<OabpOutboxPublisher> oabpOutboxPublisherProvider;
+    /** 决策人解析器；oabp 未启用时 Bean 不存在 */
+    private final ObjectProvider<OabpDecisionMakerResolver> oabpDecisionMakerResolverProvider;
+    /** 飞书任务推送服务（发裁决卡、通知责任人） */
+    private final com.smartmeeting.service.FeishuTaskService feishuTaskService;
 
     private static final List<String> STATUS_SORT_ORDER = List.of(
             TodoStatus.PENDING.name(),
@@ -167,6 +178,9 @@ public class TodoService {
         }
 
         todoMapper.updateById(todo);
+
+        // 同步状态变更到 OABP jq_todos_task（status + progress）
+        syncStatusChangeToOabp(todo, newStatus);
 
         String meetingId = todo.getMeetingId();
         String assigneeId = todo.getAssigneeId();
@@ -320,6 +334,12 @@ public class TodoService {
                 .assigneeName(t.getAssigneeName())
                 .operatorId(t.getOperatorId())
                 .operatorName(t.getOperatorName())
+                .decisionMakerFeishuUserId(t.getDecisionMakerFeishuUserId())
+                .decisionMakerName(t.getDecisionMakerName())
+                .pendingDecision(t.getPendingDecision())
+                .decisionMadeAt(t.getDecisionMadeAt())
+                .decisionResult(t.getDecisionResult())
+                .decisionNote(t.getDecisionNote())
                 .status(t.getStatus())
                 .priority(t.getPriority())
                 .deadline(t.getDeadline())
@@ -333,6 +353,145 @@ public class TodoService {
                 .parentId(t.getParentId())
                 .createdAt(t.getCreatedAt())
                 .build();
+    }
+
+    /**
+     * 同步状态变更到 OABP jq_todos_task。
+     * <p>
+     * 完成时同步 progress=100；其它状态只更新 status，progress 保持原值（传 null 表示不覆盖）。
+     * </p>
+     *
+     * @param todo      待办
+     * @param newStatus 新状态
+     */
+    private void syncStatusChangeToOabp(MeetingTodo todo, TodoStatus newStatus) {
+        OabpOutboxPublisher publisher = oabpOutboxPublisherProvider.getIfAvailable();
+        if (publisher == null) {
+            return;
+        }
+        try {
+            Integer oabpStatus = OabpTodoStatusMapper.toOabpStatus(newStatus);
+            Integer oabpProgress = TodoStatus.COMPLETED == newStatus ? 100 : null;
+            LocalDate plannedEnd = todo.getDeadline() != null ? todo.getDeadline().toLocalDate() : null;
+            publisher.publishTaskWriteback(
+                    todo.getId(), todo.getContent(), plannedEnd, oabpStatus,
+                    oabpProgress, null, null, "status-change");
+        } catch (Exception e) {
+            log.warn("syncStatusChangeToOabp failed: todoId={}, err={}", todo.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 责任人提交完成（二段式裁决入口）。
+     * <p>
+     * 若 OABP {@code jq_todos_task.decision_maker_user_id} 有真实决策人：
+     * <ul>
+     *   <li>置 {@code status=PENDING_DECISION}，{@code pendingDecision=true}</li>
+     *   <li>缓存决策人飞书 user_id 与姓名到 todo</li>
+     *   <li>推送裁决卡给决策人</li>
+     *   <li>同步 OABP task.status=1（进行中）</li>
+     * </ul>
+     * 无决策人时走原完成流程（置 COMPLETED）。
+     * </p>
+     *
+     * @param todoId              待办 ID
+     * @param operatorFeishuUserId 操作人飞书 user_id（须为责任人）
+     * @return 更新后的待办响应
+     */
+    @Transactional
+    public MeetingTodoResponse applyAssigneeComplete(String todoId, String operatorFeishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireAssignee(todo, operatorFeishuUserId);
+
+        OabpDecisionMakerResolver resolver = oabpDecisionMakerResolverProvider.getIfAvailable();
+        boolean hasDecisionMaker = false;
+        if (resolver != null) {
+            var dm = resolver.resolve(todoId);
+            if (dm.isPresent()) {
+                hasDecisionMaker = true;
+                todo.setStatus(TodoStatus.PENDING_DECISION.name());
+                todo.setPendingDecision(true);
+                todo.setDecisionMakerFeishuUserId(dm.get().feishuUserId());
+                todo.setDecisionMakerName(dm.get().name());
+                todo.setDecisionMadeAt(null);
+                todo.setDecisionResult(null);
+                todo.setDecisionNote(null);
+                todoMapper.updateById(todo);
+                syncStatusChangeToOabp(todo, TodoStatus.PENDING_DECISION);
+                try {
+                    feishuTaskService.notifyDecisionMaker(todo);
+                } catch (Exception e) {
+                    log.warn("notifyDecisionMaker failed: todoId={}, err={}", todoId, e.getMessage());
+                }
+                log.info("Todo pending decision: id={}, decisionMaker={}", todoId, dm.get().feishuUserId());
+            }
+        }
+        if (!hasDecisionMaker) {
+            TodoStatusUpdateRequest req = new TodoStatusUpdateRequest();
+            req.setStatus(TodoStatus.COMPLETED.name());
+            return applyStatusChange(todo, req);
+        }
+        return toResponse(todo);
+    }
+
+    /**
+     * 决策人对已提交完成的待办作出裁决。
+     * <ul>
+     *   <li>{@code APPROVED} → {@link TodoStatus#COMPLETED}，{@code completedAt=now()}</li>
+     *   <li>{@code DELAYED} → {@link TodoStatus#DELAYED}</li>
+     *   <li>{@code REJECTED} → {@link TodoStatus#IN_PROGRESS}（驳回回进行中）</li>
+     * </ul>
+     *
+     * @param todoId              待办 ID
+     * @param decision            裁决类型：{@code APPROVED} / {@code DELAYED} / {@code REJECTED}
+     * @param note                裁决备注（驳回原因、延期说明等；可空）
+     * @param operatorFeishuUserId 操作人飞书 user_id（须为决策人）
+     * @return 更新后的待办响应
+     */
+    @Transactional
+    public MeetingTodoResponse applyDecisionMakerDecision(String todoId, String decision, String note,
+                                                           String operatorFeishuUserId) {
+        MeetingTodo todo = requireTodo(todoId);
+        todoPermissionService.requireDecisionMaker(todo, operatorFeishuUserId);
+
+        TodoStatus newStatus;
+        if ("APPROVED".equalsIgnoreCase(decision)) {
+            newStatus = TodoStatus.COMPLETED;
+        } else if ("DELAYED".equalsIgnoreCase(decision)) {
+            newStatus = TodoStatus.DELAYED;
+        } else if ("REJECTED".equalsIgnoreCase(decision)) {
+            newStatus = TodoStatus.IN_PROGRESS;
+        } else {
+            throw new BusinessException(400, "未知的裁决决策: " + decision);
+        }
+
+        String oldStatus = todo.getStatus();
+        todo.setStatus(newStatus.name());
+        todo.setPendingDecision(false);
+        todo.setDecisionMadeAt(LocalDateTime.now());
+        todo.setDecisionResult(decision.toUpperCase());
+        todo.setDecisionNote(note);
+        if (newStatus == TodoStatus.COMPLETED) {
+            todo.setCompletedAt(LocalDateTime.now());
+        } else if (newStatus == TodoStatus.IN_PROGRESS) {
+            todo.setCompletedAt(null);
+        }
+        todoMapper.updateById(todo);
+
+        syncStatusChangeToOabp(todo, newStatus);
+
+        if (TodoStatus.COMPLETED == newStatus && !TodoStatus.COMPLETED.name().equals(oldStatus)) {
+            adjustParticipantCompletedCount(todo.getMeetingId(), todo.getAssigneeId(), 1);
+        }
+        markAllDoneIfNeeded(todo.getMeetingId());
+
+        try {
+            feishuTaskService.notifyAssigneeDecisionResult(todo);
+        } catch (Exception e) {
+            log.warn("notifyAssigneeDecisionResult failed: todoId={}, err={}", todoId, e.getMessage());
+        }
+        log.info("Todo decision applied: id={}, decision={}, operator={}", todoId, decision, operatorFeishuUserId);
+        return toResponse(todo);
     }
 
     /**

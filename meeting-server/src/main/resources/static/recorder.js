@@ -60,8 +60,10 @@ class MeetingRecorder {
         }
     }
 
-    /** 主持页重进：等同 start()，需用户手势授权麦克风 */
+    /** 主持页重进：清掉刷新前失效的 session_token，再等同 start()，需用户手势授权麦克风 */
     async rejoin() {
+        this.sessionToken = null;
+        this._clearPersistedSessionToken();
         return this.start();
     }
 

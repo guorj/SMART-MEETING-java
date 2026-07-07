@@ -124,7 +124,10 @@ meeting:
   datasource:
     external:
       oabp:
-        # [部署/密钥] 同 MySQL 实例 oabp 库（项目任务等）；默认关闭，启用：MEETING_DB_OABP_ENABLED=true
+        # [部署/密钥] 同 MySQL 实例 oabp 库（项目任务等）；默认开启
+        # 启用后注册独立 SqlSessionFactory + TransactionManager + Mapper(com.smartmeeting.repository.oabp)
+        # 支持后台业务读写 oabp；前台会序 oabpTaskSql 仍走 OabpAgendaTaskQueryService 只读 JdbcTemplate
+        # 跨库写一致性走 int_event_outbox + OabpTaskWritebackConsumer / OabpFollowupSyncConsumer（见 service.oabp.outbox 包）
         enabled: ${MEETING_DB_OABP_ENABLED:true}
         url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/${DB_OABP_NAME:oabp_pro}?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
         username: ${DB_USERNAME:oabp}
@@ -134,6 +137,8 @@ meeting:
           maximum-pool-size: ${DB_OABP_POOL_MAX:10}
           minimum-idle: 2
           connection-timeout: 10000
+        # 以下两项仅约束前台 oabpTaskSql 动态查询（OabpReadOnlySqlValidator 路径）
+        # 后台 Mapper 读写不受此限制
         max-query-rows: ${DB_OABP_MAX_QUERY_ROWS:500}
         query-timeout-seconds: ${DB_OABP_QUERY_TIMEOUT:10}
   todo:

@@ -144,6 +144,65 @@ public class FeishuTaskService {
         log.info("Daily todo summary card sent: assignee={}, count={}", assigneeId, todos.size());
     }
 
+    /**
+     * 向决策人推送裁决卡片（责任人已提交完成，等待决策人裁决）。
+     * <p>
+     * 决策人飞书 user_id 从 {@code todo.decisionMakerFeishuUserId} 读取（由
+     * {@code TodoService.applyAssigneeComplete} 缓存）。
+     * </p>
+     *
+     * @param todo 已进入 PENDING_DECISION 态的待办
+     */
+    public void notifyDecisionMaker(MeetingTodo todo) {
+        if (todo == null) {
+            return;
+        }
+        String decisionMakerId = todo.getDecisionMakerFeishuUserId();
+        if (decisionMakerId == null || decisionMakerId.isBlank()
+                || "unknown".equalsIgnoreCase(decisionMakerId)) {
+            log.warn("notifyDecisionMaker skipped: no decisionMakerFeishuUserId, todoId={}", todo.getId());
+            return;
+        }
+        String cardJson = cardBuilder.buildDecisionMakerCard(todo);
+        boolean ok = feishuService.sendInteractiveCardToUserId(decisionMakerId, cardJson);
+        if (ok) {
+            log.info("Decision maker card sent: todoId={}, decisionMaker={}", todo.getId(), decisionMakerId);
+        }
+    }
+
+    /**
+     * 通知责任人裁决结果。
+     * <p>
+     * 决策人作出裁决后，向责任人发送文本消息告知结果（完成/延期/驳回）。
+     * </p>
+     *
+     * @param todo 已裁决的待办（须已写入 decisionResult / decisionNote）
+     */
+    public void notifyAssigneeDecisionResult(MeetingTodo todo) {
+        if (todo == null || todo.getAssigneeId() == null || todo.getAssigneeId().isBlank()
+                || "unknown".equalsIgnoreCase(todo.getAssigneeId())) {
+            return;
+        }
+        String result = todo.getDecisionResult() == null ? "未知" : todo.getDecisionResult();
+        String resultLabel = switch (result) {
+            case "APPROVED" -> "已裁决完成";
+            case "DELAYED" -> "已裁决延期";
+            case "REJECTED" -> "已驳回（回到进行中）";
+            default -> result;
+        };
+        StringBuilder text = new StringBuilder();
+        text.append("⚖️ 您的待办【").append(safe(todo.getContent())).append("】").append(resultLabel).append("。\n");
+        if (todo.getDecisionMakerName() != null && !todo.getDecisionMakerName().isBlank()) {
+            text.append("决策人：").append(todo.getDecisionMakerName()).append("\n");
+        }
+        if (todo.getDecisionNote() != null && !todo.getDecisionNote().isBlank()) {
+            text.append("裁决备注：").append(todo.getDecisionNote());
+        }
+        feishuService.sendMessageToUserId(todo.getAssigneeId(), text.toString());
+        log.info("Decision result notified: todoId={}, assignee={}, result={}",
+                todo.getId(), todo.getAssigneeId(), result);
+    }
+
     private String safe(String s) {
         return s == null ? "" : s;
     }

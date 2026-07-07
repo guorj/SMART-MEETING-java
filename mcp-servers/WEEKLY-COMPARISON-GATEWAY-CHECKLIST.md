@@ -18,9 +18,8 @@
 - [ ] **`meeting-mysql` 环境变量**：`MYSQL_PASS` / `MYSQL_DB`（本包不用 `MYSQL_PASSWORD` / `MYSQL_DATABASE`）。
 - [ ] **`meeting-mysql` 连通**：纪要查 `intelligence`；**SOURCE oabp SQL** 需 MCP MySQL 账号对 `oabp_pro`（或 `DB_OABP_NAME`）**SELECT**：
   ```sql
-  GRANT SELECT ON oabp_pro.* TO 'meeting_mcp'@'%';
-  -- 若 SQL JOIN system_users：
-  GRANT SELECT ON oabp.system_users TO 'meeting_mcp'@'%';
+  GRANT SELECT ON oabp_pro.* TO 'intelligence'@'%';
+  -- oabpTaskSql 使用 oabp_pro.system_users（须 oabp_pro 库内有 system_users 表）
   ```
 - [ ] **WS 鉴权**：Bot `feishu.weekly-comparison.openclaw.gateway-url` + `auth-token`（或 `device-token`）与 Gateway 一致；`timeout-seconds` ≥ **300**。
 

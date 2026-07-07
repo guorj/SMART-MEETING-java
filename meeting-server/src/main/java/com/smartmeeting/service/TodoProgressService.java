@@ -10,10 +10,14 @@ import com.smartmeeting.enums.TodoStatus;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.TodoMapper;
 import com.smartmeeting.repository.TodoProgressMapper;
+import com.smartmeeting.service.oabp.OabpTodoStatusMapper;
+import com.smartmeeting.service.oabp.outbox.OabpOutboxPublisher;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -25,6 +29,8 @@ public class TodoProgressService {
     private final TodoMapper todoMapper;
     private final TodoProgressMapper progressMapper;
     private final TodoPermissionService todoPermissionService;
+    /** oabp 同步发布门面；oabp 未启用时 Bean 不存在，用 ObjectProvider 安全获取 */
+    private final ObjectProvider<OabpOutboxPublisher> oabpOutboxPublisherProvider;
 
     public List<TodoProgressResponse> listProgress(String todoId, String feishuUserId) {
         MeetingTodo todo = requireTodo(todoId);
@@ -67,7 +73,34 @@ public class TodoProgressService {
             todoMapper.updateById(todo);
         }
 
+        // 同步进度更新到 OABP：写 jq_todos_task.progress + jq_todos_task_followup
+        syncProgressToOabp(todo, request);
+
         return toResponse(row);
+    }
+
+    /**
+     * 同步进度更新到 OABP：task.progress/status 更新 + followup 插入跟进记录。
+     *
+     * @param todo    待办
+     * @param request 进度创建请求
+     */
+    private void syncProgressToOabp(MeetingTodo todo, TodoProgressCreateRequest request) {
+        OabpOutboxPublisher publisher = oabpOutboxPublisherProvider.getIfAvailable();
+        if (publisher == null) {
+            return;
+        }
+        try {
+            Integer oabpStatus = OabpTodoStatusMapper.toOabpStatus(todo.getStatus());
+            publisher.publishTaskWriteback(
+                    todo.getId(), todo.getContent(), null, oabpStatus,
+                    request.getProgressPercent(), null, null, "progress-update");
+            publisher.publishFollowupSync(
+                    todo.getId(), null, request.getProgressText(),
+                    null, null, LocalDate.now(), "progress-update");
+        } catch (Exception e) {
+            // 同步失败不影响主流程，outbox 已发布的事件由其重试机制兜底
+        }
     }
 
     private MeetingTodo requireTodo(String todoId) {

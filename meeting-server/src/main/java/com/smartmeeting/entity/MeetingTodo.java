@@ -31,6 +31,18 @@ public class MeetingTodo {
     private String operatorId;
     /** 经办人姓名（展示用） */
     private String operatorName;
+    /** 决策人飞书 user_id（缓存自 OABP jq_todos_task.decision_maker_user_id 解析；NULL 表示无决策人，直接走原完成流程） */
+    private String decisionMakerFeishuUserId;
+    /** 决策人姓名（展示用，从 int_user_mapping_feishu.user_name 取） */
+    private String decisionMakerName;
+    /** 是否处于已提交待裁决态（0 否 1 是；责任人完成且有决策人时置 1，裁决后置 0） */
+    private Boolean pendingDecision;
+    /** 决策人作出裁决的时间（NULL 表示尚未裁决） */
+    private LocalDateTime decisionMadeAt;
+    /** 裁决结果：APPROVED / DELAYED / REJECTED（NULL 表示未裁决） */
+    private String decisionResult;
+    /** 决策人裁决备注（驳回原因、延期说明等） */
+    private String decisionNote;
     /** 待办状态，对应 {@link com.smartmeeting.enums.TodoStatus} 枚举名 */
     private String status;
     /** 优先级，对应 {@link com.smartmeeting.enums.Priority} 枚举名 */

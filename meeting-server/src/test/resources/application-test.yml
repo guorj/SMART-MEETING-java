@@ -29,6 +29,12 @@ meeting:
   audio:
     # 测试 PCM 隔离目录，避免污染 ./data/audio
     cache-dir: ./test-data/audio
+  datasource:
+    external:
+      oabp:
+        # 测试默认关闭 oabp 数据源；现有集成测试无需 oabp 库
+        # oabp 专属测试用 @ActiveProfiles({"dev","test","oabp-test"}) 单独启用
+        enabled: false
 
 # OpenClaw 测试禁用，纪要/Agent 走直调 LLM 降级
 openclaw:

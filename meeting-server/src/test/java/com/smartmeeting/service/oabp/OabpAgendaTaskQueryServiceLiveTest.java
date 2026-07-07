@@ -32,20 +32,20 @@ class OabpAgendaTaskQueryServiceLiveTest {
               t.start_date AS `开始日期`,
               t.planned_end_date AS `截止日期`,
               NULLIF(TRIM(t.task_detail), '') AS `长期任务`
-            FROM jq_todos_task t
-            LEFT JOIN jq_todos_subtask s
+            FROM oabp_pro.jq_todos_task t
+            LEFT JOIN oabp_pro.jq_todos_subtask s
               ON s.parent_id = t.id
               AND (s.deleted = 0 OR s.deleted IS NULL)
-            LEFT JOIN oabp.system_users u
+            LEFT JOIN oabp_pro.system_users u
               ON u.id = s.asignee_id
               AND (u.deleted = 0 OR u.deleted IS NULL)
-            LEFT JOIN jq_todos_task_followup f
+            LEFT JOIN oabp_pro.jq_todos_task_followup f
               ON f.task_id = t.id
               AND f.task_type = 0
               AND (f.deleted = 0 OR f.deleted IS NULL)
               AND f.id = (
                 SELECT MAX(f2.id)
-                FROM jq_todos_task_followup f2
+                FROM oabp_pro.jq_todos_task_followup f2
                 WHERE f2.task_id = t.id
                   AND f2.task_type = 0
                   AND (f2.deleted = 0 OR f2.deleted IS NULL)
@@ -69,7 +69,12 @@ class OabpAgendaTaskQueryServiceLiveTest {
                 WHEN 0 THEN 3
                 ELSE 4
               END,
-              t.planned_end_date,
+              CASE WHEN t.status = 3 THEN t.planned_end_date END ASC,
+              CASE WHEN t.status = 2 THEN t.planned_end_date END DESC,
+              CASE WHEN t.status = 1 THEN CASE WHEN t.planned_end_date IS NULL THEN 1 ELSE 0 END END,
+              CASE WHEN t.status = 1 THEN t.planned_end_date END ASC,
+              CASE WHEN t.status = 0 THEN CASE WHEN t.planned_end_date IS NULL THEN 1 ELSE 0 END END,
+              CASE WHEN t.status = 0 THEN t.planned_end_date END ASC,
               t.id
             """;
 

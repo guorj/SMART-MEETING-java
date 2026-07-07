@@ -26,4 +26,6 @@ public class HostAgendaItemDto {
     private List<FeishuDocRefDto> feishuDocs;
     /** 可选：oabp 库只读 SQL（jq_project_task_tracking 等），会序资料区表格展示 */
     private String oabpTaskSql;
+    /** 可选：是否在主持页展示 oabp 查询结果；默认 true */
+    private Boolean oabpTaskShow;
 }

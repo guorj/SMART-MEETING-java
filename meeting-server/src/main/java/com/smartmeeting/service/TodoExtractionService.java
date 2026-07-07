@@ -13,10 +13,13 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TodoMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
+import com.smartmeeting.service.oabp.OabpAssigneeResolver;
+import com.smartmeeting.service.oabp.outbox.OabpOutboxPublisher;
 import com.smartmeeting.statemachine.MeetingEvent;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -26,6 +29,7 @@ import org.springframework.web.client.RestTemplate;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -57,6 +61,10 @@ public class TodoExtractionService {
     private final MeetingTodoProperties todoProperties;
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
+    /** oabp 同步发布门面；oabp 未启用时 Bean 不存在，用 ObjectProvider 安全获取 */
+    private final ObjectProvider<OabpOutboxPublisher> oabpOutboxPublisherProvider;
+    /** 责任人飞书 user_id → OABP 工号反查；oabp 未启用时 Bean 不存在 */
+    private final ObjectProvider<OabpAssigneeResolver> oabpAssigneeResolverProvider;
 
     @Value("${meeting.llm.api-url:https://api.deepseek.com/v1/chat/completions}")
     private String llmApiUrl;
@@ -156,6 +164,9 @@ public class TodoExtractionService {
 
             todoMapper.insert(todo);
             savedTodos.add(todo);
+
+            // 同步待办首次创建到 OABP 三表（task + subtask）
+            syncTodoCreationToOabp(todo);
 
             // 更新参会人 todo_count
             if (assigneeId != null && nameToParticipant.containsKey(item.assigneeName)) {
@@ -360,6 +371,36 @@ public class TodoExtractionService {
             }
         }
         return null;
+    }
+
+    /**
+     * 同步待办首次创建到 OABP：写 jq_todos_task（主任务）+ jq_todos_subtask（执行人）。
+     * <p>
+     * oabp 未启用或 Bean 不可用时静默跳过；oabp 同步通过 outbox 异步执行，失败由 outbox 重试。
+     * </p>
+     *
+     * @param todo 新创建的待办
+     */
+    private void syncTodoCreationToOabp(MeetingTodo todo) {
+        OabpOutboxPublisher publisher = oabpOutboxPublisherProvider.getIfAvailable();
+        if (publisher == null) {
+            return;
+        }
+        try {
+            LocalDate plannedEnd = todo.getDeadline() != null ? todo.getDeadline().toLocalDate() : null;
+            publisher.publishTaskWriteback(
+                    todo.getId(), todo.getContent(), plannedEnd,
+                    0, 0, null, null, "todo-extraction");
+            OabpAssigneeResolver assigneeResolver = oabpAssigneeResolverProvider.getIfAvailable();
+            if (assigneeResolver != null) {
+                assigneeResolver.resolveOaUserId(todo.getAssigneeId())
+                        .ifPresent(oaId -> publisher.publishSubtaskSync(
+                                todo.getId(), null, oaId, todo.getContent(), "todo-extraction"));
+            }
+        } catch (Exception e) {
+            log.warn("syncTodoCreationToOabp failed (outbox will not retry this call): todoId={}, err={}",
+                    todo.getId(), e.getMessage());
+        }
     }
 
     /**

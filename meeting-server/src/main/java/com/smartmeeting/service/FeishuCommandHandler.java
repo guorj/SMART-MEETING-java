@@ -204,6 +204,8 @@ public class FeishuCommandHandler {
             handleTodoCardAction(openId, value);
         } else if ("todo-escalation".equals(cmd)) {
             handleTodoEscalationAction(openId, value);
+        } else if ("todo-decision".equals(cmd)) {
+            handleTodoDecisionAction(openId, value);
         } else {
             log.warn("卡片回调未知 cmd: {}", cmd);
         }
@@ -233,7 +235,10 @@ public class FeishuCommandHandler {
             }
             com.smartmeeting.api.dto.TodoStatusUpdateRequest req = new com.smartmeeting.api.dto.TodoStatusUpdateRequest();
             if ("complete_todo".equalsIgnoreCase(decision)) {
-                req.setStatus("COMPLETED");
+                // 二段式裁决入口：applyAssigneeComplete 内部判断是否有决策人
+                todoService.applyAssigneeComplete(todoId, openId);
+                feishuService.sendMessageToUserId(openId, "已提交完成（若有决策人将进入裁决流程）");
+                return;
             } else if ("block_todo".equalsIgnoreCase(decision)) {
                 req.setStatus("BLOCKED");
                 req.setBlockReason("飞书卡片挂起");
@@ -245,6 +250,33 @@ public class FeishuCommandHandler {
         } catch (Exception e) {
             log.warn("todo card action failed: todoId={}, openId={}, err={}", todoId, openId, e.getMessage());
             feishuService.sendMessageToUserId(openId, "操作失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 处理决策人裁决卡片的「裁决完成 / 裁决延期 / 驳回」决策。
+     *
+     * @param openId 决策人飞书 user_id
+     * @param value  卡片 value JSON（含 decision、todoId、meetingId）
+     */
+    private void handleTodoDecisionAction(String openId, JsonNode value) {
+        String todoId = value.path("todoId").asText("");
+        String decision = value.path("decision").asText("");
+        if (todoId.isBlank() || decision.isBlank() || openId == null || openId.isBlank()) {
+            return;
+        }
+        try {
+            todoService.applyDecisionMakerDecision(todoId, decision, null, openId);
+            String label = switch (decision.toUpperCase()) {
+                case "APPROVED" -> "裁决完成";
+                case "DELAYED" -> "裁决延期";
+                case "REJECTED" -> "驳回";
+                default -> decision;
+            };
+            feishuService.sendMessageToUserId(openId, "已" + label + "该待办");
+        } catch (Exception e) {
+            log.warn("todo decision action failed: todoId={}, openId={}, err={}", todoId, openId, e.getMessage());
+            feishuService.sendMessageToUserId(openId, "裁决操作失败：" + e.getMessage());
         }
     }
 

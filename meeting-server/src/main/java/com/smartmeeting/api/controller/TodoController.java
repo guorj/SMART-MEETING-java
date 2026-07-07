@@ -71,6 +71,21 @@ public class TodoController {
     return ApiResponse.ok(todoService.splitTodo(tid, request));
   }
 
+    /**
+     * 责任人提交完成（二段式裁决入口）。
+     * <p>
+     * 若待办有决策人（OABP jq_todos_task.decision_maker_user_id），置 PENDING_DECISION 并推送裁决卡；
+     * 否则直接置 COMPLETED。
+     * </p>
+     */
+    @PostMapping("/{tid}/submit-complete")
+    public ApiResponse<MeetingTodoResponse> submitComplete(
+            @PathVariable String tid,
+            @RequestParam("token") String token) {
+        JwtUtil.FeishuWebDashboardEntry entry = parseDashboardEntry(token);
+        return ApiResponse.ok(todoService.applyAssigneeComplete(tid, entry.feishuUserId()));
+    }
+
     private JwtUtil.FeishuWebDashboardEntry parseDashboardEntry(String token) {
         JwtUtil.FeishuWebDashboardEntry entry = jwtUtil.parseAndVerifyFeishuWebDashboardToken(token);
         dashboardGrantService.requireDashboardAccess(entry.feishuUserId());

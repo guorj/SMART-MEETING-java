@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  oabp.jq_todos_task Mapper XML
+  绑定 oabpSqlSessionFactory，与主库 XML 物理隔离（classpath*:/mapper/oabp/&#42;&#42;/&#42;.xml）
+  字段对齐 oabp 库实际 DDL：deleted bit(1)、tenant_id bigint
+-->
+<mapper namespace="com.smartmeeting.repository.oabp.OabpJqTodosTaskMapper">
+
+    <resultMap id="BaseResultMap" type="com.smartmeeting.entity.oabp.OabpJqTodosTask">
+        <id     column="id"                     property="id"/>
+        <result column="task_name"              property="taskName"/>
+        <result column="business_block"         property="businessBlock"/>
+        <result column="project_id"             property="projectId"/>
+        <result column="decision_maker_user_id" property="decisionMakerUserId"/>
+        <result column="progress"               property="progress"/>
+        <result column="start_date"             property="startDate"/>
+        <result column="planned_end_date"       property="plannedEndDate"/>
+        <result column="status"                 property="status"/>
+        <result column="remark"                 property="remark"/>
+        <result column="task_detail"            property="taskDetail"/>
+        <result column="creator"                property="creator"/>
+        <result column="create_time"            property="createTime"/>
+        <result column="updater"                property="updater"/>
+        <result column="update_time"            property="updateTime"/>
+        <result column="deleted"                property="deleted"/>
+        <result column="tenant_id"              property="tenantId"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, task_name, business_block, project_id, decision_maker_user_id,
+        progress, start_date, planned_end_date, status, remark, task_detail,
+        creator, create_time, updater, update_time, deleted, tenant_id
+    </sql>
+
+    <!-- 按飞书 recId 查找任务；remark 格式 [feishu:recId=xxx]... -->
+    <select id="findByFeishuRecId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_task
+        WHERE remark LIKE CONCAT('[feishu:recId=', #{feishuRecId}, ']%')
+        LIMIT 1
+    </select>
+
+    <select id="findByStatus" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_task
+        WHERE status = #{status}
+          AND (deleted = 0 OR deleted IS NULL)
+        ORDER BY planned_end_date, id
+    </select>
+
+    <select id="findByRemarkPrefix" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_task
+        WHERE remark LIKE #{remarkPrefix}
+          AND (deleted = 0 OR deleted IS NULL)
+        ORDER BY id
+    </select>
+
+    <update id="softDelete">
+        UPDATE jq_todos_task
+        SET deleted = 1,
+            updater = #{updater},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

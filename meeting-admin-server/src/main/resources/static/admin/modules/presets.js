@@ -1485,7 +1485,7 @@ AdminModules.register({
                   主持页展示
                 </label>
               </div>
-              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT 待办事项, ... FROM jq_todos_task ..." title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
+              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT 待办事项, ... FROM oabp_pro.jq_todos_task ..." title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
               <p class="doc-inline-hint-block">${AdminHints.presets.oabpTaskSql}</p>
             </section></div></article>`;
       });

@@ -17,7 +17,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -25,7 +24,7 @@ import java.util.regex.Pattern;
 
 /**
  * Weekly comparison OpenClaw full-delegate: WS dispatch; Agent uses meeting-mysql for oabp SOURCE + minutes.
- * Bot parses {@code generatedReportUrl=} and JDBC writeback.
+ * Bot parses {@code BEGIN/END_WEEKLY_COMPARISON_ITEMS} JSON and JDBC writeback.
  */
 public class OpenClawMcpWeeklyComparisonDelegate {
 
@@ -116,8 +115,9 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         String sessionKeyForTask = OpenClawSessionKeys.resolveForTask(runKey, sessionKey);
         String prompt = buildMcpSkillPrompt(job, sourceRows, outputRow, readOutputFeishuDocUrl, taskId);
 
-        log.info("OpenClaw MCP weekly-comparison WS: jobId={} taskId={} runKey={} sessionKey={} gatewayUrl={} sources={}",
-                job.id(), taskId, runKey, sessionKeyForTask, gatewayUrl, sourceRows.size());
+        int sqlSourceCount = rowsWithOabpTaskSql(sourceRows).size();
+        log.info("OpenClaw MCP weekly-comparison WS: jobId={} taskId={} runKey={} sessionKey={} gatewayUrl={} sources={} sqlSources={}",
+                job.id(), taskId, runKey, sessionKeyForTask, gatewayUrl, sourceRows.size(), sqlSourceCount);
         log.info("OpenClaw MCP weekly-comparison prompt (full):\n---\n{}\n---", prompt);
 
         try {
@@ -146,23 +146,16 @@ public class OpenClawMcpWeeklyComparisonDelegate {
 
     static String validateSourceRows(List<MatterProgressConfigRow> sourceRows, WeeklyComparisonJob job) {
         if (sourceRows == null || sourceRows.isEmpty()) {
-            return "无有效 SOURCE 行（需 oabpTaskSql + SOURCE/BOTH + enabled）";
-        }
-        List<String> names = job.sourceConfigNames();
-        if (names != null && !names.isEmpty()) {
-            for (String name : names) {
-                boolean ok = sourceRows.stream().anyMatch(r -> name.equals(r.configName()) && r.hasOabpTaskSql());
-                if (!ok) {
-                    return "SOURCE 未配置 oabpTaskSql 或无效: " + name;
-                }
-            }
-        }
-        for (MatterProgressConfigRow row : sourceRows) {
-            if (!row.hasOabpTaskSql()) {
-                return "SOURCE 未配置 oabpTaskSql: " + row.configName();
-            }
+            return "无有效 SOURCE 配置行（需 SOURCE/BOTH + enabled）";
         }
         return null;
+    }
+
+    static List<MatterProgressConfigRow> rowsWithOabpTaskSql(List<MatterProgressConfigRow> sourceRows) {
+        if (sourceRows == null || sourceRows.isEmpty()) {
+            return List.of();
+        }
+        return sourceRows.stream().filter(MatterProgressConfigRow::hasOabpTaskSql).toList();
     }
 
     private String buildMcpSkillPrompt(
@@ -203,29 +196,34 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         StringBuilder sb = new StringBuilder();
         sb.append("-----BEGIN_WEEKLY_COMPARISON_DATA-----\n");
 
-        List<String> configNames = resolveSourceConfigNames(job, sourceRows);
+        List<MatterProgressConfigRow> sqlRows = rowsWithOabpTaskSql(sourceRows);
         sb.append("[source_config_names]\n");
-        for (String name : configNames) {
-            sb.append(name).append('\n');
+        for (MatterProgressConfigRow row : sqlRows) {
+            sb.append(row.configName()).append('\n');
         }
 
         sb.append("[source_oabp_sql]\n");
-        for (MatterProgressConfigRow row : sourceRows) {
-            sb.append("config=").append(row.configName()).append('\n');
-            sb.append("schema=").append(row.resolvedOabpSchemaHint()).append('\n');
-            sb.append("sql=").append(row.oabpTaskSql().strip()).append('\n');
-            sb.append("---\n");
+        if (sqlRows.isEmpty()) {
+            sb.append("(none — 无已填 oabpTaskSql 的 SOURCE；仅依据纪要生成 items，任务不失败)\n");
+        } else {
+            for (MatterProgressConfigRow row : sqlRows) {
+                sb.append("config=").append(row.configName()).append('\n');
+                sb.append("schema=").append(row.resolvedOabpSchemaHint()).append('\n');
+                sb.append("sql=").append(row.oabpTaskSql().strip()).append('\n');
+                sb.append("---\n");
+            }
         }
 
-        if (readOutputFeishuDocUrl) {
-            outputRow.ifPresent(out -> {
-                if (out.feishuDocUrl() != null && !out.feishuDocUrl().isBlank()) {
-                    sb.append("[output_reference_url]\n");
-                    sb.append("config=").append(out.configName()).append('\n');
-                    sb.append("url=").append(out.feishuDocUrl().trim()).append('\n');
-                }
-            });
-        }
+        outputRow.ifPresent(out -> {
+            String outputConfigName = out.configName() != null && !out.configName().isBlank()
+                    ? out.configName()
+                    : nullToEmpty(job.outputConfigName());
+            if (outputConfigName != null && !outputConfigName.isBlank()) {
+                sb.append("[output_reference_sql]\n");
+                sb.append("config=").append(outputConfigName).append('\n');
+                sb.append("sql=").append(buildOutputReferenceSql(outputConfigName)).append('\n');
+            }
+        });
 
         sb.append("[minute_query_params]\n");
         sb.append("type=").append(nullToEmpty(job.minuteQueryType())).append('\n');
@@ -246,17 +244,6 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         return sb.toString();
     }
 
-    private List<String> resolveSourceConfigNames(WeeklyComparisonJob job, List<MatterProgressConfigRow> sourceRows) {
-        if (job.sourceConfigNames() != null && !job.sourceConfigNames().isEmpty()) {
-            return job.sourceConfigNames();
-        }
-        if (!sourceRows.isEmpty()) {
-            log.warn("job.source_config_names empty, derive from SOURCE rows");
-            return sourceRows.stream().map(MatterProgressConfigRow::configName).toList();
-        }
-        return List.of();
-    }
-
     private String buildMcpTaskInstructions(WeeklyComparisonJob job, boolean readOutputFeishuDocUrl) {
         return INSTRUCTIONS_TEMPLATE
                 .replace("{{weeklyComparisonFeishuAppId}}", weeklyComparisonFeishuAppId)
@@ -274,6 +261,22 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         } catch (IOException e) {
             throw new IllegalStateException("failed to load " + resourcePath, e);
         }
+    }
+
+    private String buildOutputReferenceSql(String outputConfigName) {
+        String escaped = outputConfigName.replace("'", "''");
+        return """
+                SELECT i.category, i.matter_name, i.assignee, i.time_node, i.status_label, i.sort_order
+                FROM int_weekly_matter_comparison_item i
+                INNER JOIN (
+                  SELECT id
+                  FROM int_weekly_matter_comparison_run
+                  WHERE output_config_name = '%s'
+                  ORDER BY generated_at DESC, id DESC
+                  LIMIT 1
+                ) latest ON latest.id = i.run_id
+                ORDER BY FIELD(i.category, 'DELAYED', 'COMPLETED', 'IN_PROGRESS'), i.sort_order, i.id
+                """.formatted(escaped);
     }
 
     private String buildMinuteQuerySql(WeeklyComparisonJob job) {

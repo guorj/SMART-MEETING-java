@@ -26,11 +26,29 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
             "oabp_pro");
 
     @Test
-    void validateSourceRows_requiresOabpSql() {
+    void validateSourceRows_okWhenSqlEmpty() {
         WeeklyComparisonJob job = sampleJob(List.of("cfg-a"));
         MatterProgressConfigRow row = sourceRow("cfg-a", null);
-        assertThat(OpenClawMcpWeeklyComparisonDelegate.validateSourceRows(List.of(row), job))
-                .contains("oabpTaskSql");
+        assertThat(OpenClawMcpWeeklyComparisonDelegate.validateSourceRows(List.of(row), job)).isNull();
+    }
+
+    @Test
+    void buildPrompt_skipsEmptyOabpSql() throws Exception {
+        WeeklyComparisonJob job = sampleJob(List.of("cfg-a", "cfg-b"));
+        MatterProgressConfigRow withSql = sourceRow("cfg-a", "SELECT 1 AS n");
+        MatterProgressConfigRow withoutSql = sourceRow("cfg-b", null);
+        var m = OpenClawMcpWeeklyComparisonDelegate.class.getDeclaredMethod(
+                "buildMcpSkillPrompt",
+                WeeklyComparisonJob.class,
+                List.class,
+                Optional.class,
+                boolean.class,
+                String.class);
+        m.setAccessible(true);
+        String prompt = (String) m.invoke(delegate, job, List.of(withSql, withoutSql), Optional.empty(), false, "task-1");
+        assertThat(prompt).contains("config=cfg-a");
+        assertThat(prompt).doesNotContain("config=cfg-b");
+        assertThat(prompt).contains("SELECT 1 AS n");
     }
 
     @Test
@@ -69,6 +87,7 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
         assertThat(prompt).contains("[source_oabp_sql]");
         assertThat(prompt).contains("jq_project_task_tracking");
         assertThat(prompt).doesNotContain("[source_feishu_urls]");
+        assertThat(prompt).doesNotContain("[output_reference_url]");
     }
 
     private static WeeklyComparisonJob sampleJob(List<String> sourceNames) {

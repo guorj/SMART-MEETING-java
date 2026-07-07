@@ -1399,6 +1399,12 @@ public class MeetingHostSessionService {
                 t.feishuDocUrl = dto.getFeishuDocUrl().trim();
                 applyFeishuRefToHostTopic(t);
             }
+            if (dto.getOabpTaskSql() != null && !dto.getOabpTaskSql().isBlank()) {
+                t.oabpTaskSql = dto.getOabpTaskSql().trim();
+            }
+            if (dto.getOabpTaskShow() != null) {
+                t.oabpTaskShow = dto.getOabpTaskShow();
+            }
             syncPrimaryUrlFromDocs(t);
             out.add(t);
         }
@@ -1434,6 +1440,13 @@ public class MeetingHostSessionService {
                     String detail = n.path("detail").asText("").trim();
                     if (!detail.isEmpty()) {
                         t.detail = detail;
+                    }
+                    String oabpSql = n.path("oabpTaskSql").asText("").trim();
+                    if (!oabpSql.isEmpty()) {
+                        t.oabpTaskSql = oabpSql;
+                    }
+                    if (n.has("oabpTaskShow")) {
+                        t.oabpTaskShow = n.path("oabpTaskShow").asBoolean(true);
                     }
                     if (includeFeishuBindings) {
                         JsonNode docsV2 = n.path("docs");
@@ -1873,6 +1886,10 @@ public class MeetingHostSessionService {
                     lo.put("configName", lm.configName == null ? "" : lm.configName);
                 }
             }
+            if (t.oabpTaskSql != null && !t.oabpTaskSql.isBlank()) {
+                o.put("oabpTaskSql", t.oabpTaskSql);
+                o.put("oabpTaskShow", t.oabpTaskShow);
+            }
         }
         ObjectNode rollCall = root.putObject("rollCall");
         rollCall.put("agendaConfigured", agendaHasRollCallChapter(rt.topics));
@@ -2108,6 +2125,10 @@ public class MeetingHostSessionService {
         List<FeishuDocBinding> feishuDocs;
         /** 本地上传资料（host_agenda docs[] storageKind=LOCAL） */
         List<LocalMaterialBinding> localMaterials;
+        /** oabp 只读 SQL；无飞书/本地资料时仍可单独展示项目任务表格 */
+        String oabpTaskSql;
+        /** 是否在主持页展示 oabp 查询结果；默认 true */
+        boolean oabpTaskShow = true;
     }
 
     private static final class FeishuDocBinding {

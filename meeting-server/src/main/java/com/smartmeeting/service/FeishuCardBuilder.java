@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.smartmeeting.entity.MeetingTodo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -27,6 +28,10 @@ public class FeishuCardBuilder {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    /** 待办详情页基础 URL（用于卡片跳转按钮），形如 http://localhost:8765/dashboard.html */
+    @Value("${meeting.base-url:http://localhost:8765}")
+    private String baseUrl;
 
     /**
      * 构建「会议已创建」通知卡片：快速开始仅建草稿，须进入主持页点击「开始会议」。
@@ -507,7 +512,11 @@ public class FeishuCardBuilder {
     }
 
     /**
-     * 构建待办操作卡片（责任人可完成/挂起）。
+     * 构建待办操作卡片（责任人可提交完成/挂起/更新进度）。
+     * <p>
+     * 「提交完成」语义：暗示若有决策人则进入裁决流程；
+     * 「更新进度」跳转到 Web dashboard 待办详情页（上传附件、添加进度文本）。
+     * </p>
      */
     public String buildTodoActionCard(MeetingTodo todo) {
         ObjectNode card = objectMapper.createObjectNode();
@@ -537,7 +546,7 @@ public class FeishuCardBuilder {
         completeValue.put("decision", "complete_todo");
         completeValue.put("todoId", todo.getId());
         completeValue.put("meetingId", todo.getMeetingId());
-        addCallbackButtonRow(elements, "完成", completeValue, "primary");
+        addCallbackButtonRow(elements, "提交完成", completeValue, "primary");
 
         ObjectNode blockValue = objectMapper.createObjectNode();
         blockValue.put("cmd", "todo-action");
@@ -545,6 +554,70 @@ public class FeishuCardBuilder {
         blockValue.put("todoId", todo.getId());
         blockValue.put("meetingId", todo.getMeetingId());
         addCallbackButtonRow(elements, "挂起", blockValue, "default");
+
+        // 更新进度跳转按钮：打开 Web dashboard 待办详情页
+        String progressUrl = baseUrl + "/dashboard.html?todoId=" + todo.getId() + "&action=progress";
+        addActionButton(elements, "更新进度 / 上传附件", progressUrl, "default");
+
+        return card.toString();
+    }
+
+    /**
+     * 构建决策人裁决卡片（决策人对责任人提交完成的待办进行裁决）。
+     * <p>
+     * 卡片展示待办内容、责任人、完成说明、提交时间，提供三个裁决按钮：
+     * 「裁决完成」「裁决延期」「驳回」。
+     * </p>
+     *
+     * @param todo 已进入 PENDING_DECISION 态的待办（须已缓存 decisionMakerFeishuUserId）
+     * @return 飞书交互卡片 JSON
+     */
+    public String buildDecisionMakerCard(MeetingTodo todo) {
+        ObjectNode card = objectMapper.createObjectNode();
+        ObjectNode config = card.putObject("config");
+        config.put("wide_screen_mode", true);
+
+        ObjectNode header = card.putObject("header");
+        ObjectNode headerTitle = header.putObject("title");
+        headerTitle.put("tag", "plain_text");
+        headerTitle.put("content", "⚖️ 待办完成裁决");
+        header.put("template", "orange");
+
+        ArrayNode elements = card.putArray("elements");
+        addMarkdownElement(elements, "**待办**：" + safe(todo.getContent()));
+        addMarkdownElement(elements, "**责任人**：" + safeName(todo.getAssigneeName()));
+        if (todo.getDeadline() != null) {
+            addMarkdownElement(elements, "**截止**：" + todo.getDeadline().format(TIME_FMT));
+        }
+        if (todo.getCompletedAt() != null) {
+            addMarkdownElement(elements, "**提交完成时间**：" + todo.getCompletedAt().format(TIME_FMT));
+        }
+        if (todo.getCompletionNote() != null && !todo.getCompletionNote().isBlank()) {
+            addMarkdownElement(elements, "**完成说明**：" + todo.getCompletionNote());
+        }
+        addDividerElement(elements);
+        addMarkdownElement(elements, "请决策：裁决完成 / 裁决延期 / 驳回（驳回后待办回到进行中）。");
+
+        ObjectNode approveValue = objectMapper.createObjectNode();
+        approveValue.put("cmd", "todo-decision");
+        approveValue.put("decision", "APPROVED");
+        approveValue.put("todoId", todo.getId());
+        approveValue.put("meetingId", todo.getMeetingId());
+        addCallbackButtonRow(elements, "裁决完成", approveValue, "primary");
+
+        ObjectNode delayValue = objectMapper.createObjectNode();
+        delayValue.put("cmd", "todo-decision");
+        delayValue.put("decision", "DELAYED");
+        delayValue.put("todoId", todo.getId());
+        delayValue.put("meetingId", todo.getMeetingId());
+        addCallbackButtonRow(elements, "裁决延期", delayValue, "default");
+
+        ObjectNode rejectValue = objectMapper.createObjectNode();
+        rejectValue.put("cmd", "todo-decision");
+        rejectValue.put("decision", "REJECTED");
+        rejectValue.put("todoId", todo.getId());
+        rejectValue.put("meetingId", todo.getMeetingId());
+        addCallbackButtonRow(elements, "驳回", rejectValue, "danger");
 
         return card.toString();
     }

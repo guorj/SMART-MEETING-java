@@ -51,6 +51,25 @@ public class TodoPermissionService {
   }
 
   /**
+   * 要求调用者为决策人（二段式裁决权限校验）。
+   * <p>
+   * 决策人飞书 user_id 缓存在 {@code todo.decisionMakerFeishuUserId}；
+   * 未设置（待办未进入裁决态）时拒绝所有调用。
+   * </p>
+   *
+   * @param todo         待办
+   * @param feishuUserId 操作人飞书 user_id
+   */
+  public void requireDecisionMaker(MeetingTodo todo, String feishuUserId) {
+    if (todo == null || feishuUserId == null || feishuUserId.isBlank()) {
+      throw new BusinessException(403, "仅决策人可执行此操作");
+    }
+    if (!matchesUser(todo.getDecisionMakerFeishuUserId(), feishuUserId)) {
+      throw new BusinessException(403, "仅决策人可执行此操作");
+    }
+  }
+
+  /**
    * 要求调用者为责任人或经办人。
    */
   public void requireAssigneeOrOperator(MeetingTodo todo, String feishuUserId) {
@@ -71,6 +90,11 @@ public class TodoPermissionService {
 
     if (old.equals(target)) {
       return;
+    }
+
+    // PENDING_DECISION 是裁决中间态，责任人不可直接改出（须由决策人走 applyDecisionMakerDecision）
+    if (TodoStatus.PENDING_DECISION.name().equals(old)) {
+      throw new BusinessException(400, "待裁决态不可由责任人直接变更，须由决策人裁决");
     }
 
     if (TodoStatus.COMPLETED.name().equals(target)) {

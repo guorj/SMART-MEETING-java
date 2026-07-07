@@ -156,7 +156,7 @@ LIMIT 1
 
 Bot 解析 JSON 块后批量 INSERT `int_weekly_matter_comparison_run` + `int_weekly_matter_comparison_item`，写回 `host_agenda.generatedReportRunId`。
 
-**未配置 `oabpTaskSql` 的 SOURCE 不会下发任务**（Bot fail-fast）。**禁止**用 lark-mcp 写飞书 Doc 替代 items JSON 输出。
+**未配置 `oabpTaskSql` 的 SOURCE 跳过**（不下发 SQL、不 fail-fast）；至少需存在 SOURCE 配置行。**禁止**用 lark-mcp 写飞书 Doc 替代 items JSON 输出。
 
 **主持会序通报**（无 `mode=weekly-comparison-mcp`）：仍只输出上文三部分 Markdown，**不**调用任何写工具。
 

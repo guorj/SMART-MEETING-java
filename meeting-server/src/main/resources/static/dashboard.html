@@ -175,7 +175,7 @@ let gooeyNavInstance=null;
 let activeDashboardTab='quick';
 
 function todoStatusLabel(st){
-  const map={PENDING:'待处理',IN_PROGRESS:'进行中',COMPLETED:'已完成',BLOCKED:'挂起',DELAYED:'延期',OVERDUE:'逾期'};
+  const map={PENDING:'待处理',IN_PROGRESS:'进行中',COMPLETED:'已完成',BLOCKED:'挂起',DELAYED:'延期',OVERDUE:'逾期',PENDING_DECISION:'待裁决'};
   return map[st]||st||'-';
 }
 
@@ -195,14 +195,22 @@ function renderMyTodosPanel(myTodos, feishuUserId){
   }
   const rows=myTodos.map(t=>{
     const isAssignee=t.assigneeId===feishuUserId;
-    const assigneeBtns=isAssignee
-      ? `<button type="button" class="ui-btn ui-btn-primary btn-todo-complete" data-id="${esc(t.id)}">完成</button>
+    // PENDING_DECISION 态不允许责任人再点完成/挂起（须等决策人裁决）
+    const canAct=isAssignee&&t.status!=='PENDING_DECISION';
+    const assigneeBtns=canAct
+      ? `<button type="button" class="ui-btn ui-btn-primary btn-todo-complete" data-id="${esc(t.id)}">提交完成</button>
          <button type="button" class="ui-btn ui-btn-secondary btn-todo-block" data-id="${esc(t.id)}">挂起</button>`
-      : '<span class="muted">经办人仅可更新进度</span>';
+      : (t.status==='PENDING_DECISION'
+          ? '<span class="muted">已提交完成，等待决策人裁决</span>'
+          : '<span class="muted">经办人仅可更新进度</span>');
+    const decisionLine=(t.pendingDecision&&t.decisionMakerName)
+      ? `<p class="muted" style="font-size:13px;margin:4px 0">决策人：${esc(t.decisionMakerName)}${t.decisionResult?' · 裁决：'+esc(t.decisionResult):''}</p>`
+      : '';
     return `<div class="ui-card card blur-fade todo-item-card" data-todo-id="${esc(t.id)}">
       <div class="todo-item-head"><b>${esc(t.content)}</b> <span class="ui-badge ui-badge-neutral">${esc(todoStatusLabel(t.status))}</span></div>
       <p class="muted" style="font-size:13px;margin:6px 0">责任人：${esc(t.assigneeName||t.assigneeId||'-')} · 经办人：${esc(t.operatorName||t.operatorId||t.assigneeName||'-')}</p>
       <p class="muted" style="font-size:13px">截止：${fmtDt(t.deadline)}</p>
+      ${decisionLine}
       <div class="todo-actions" style="margin:8px 0;display:flex;gap:8px;flex-wrap:wrap">${assigneeBtns}</div>
       <details class="todo-detail">
         <summary>进度与附件</summary>
@@ -221,7 +229,7 @@ function renderMyTodosPanel(myTodos, feishuUserId){
       <p class="msg hidden todo-msg"></p>
     </div>`;
   }).join('');
-  return `<div class="ui-card card blur-fade"><h2>我的待办</h2><p class="muted" style="font-size:13px;margin-bottom:10px">责任人可完成/挂起；经办人可更新进度与上传附件。</p></div>${rows}`;
+  return `<div class="ui-card card blur-fade"><h2>我的待办</h2><p class="muted" style="font-size:13px;margin-bottom:10px">责任人可提交完成/挂起（提交完成后由决策人裁决）；经办人可更新进度与上传附件。</p></div>${rows}`;
 }
 
 async function loadTodoDetail(todoId){
@@ -258,8 +266,8 @@ function bindMyTodosPanel(myTodos, feishuUserId){
     };
     card.querySelector('.btn-todo-complete')?.addEventListener('click',async()=>{
       try{
-        await api('/api/v1/todos/'+encodeURIComponent(t.id)+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({status:'COMPLETED'})});
-        showTodoMsg('已标记完成',false);
+        await api('/api/v1/todos/'+encodeURIComponent(t.id)+'/submit-complete',{method:'POST'});
+        showTodoMsg('已提交完成（若有决策人将进入裁决流程）',false);
         setTimeout(()=>init(),800);
       }catch(e){showTodoMsg(e.message,true);}
     });

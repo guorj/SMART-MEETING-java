@@ -83,8 +83,9 @@ mvn clean package
 1. 部署 Skill `matter-progress`（`skills/matter-progress/SKILL.md`）
 2. 注册 `meeting-mysql` MCP；账号对 `oabp_pro` 有 SELECT 权限：
    ```sql
-   GRANT SELECT ON oabp_pro.* TO 'meeting_mcp'@'%';
+   GRANT SELECT ON oabp_pro.* TO 'intelligence'@'%';
    ```
+   会序 SQL 使用 `oabp_pro.system_users`（须 `bootstrap-oabp-pro.sql` 已复制该表到 oabp_pro）。
 3. **不再需要** `lark-mcp` 写 Doc 权限（v0.26 不写飞书）
 
 ## 4. 业务配置

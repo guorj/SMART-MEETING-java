@@ -548,6 +548,19 @@
         el.style.display = msg ? 'block' : 'none';
       }
 
+      /** REST/主持 API 鉴权失败：停止轮询并提示用户重新从飞书获取链接 */
+      function handleHostAuthFailure(res, j) {
+        var code = (j && j.code != null) ? j.code : (res ? res.status : 0);
+        if (code !== 401 && code !== 403) return false;
+        stopHostStatePoll();
+        var msg = (j && j.message) ? j.message
+          : (code === 401
+            ? '登录已过期，请在飞书重新发送「会议管理」'
+            : '当前链接无操作权限');
+        showErr(msg);
+        return true;
+      }
+
       function showProgressErr(msg) {
         var el = document.getElementById('progressErr');
         if (el) el.textContent = msg || '';
@@ -639,9 +652,16 @@
         return !!(topic && topic.localMaterials && topic.localMaterials.length);
       }
 
+      /** 会序配置了 oabp 项目任务 SQL 且勾选主持页展示 */
+      function topicHasOabpTaskSql(topic) {
+        if (!topic) return false;
+        if (topic.oabpTaskShow === false) return false;
+        return !!(topic.oabpTaskSql && String(topic.oabpTaskSql).trim());
+      }
+
       function topicHasReportOrFeishu(topic) {
         return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasOutputFeishuDoc(topic)
-            || topicHasLocalMaterial(topic);
+            || topicHasLocalMaterial(topic) || topicHasOabpTaskSql(topic);
       }
 
       function isImageMimeType(mime) {
@@ -811,7 +831,8 @@
           return m && m.fileId ? m.fileId : '';
         }).filter(Boolean).sort().join(',');
         return agendaIndex + '|' + (topic.generatedReportUrl || '') + '|' + (topic.outputFeishuDocUrl || '')
-            + '|' + (topic.generatedReportAt || '') + '|' + refKeys + '|local:' + localKeys;
+            + '|' + (topic.generatedReportAt || '') + '|' + refKeys + '|local:' + localKeys
+            + '|oabp:' + (topicHasOabpTaskSql(topic) ? String(topic.oabpTaskSql || '').trim() : '');
       }
 
       /** 从 host_state topic 收集 SOURCE 飞书链接（feishuDocs + feishuDocUrl），按 feishuDocDedupeKey 去重。 */
@@ -2654,6 +2675,13 @@
         headers = trimmed.headers;
         rows = trimmed.rows;
         if (!headers.length && !rows.length) return false;
+        if (headers.length && !rows.length) {
+          var empty = document.createElement('p');
+          empty.className = 'muted feishu-fetch-error';
+          empty.textContent = '查询成功但无数据行（请检查 oabpTaskSql 是否含 intelligence. 前缀、seed 是否已入库，或改用 generatedReportRunId）';
+          el.appendChild(empty);
+          return true;
+        }
         var root = document.createElement('div');
         root.className = 'structured-oabp-task-root';
         if (data.sheetName) {
@@ -2872,6 +2900,8 @@
           }
         } else if (topicHasOutputFeishuDoc(topic) || topicHasFeishuDoc(topic)) {
           lines.push('会序参考资料链接见左侧主区。');
+        } else if (topicHasOabpTaskSql(topic)) {
+          lines.push('项目任务表格见左侧主区。');
         }
         var d = String(topic.detail || '').trim();
         if (d) {
@@ -2910,7 +2940,7 @@
       /** 左侧主区加载中占位（请求 agenda-doc-content 前展示）。 */
       function showAgendaDocLoading(el, useMainPanel) {
         applyAgendaDocContainerStyles(el, useMainPanel);
-        el.innerHTML = '<div class="feishu-doc-panel"><p class="feishu-doc-loading">正在加载飞书资料</p></div>';
+        el.innerHTML = '<div class="feishu-doc-panel"><p class="feishu-doc-loading">正在加载会序资料</p></div>';
       }
 
       /** 将 agenda-doc-content 返回的 parts[] 渲染为页内正文（docx/wiki/base 多段）。 */
@@ -3002,7 +3032,8 @@
       }
 
       function topicNeedsAgendaDocFetch(topic) {
-        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasLocalMaterial(topic);
+        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasLocalMaterial(topic)
+            || topicHasOabpTaskSql(topic);
       }
 
       function partsIncludeImageGallery(parts) {
@@ -3460,12 +3491,12 @@
         if (titleEl) {
           var uniqueRefs = collectFeishuDocRefsFromTopic(curTopic);
           var docCount = uniqueRefs.length;
-          var kindLbl = docCount > 1 ? ('共 ' + docCount + ' 份') : (docCount === 1 ? feishuKindLabel(uniqueRefs[0].kind) : feishuKindLabel(curTopic.feishuDocKind));
           var mainBodyEl = document.getElementById('progressReportBody');
           var hasInlineBody = mainBodyEl && !!mainBodyEl.querySelector('.feishu-doc-body');
-          var panelPrefix = (topicHasWeeklyReport(curTopic) && !topicHasFeishuDoc(curTopic) && !topicHasLocalMaterial(curTopic))
+          var panelPrefix = (topicHasWeeklyReport(curTopic) && !topicHasFeishuDoc(curTopic) && !topicHasLocalMaterial(curTopic) && !topicHasOabpTaskSql(curTopic))
               ? '会前对比通报'
-              : (hasInlineBody || topicHasFeishuDoc(curTopic) || topicHasLocalMaterial(curTopic) ? '会序资料' : '会序飞书链接');
+              : (hasInlineBody || topicHasFeishuDoc(curTopic) || topicHasLocalMaterial(curTopic) || topicHasOabpTaskSql(curTopic) ? '会序资料' : '会序飞书链接');
+          var kindLbl = docCount > 1 ? ('共 ' + docCount + ' 份') : (docCount === 1 ? feishuKindLabel(uniqueRefs[0].kind) : (topicHasOabpTaskSql(curTopic) ? feishuKindLabel('OABP') : feishuKindLabel(curTopic.feishuDocKind)));
           titleEl.textContent = panelPrefix + (kindLbl ? ('（' + kindLbl + '）') : '') + ' · '
               + (curTopic.title || ('第 ' + (curTopicIdx + 1) + ' 项'));
         }
@@ -3492,7 +3523,9 @@
           detail: it.detail || '',
           feishuDocUrl: it.feishuDocUrl || '',
           feishuDocKind: it.feishuDocKind || '',
-          feishuDocs: it.feishuDocs || null
+          feishuDocs: it.feishuDocs || null,
+          oabpTaskSql: it.oabpTaskSql || '',
+          oabpTaskShow: it.oabpTaskShow
         };
       }
 
@@ -3503,7 +3536,9 @@
           detail: t.detail || '',
           feishuDocUrl: t.feishuDocUrl || '',
           feishuDocKind: t.feishuDocKind || '',
-          feishuDocs: t.feishuDocs || null
+          feishuDocs: t.feishuDocs || null,
+          oabpTaskSql: t.oabpTaskSql || '',
+          oabpTaskShow: t.oabpTaskShow
         };
       }
 
@@ -3832,14 +3867,21 @@
         var rcw = document.getElementById('rollCallWrap');
         if (!active) {
           if (meetingLive) {
-            meetingLive = false;
-            hostSessionStarted = false;
-            meetingServerActive = false;
-            stopHostStatePoll();
-            syncLiveMeetingChrome(null);
-            clearAudioSessionStorage();
-            syncRecordingReconnectUi(null);
-            if (window.HostMeetingRail) HostMeetingRail.resetMeetingMode();
+            if (meetingServerActive) {
+              showErr('主持计时暂不可用（服务端会话中断）。请点击「重连录音」恢复麦克风；若控制按钮无效请点「开始会议」恢复主持。');
+              syncRecordingReconnectUi(lastHostStateObj);
+              syncLiveMeetingChrome(lastHostStateObj);
+              return;
+            } else {
+              meetingLive = false;
+              hostSessionStarted = false;
+              meetingServerActive = false;
+              stopHostStatePoll();
+              syncLiveMeetingChrome(null);
+              clearAudioSessionStorage();
+              syncRecordingReconnectUi(null);
+              if (window.HostMeetingRail) HostMeetingRail.resetMeetingMode();
+            }
           }
           agendaDocRenderedIndex = -1;
           agendaDocFetchingIndex = -1;
@@ -4201,9 +4243,12 @@
           var res = await fetch(meetingApi('/api/v1/host/meetings/' + encodeURIComponent(meetingId) + '/state'), {
             headers: authHeader()
           });
-          var j = await res.json();
+          var j = await res.json().catch(function () { return {}; });
+          if (handleHostAuthFailure(res, j)) return;
           if (j.code === 0 && j.data) {
             renderHostState(j.data);
+          } else if (j.code !== 0 && j.message) {
+            console.warn('refreshHostStateFromApi', j.code, j.message);
           }
         } catch (e) {
           console.warn('refreshHostStateFromApi', e);
@@ -4276,6 +4321,7 @@
         showErr('缺少 token 或会议 ID');
         return;
       }
+      clearAudioSessionStorage();
       applyReadOnlyUi();
       var btnAgendaFs = document.getElementById('btnAgendaDocFullscreen');
       if (btnAgendaFs) {
@@ -4375,6 +4421,9 @@
           headers: authHeader()
         }, opts || {}));
         const j = await res.json().catch(function () { return {}; });
+        if (handleHostAuthFailure(res, j)) {
+          throw new Error(j.message || '登录已过期，请在飞书重新发送「会议管理」');
+        }
         if (!res.ok || j.code !== 0) throw new Error(j.message || res.statusText || '请求失败');
         return j.data;
       }

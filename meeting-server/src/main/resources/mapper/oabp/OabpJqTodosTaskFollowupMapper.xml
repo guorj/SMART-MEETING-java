@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  oabp.jq_todos_task_followup Mapper XML
+  字段对齐 oabp 库实际 DDL：无 progress/status，有 last_week_progress/this_week_plan/report_date
+  report_date 为 NOT NULL，写入时必须提供
+-->
+<mapper namespace="com.smartmeeting.repository.oabp.OabpJqTodosTaskFollowupMapper">
+
+    <resultMap id="BaseResultMap" type="com.smartmeeting.entity.oabp.OabpJqTodosTaskFollowup">
+        <id     column="id"                 property="id"/>
+        <result column="task_id"            property="taskId"/>
+        <result column="task_type"          property="taskType"/>
+        <result column="followup_content"   property="followupContent"/>
+        <result column="last_week_progress" property="lastWeekProgress"/>
+        <result column="this_week_plan"     property="thisWeekPlan"/>
+        <result column="report_date"        property="reportDate"/>
+        <result column="creator"            property="creator"/>
+        <result column="create_time"        property="createTime"/>
+        <result column="updater"            property="updater"/>
+        <result column="update_time"        property="updateTime"/>
+        <result column="deleted"            property="deleted"/>
+        <result column="tenant_id"          property="tenantId"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, task_id, task_type, followup_content, last_week_progress, this_week_plan,
+        report_date, creator, create_time, updater, update_time, deleted, tenant_id
+    </sql>
+
+    <!-- 取最新一条跟进；与会序 SQL MAX(id) 逻辑一致 -->
+    <select id="findLatestByTaskId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_task_followup
+        WHERE task_id = #{taskId}
+          AND (deleted = 0 OR deleted IS NULL)
+          <if test="taskType != null">
+              AND task_type = #{taskType}
+          </if>
+        ORDER BY id DESC
+        LIMIT 1
+    </select>
+
+    <select id="findByTaskId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_task_followup
+        WHERE task_id = #{taskId}
+          AND (deleted = 0 OR deleted IS NULL)
+          <if test="taskType != null">
+              AND task_type = #{taskType}
+          </if>
+        ORDER BY id DESC
+    </select>
+
+</mapper>

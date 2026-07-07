@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!--
+  oabp.jq_todos_subtask Mapper XML
+  注意：执行人字段名为 asignee_id（oabp 原始拼写，非 assignee）
+  字段对齐 DDL：id/parent_id/asignee_id/creator/updater 均为 int
+-->
+<mapper namespace="com.smartmeeting.repository.oabp.OabpJqTodosSubtaskMapper">
+
+    <resultMap id="BaseResultMap" type="com.smartmeeting.entity.oabp.OabpJqTodosSubtask">
+        <id     column="id"          property="id"/>
+        <result column="parent_id"   property="parentId"/>
+        <result column="task_name"   property="taskName"/>
+        <result column="asignee_id"  property="asigneeId"/>
+        <result column="remark"      property="remark"/>
+        <result column="creator"     property="creator"/>
+        <result column="updater"     property="updater"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+        <result column="deleted"     property="deleted"/>
+        <result column="tenant_id"   property="tenantId"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, parent_id, task_name, asignee_id, remark, creator, updater,
+        create_time, update_time, deleted, tenant_id
+    </sql>
+
+    <select id="findActiveByParentId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_subtask
+        WHERE parent_id = #{parentId}
+          AND (deleted = 0 OR deleted IS NULL)
+        ORDER BY id
+    </select>
+
+    <!-- 按飞书 recId 查询关联子任务；remark 格式 [feishu:recId=xxx:sub=N] -->
+    <select id="findByFeishuRecId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_subtask
+        WHERE remark LIKE CONCAT('[feishu:recId=', #{feishuRecId}, ':sub=%')
+        ORDER BY id
+    </select>
+
+    <!--
+      软删除指定父任务下超出保留数量的多余子任务（按 id 升序保留前 keepCount 条）
+      用途：飞书导入时执行人数量减少，需软删多余旧 subtask
+    -->
+    <update id="softDeleteExtraByParent">
+        UPDATE jq_todos_subtask
+        SET deleted = 1,
+            updater = #{updater},
+            update_time = NOW()
+        WHERE parent_id = #{parentId}
+          AND (deleted = 0 OR deleted IS NULL)
+          AND id NOT IN (
+              SELECT id FROM (
+                  SELECT id FROM jq_todos_subtask
+                  WHERE parent_id = #{parentId}
+                    AND (deleted = 0 OR deleted IS NULL)
+                  ORDER BY id
+                  LIMIT #{keepCount}
+              ) AS keep_ids
+          )
+    </update>
+
+    <!--
+      按父任务 ID + 执行人 OABP 用户 ID 查找未软删的子任务（幂等查找核心）
+      用途：OabpSubtaskSyncConsumer 判断同一责任人是否已有 subtask，存在则 UPDATE 否则 INSERT
+    -->
+    <select id="findByParentIdAndAsigneeId" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM jq_todos_subtask
+        WHERE parent_id = #{parentId}
+          AND asignee_id = #{asigneeOaId}
+          AND (deleted = 0 OR deleted IS NULL)
+        LIMIT 1
+    </select>
+
+</mapper>

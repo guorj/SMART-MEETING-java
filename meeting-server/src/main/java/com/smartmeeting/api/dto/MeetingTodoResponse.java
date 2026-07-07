@@ -24,6 +24,18 @@ public class MeetingTodoResponse {
     private String assigneeName;
     private String operatorId;
     private String operatorName;
+    /** 决策人飞书 user_id（缓存自 OABP decision_maker_user_id；NULL 表示无决策人） */
+    private String decisionMakerFeishuUserId;
+    /** 决策人姓名 */
+    private String decisionMakerName;
+    /** 是否处于已提交待裁决态 */
+    private Boolean pendingDecision;
+    /** 决策人作出裁决的时间 */
+    private LocalDateTime decisionMadeAt;
+    /** 裁决结果：APPROVED|DELAYED|REJECTED */
+    private String decisionResult;
+    /** 决策人裁决备注 */
+    private String decisionNote;
     /** {@link com.smartmeeting.enums.TodoStatus} 枚举名 */
     private String status;
     private String priority;

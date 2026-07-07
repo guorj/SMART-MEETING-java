@@ -67,6 +67,14 @@ AdminModules.register({
               <li><code>post-*</code>：会后待办/闭环/校正流程。</li>
             </ul>
           </section>
+          <section>
+            <h4>v0.27 待办裁决相关 step</h4>
+            <ul>
+              <li><code>post-feishu-task-sync</code>：会议结束后批量向责任人推送待办卡片（提交完成/挂起/更新进度），同时同步飞书任务中心。contextJson 写入 <code>{total, success, todoIds}</code>。</li>
+              <li><code>post-todo-action</code>：<strong>裁决超时扫描</strong>（v0.27 重新定义）。扫描 <code>PENDING_DECISION</code> 态超过 N 天未裁决的待办，向决策人重发催办卡。config_json：<code>{"timeoutDays": 3}</code>（默认 3 天）。</li>
+            </ul>
+            <p class="form-hint">二段式裁决：责任人提交完成 → 查 OABP 决策人 → 推裁决卡 → 决策人裁决完成/延期/驳回。详见 开关手册 §3.5。</p>
+          </section>
         </div>
       </div>
 

@@ -22,6 +22,6 @@ CREATE TABLE IF NOT EXISTS oabp_pro.jq_todos_subtask LIKE oabp.jq_todos_subtask;
 CREATE TABLE IF NOT EXISTS oabp_pro.jq_todos_task_followup LIKE oabp.jq_todos_task_followup;
 CREATE TABLE IF NOT EXISTS oabp_pro.jq_project_task_tracking LIKE oabp.jq_project_task_tracking;
 
--- 可选：复制 system_users 到 oabp_pro（导入脚本默认跨库查 oabp.system_users，非必须）
--- CREATE TABLE IF NOT EXISTS oabp_pro.system_users LIKE oabp.system_users;
--- INSERT INTO oabp_pro.system_users SELECT * FROM oabp.system_users;
+-- system_users：会序 oabpTaskSql JOIN 使用 oabp_pro.system_users（从 oabp 复制结构+数据，一次性）
+CREATE TABLE IF NOT EXISTS oabp_pro.system_users LIKE oabp.system_users;
+INSERT IGNORE INTO oabp_pro.system_users SELECT * FROM oabp.system_users;

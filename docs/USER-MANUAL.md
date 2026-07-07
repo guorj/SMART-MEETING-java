@@ -197,6 +197,41 @@
 
 **前置数据**：启用 ⑤ 需在 `int_user_mapping_feishu` 维护每用户的 `supervisor_feishu_user_id`（直属上级飞书 user_id）。未配置上级的用户跳过升级提醒（日志 `Escalation skipped: no supervisor configured`）。
 
+### 5.6 待办二段式裁决 + OABP 三表同步（v0.27）
+
+**二段式裁决流程**：
+
+1. 责任人在飞书卡片或前台点「提交完成」
+2. 系统查 OABP `jq_todos_task.decision_maker_user_id`：
+   - **有决策人** → 置 `PENDING_DECISION`，向决策人推送裁决卡
+   - **无决策人** → 直接置 `COMPLETED`（原流程）
+3. 决策人在裁决卡点「裁决完成 / 裁决延期 / 驳回」：
+   - `APPROVED` → `COMPLETED`
+   - `DELAYED` → `DELAYED`
+   - `REJECTED` → `IN_PROGRESS`（驳回回进行中）
+4. 系统通知责任人裁决结果
+
+**OABP 三表同步**：责任人更新任务状态时，自动同步到 OABP 三张表（不新增表，组合使用）：
+
+| OABP 表 | 同步内容 | 触发点 |
+|---|---|---|
+| `jq_todos_task` | status (0/1/2/3) + progress (0-100) | 首次创建 / 添加进度 / 状态变更 / 决策裁决 |
+| `jq_todos_task_followup` | 跟进文本（followup_content） | 添加进度 |
+| `jq_todos_subtask` | 执行人（asignee_id） | 首次创建（建执行人记录） |
+
+**决策人来源**：OABP `jq_todos_task.decision_maker_user_id`（关联 `system_users.id`）。该字段当前由 OABP 端维护，meeting 回写时恒置 0；值为 0 时待办直接走原完成流程。
+
+**责任人 ID 反查**：meeting 端责任人（飞书 user_id）经 `int_user_mapping_feishu` 反查为 OABP `system_users.id`（int），写入 `jq_todos_subtask.asignee_id`。查不到映射时跳过 subtask 同步。
+
+**裁决超时扫描**：Pipeline `post-todo-action` step 扫描 `PENDING_DECISION` 态超过 N 天（默认 3，`config_json.timeoutDays`）未裁决的待办，向决策人重发催办卡。
+
+**进度与附件**：全部走 Web dashboard（前台「我的待办」→ 展开待办详情），卡片只放「更新进度」跳转按钮。
+
+**前置数据**：
+- 启用 OABP 同步需 `meeting.datasource.external.oabp.enabled=true`
+- 启用决策人裁决需 OABP 端在 `jq_todos_task.decision_maker_user_id` 填入真实 OABP 用户 ID（非 0）
+- 责任人需在 `int_user_mapping_feishu` 有映射记录（`feishu_user_id` ↔ `user_id`）
+
 ---
 
 ## 6. 运维最小建议
