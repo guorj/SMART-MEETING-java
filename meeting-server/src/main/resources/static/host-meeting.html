@@ -90,6 +90,7 @@
         <div class="agenda-doc-panel-head">
           <h2 class="panel-title" id="agendaDocPanelTitle"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8l6 6z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg> 当前议题资料</h2>
           <div class="agenda-doc-panel-actions">
+            <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-refresh" id="btnAgendaDocRefresh" style="display:none" title="重新拉取会序资料（含数据库最新数据）" aria-label="刷新资料"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
             <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreen" aria-pressed="false" title="进入全屏" aria-label="进入全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v4"/><path d="M15 3h4a2 2 0 0 1 2 2v4"/><path d="M9 21H5a2 2 0 0 1-2-2v-4"/><path d="M15 21h4a2 2 0 0 0 2-2v-4"/></svg></button>
           </div>
         </div>
@@ -97,6 +98,7 @@
         <p id="agendaDocExternalLink" class="muted" style="font-size:12px;margin-bottom:8px;display:none"></p>
         <div class="transcript-box md-body-host host-main-doc-body" id="progressReportBody"><p class="muted" style="padding:4px 0">当前会序若已配置飞书资料，将在此提供文档链接。</p></div>
         <div class="agenda-doc-fs-fab" id="agendaDocFsFab" style="display:none" aria-hidden="true">
+          <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-refresh" id="btnAgendaDocRefreshFab" style="display:none" title="重新拉取会序资料（含数据库最新数据）" aria-label="刷新资料"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
           <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-fullscreen" id="btnAgendaDocFullscreenFab" title="退出全屏" aria-label="退出全屏"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14h6v6"/><path d="M20 10h-6V4"/><path d="M14 10l7-7"/><path d="M3 21l7-7"/></svg></button>
           <button type="button" class="ui-btn ui-btn-secondary btn-agenda-icon btn-agenda-next-fab" id="btnAgendaDocNextTopicFab" title="下一议题" aria-label="下一议题"><svg class="icon-sm" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
         </div>
@@ -313,6 +315,13 @@
       let agendaDocFetchingIndex = -1;
       /** 左侧会序区上次渲染状态键，避免每秒 host_state 重复重绘 */
       let agendaDocLastStateKey = '';
+
+      /** 清空会序资料区客户端缓存，强制下次 syncAgendaDocPanel 重新拉取（含 oabp SQL 实时查库）。 */
+      function resetAgendaDocContentCache() {
+        agendaDocRenderedIndex = -1;
+        agendaDocFetchingIndex = -1;
+        agendaDocLastStateKey = '';
+      }
       /** 本地上传资料 blob URL 缓存（fileId -> object URL） */
       var localMaterialBlobCache = {};
 
@@ -2574,7 +2583,109 @@
         return OABP_STATUS_CLASS[label] || 'task-status-pending';
       }
 
-      function renderOabpSheetCell(td, header, value) {
+      /** 会序 oabp 表中应按长文本处理的列名（含任务概况等 SQL 别名）。 */
+      function isOabpLongTextHeader(header) {
+        var h = header == null ? '' : String(header).trim();
+        if (!h) return false;
+        if (h === '长期任务' || h === '待办事项' || h === '任务概况' || h === '本周计划' || h === '进展说明') {
+          return true;
+        }
+        return /概况|说明|备注|描述|详情|计划|记录|汇总/.test(h);
+      }
+
+      /** 全文弹层：适合长「任务概况」，避免单元格内挤成一团。 */
+      function openOabpLongTextDialog(title, text) {
+        var existing = document.getElementById('oabpLongTextDialog');
+        if (existing) existing.remove();
+        var overlay = document.createElement('div');
+        overlay.id = 'oabpLongTextDialog';
+        overlay.className = 'oabp-long-text-dialog';
+        overlay.setAttribute('role', 'dialog');
+        overlay.setAttribute('aria-modal', 'true');
+        var panel = document.createElement('div');
+        panel.className = 'oabp-long-text-dialog-panel';
+        var head = document.createElement('div');
+        head.className = 'oabp-long-text-dialog-head';
+        var h = document.createElement('h3');
+        h.textContent = title || '任务概况';
+        var closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'ui-btn ui-btn-secondary oabp-long-text-dialog-close';
+        closeBtn.textContent = '关闭';
+        head.appendChild(h);
+        head.appendChild(closeBtn);
+        var body = document.createElement('div');
+        body.className = 'oabp-long-text-dialog-body';
+        body.textContent = text || '';
+        panel.appendChild(head);
+        panel.appendChild(body);
+        overlay.appendChild(panel);
+        function close() {
+          overlay.remove();
+          document.removeEventListener('keydown', onKey);
+        }
+        function onKey(e) {
+          if (e.key === 'Escape') close();
+        }
+        closeBtn.addEventListener('click', close);
+        overlay.addEventListener('click', function (e) {
+          if (e.target === overlay) close();
+        });
+        document.addEventListener('keydown', onKey);
+        document.body.appendChild(overlay);
+        closeBtn.focus();
+      }
+
+      /**
+       * 长文本单元格：默认 3 行省略 + title 悬停提示；过长时提供「查看全文」弹层。
+       * @param force 为 true 时即使较短也按长文本列样式渲染（displayMeta renderAs=long_text）
+       */
+      function renderOabpLongTextCell(td, header, text, force) {
+        var s = text == null ? '' : String(text);
+        var needsClamp = force || s.length > 60 || s.indexOf('\n') >= 0;
+        if (!needsClamp) {
+          td.textContent = s;
+          return;
+        }
+        td.className = 'cell-long-text oabp-long-text-cell';
+        var wrap = document.createElement('div');
+        wrap.className = 'oabp-long-text-wrap';
+        var preview = document.createElement('div');
+        preview.className = 'oabp-long-text-clamp';
+        preview.textContent = s;
+        preview.title = s;
+        preview.setAttribute('tabindex', '0');
+        preview.setAttribute('role', 'button');
+        preview.setAttribute('aria-label', '查看' + (header || '任务概况') + '全文');
+        preview.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          openOabpLongTextDialog(header || '任务概况', s);
+        });
+        preview.addEventListener('keydown', function (e) {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            openOabpLongTextDialog(header || '任务概况', s);
+          }
+        });
+        wrap.appendChild(preview);
+        if (s.length > 80 || s.indexOf('\n') >= 0) {
+          var more = document.createElement('button');
+          more.type = 'button';
+          more.className = 'ui-btn ui-btn-secondary bitable-expand-btn oabp-long-text-more';
+          more.textContent = '查看全文';
+          more.title = '在弹层中阅读完整内容';
+          more.addEventListener('click', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            openOabpLongTextDialog(header || '任务概况', s);
+          });
+          wrap.appendChild(more);
+        }
+        td.appendChild(wrap);
+      }
+
+      function renderOabpSheetCell(td, header, value, renderAs) {
         var text = value != null ? String(value) : '';
         if (header === '状态' && text) {
           var badge = document.createElement('span');
@@ -2599,12 +2710,12 @@
             return;
           }
         }
-        if ((header === '长期任务' || header === '待办事项') && (text.length > 100 || text.indexOf('\n') >= 0)) {
-          td.className = 'cell-long-text';
-          var box = document.createElement('div');
-          box.className = 'feishu-field-value-long';
-          box.textContent = text;
-          td.appendChild(box);
+        if (renderAs === 'long_text' || isOabpLongTextHeader(header)) {
+          renderOabpLongTextCell(td, header, text, renderAs === 'long_text');
+          return;
+        }
+        if (text.length > 120 || text.indexOf('\n') >= 0) {
+          renderOabpLongTextCell(td, header, text, false);
           return;
         }
         td.textContent = text;
@@ -2637,6 +2748,14 @@
       }
 
       function renderOabpTaskSheetTable(parentEl, headers, rows) {
+        renderOabpTaskSheetTableWithMeta(parentEl, headers, rows, null);
+      }
+
+      function renderOabpTaskSheetTableWithMeta(parentEl, headers, rows, renderAsList, tableOpts) {
+        tableOpts = tableOpts || {};
+        var columnWidths = tableOpts.columnWidths || [];
+        var totalRowIndex = tableOpts.totalRowIndex;
+        var plainOnly = tableOpts.plainOnly === true;
         var scroll = document.createElement('div');
         scroll.className = 'structured-table-scroll';
         var table = document.createElement('table');
@@ -2644,20 +2763,36 @@
         if (headers && headers.length) {
           var thead = document.createElement('thead');
           var headRow = document.createElement('tr');
-          headers.forEach(function (h) {
+          headers.forEach(function (h, hi) {
             var th = document.createElement('th');
             th.textContent = h || '';
+            if (columnWidths[hi]) th.style.minWidth = columnWidths[hi] + 'px';
             headRow.appendChild(th);
           });
           thead.appendChild(headRow);
           table.appendChild(thead);
         }
         var tbody = document.createElement('tbody');
-        (rows || []).forEach(function (row) {
+        (rows || []).forEach(function (row, rowIdx) {
           var tr = document.createElement('tr');
+          if (totalRowIndex != null && rowIdx === totalRowIndex) {
+            tr.className = 'oabp-total-row';
+          }
           (row || []).forEach(function (cell, colIdx) {
             var td = document.createElement('td');
-            renderOabpSheetCell(td, headers[colIdx] || '', cell);
+            if (columnWidths[colIdx]) td.style.minWidth = columnWidths[colIdx] + 'px';
+            if (plainOnly) {
+              td.textContent = cell != null ? String(cell) : '';
+            } else {
+              var renderAs = renderAsList && renderAsList[colIdx] ? renderAsList[colIdx] : '';
+              if (renderAs === 'progress_bar') {
+                renderOabpSheetCell(td, '进度', cell, renderAs);
+              } else if (renderAs === 'badge') {
+                renderOabpSheetCell(td, '状态', cell, renderAs);
+              } else {
+                renderOabpSheetCell(td, headers[colIdx] || '', cell, renderAs);
+              }
+            }
             tr.appendChild(td);
           });
           tbody.appendChild(tr);
@@ -2667,10 +2802,93 @@
         parentEl.appendChild(scroll);
       }
 
+      function renderOabpTaskSheetStrict(el, data, headers, rows) {
+        var trimmed = trimSheetTrailingEmptyColumns(headers, rows);
+        headers = trimmed.headers;
+        rows = trimmed.rows;
+        if (!headers.length && !rows.length) return false;
+        if (headers.length && !rows.length) {
+          var empty = document.createElement('p');
+          empty.className = 'muted feishu-fetch-error';
+          empty.textContent = '查询成功但无数据行';
+          el.appendChild(empty);
+          return true;
+        }
+        var root = document.createElement('div');
+        root.className = 'structured-oabp-task-root structured-oabp-task-root-strict';
+        if (data.sheetName) {
+          var title = document.createElement('h3');
+          title.className = 'structured-oabp-task-title';
+          title.textContent = data.sheetName;
+          root.appendChild(title);
+        }
+        var singleWrap = document.createElement('div');
+        singleWrap.className = 'structured-sheet structured-oabp-task-sheet';
+        renderOabpTaskSheetTableWithMeta(singleWrap, headers, rows, null, { plainOnly: true });
+        root.appendChild(singleWrap);
+        el.appendChild(root);
+        return true;
+      }
+
       function renderOabpTaskSheet(el, data, opts) {
         if (!data) return false;
         var headers = data.headers || [];
         var rows = filterSheetDataRows(data.rows || []);
+        var meta = data.displayMeta || null;
+        if (meta && meta.sqlStrict) {
+          return renderOabpTaskSheetStrict(el, data, headers, rows);
+        }
+        if (meta && meta.columnRenderAs && meta.columnRenderAs.length) {
+          var trimmedMeta = trimSheetTrailingEmptyColumns(headers, rows);
+          headers = trimmedMeta.headers;
+          rows = trimmedMeta.rows;
+          if (!headers.length && !rows.length) return false;
+          var metaRoot = document.createElement('div');
+          metaRoot.className = 'structured-oabp-task-root';
+          if (data.sheetName) {
+            var metaTitle = document.createElement('h3');
+            metaTitle.className = 'structured-oabp-task-title';
+            metaTitle.textContent = data.sheetName;
+            metaRoot.appendChild(metaTitle);
+          }
+          var totalRowIndex = meta.totalRowIndex;
+          var dataRowCount = totalRowIndex != null ? totalRowIndex : rows.length;
+          var groups = meta.groups && meta.groups.length
+            ? meta.groups
+            : [{ title: '', startRow: 0, rowCount: dataRowCount }];
+          if (totalRowIndex != null && groups.length) {
+            var last = groups[groups.length - 1];
+            if (last.startRow + last.rowCount > dataRowCount) {
+              last.rowCount = Math.max(0, dataRowCount - last.startRow);
+            }
+          }
+          var tableOpts = { columnWidths: data.columnWidths || [], totalRowIndex: null };
+          groups.forEach(function (group) {
+            var block = document.createElement('div');
+            block.className = 'structured-oabp-task-group structured-sheet';
+            if (group.title) {
+              var heading = document.createElement('div');
+              heading.className = 'structured-oabp-status-heading ' + oabpStatusBadgeClass(group.title);
+              var badge = document.createElement('span');
+              badge.className = 'task-status-badge ' + oabpStatusBadgeClass(group.title);
+              badge.textContent = group.title;
+              heading.appendChild(badge);
+              block.appendChild(heading);
+            }
+            var slice = rows.slice(group.startRow || 0, (group.startRow || 0) + (group.rowCount || rows.length));
+            renderOabpTaskSheetTableWithMeta(block, headers, slice, meta.columnRenderAs, tableOpts);
+            metaRoot.appendChild(block);
+          });
+          if (totalRowIndex != null && rows[totalRowIndex]) {
+            var foot = document.createElement('div');
+            foot.className = 'structured-oabp-task-total structured-sheet';
+            renderOabpTaskSheetTableWithMeta(foot, headers, [rows[totalRowIndex]], meta.columnRenderAs,
+              { columnWidths: data.columnWidths || [], totalRowIndex: 0 });
+            metaRoot.appendChild(foot);
+          }
+          el.appendChild(metaRoot);
+          return true;
+        }
         var trimmed = trimSheetTrailingEmptyColumns(headers, rows);
         headers = trimmed.headers;
         rows = trimmed.rows;
@@ -3126,6 +3344,7 @@
           agendaDocLastStateKey = agendaDocStateKey(topic, agendaIndex);
           agendaDocFetchingIndex = -1;
           syncAgendaDetailSidebarHint(targets, agendaIndex, topic);
+          syncAgendaDocRefreshButton(topic);
           var panel = targets.body && targets.body.querySelector('.feishu-doc-panel');
           finalizeAgendaDocPanel(panel);
         }
@@ -3138,11 +3357,35 @@
 
         showAgendaDocLoading(targets.body, opts.useMainPanel);
         agendaDocFetchingIndex = agendaIndex;
+        syncAgendaDocRefreshButton(topic);
 
         fetchAgendaDocContent(meetingId, token, agendaIndex).then(function (res) {
           if (agendaDocFetchingIndex !== agendaIndex) return;
           applyAgendaDocApiResult(targets, topic, opts, res, agendaIndex, agendaTitle);
           finishRender();
+        });
+      }
+
+      /** 手动刷新当前会序资料：清空客户端缓存并重新请求 agenda-doc-content（oabp SQL 会实时查库）。 */
+      function refreshAgendaDocContent() {
+        if (!meetingLive || !lastHostStateObj) return;
+        var topics = lastHostStateObj.topics || [];
+        var curTopicIdx = lastHostStateObj.currentTopicIndex | 0;
+        if (curTopicIdx < 0 || curTopicIdx >= topics.length) return;
+        var curTopic = topics[curTopicIdx];
+        if (!curTopic || !topicNeedsAgendaDocFetch(curTopic)) return;
+        if (agendaDocFetchingIndex === curTopicIdx) return;
+        resetAgendaDocContentCache();
+        loadAgendaDocContent(curTopicIdx, curTopic.title, curTopic);
+      }
+
+      function syncAgendaDocRefreshButton(curTopic) {
+        var show = !!(meetingLive && curTopic && topicNeedsAgendaDocFetch(curTopic));
+        ['btnAgendaDocRefresh', 'btnAgendaDocRefreshFab'].forEach(function (id) {
+          var btn = document.getElementById(id);
+          if (!btn) return;
+          btn.style.display = show ? '' : 'none';
+          btn.disabled = show && agendaDocFetchingIndex !== -1;
         });
       }
 
@@ -3381,7 +3624,8 @@
         });
         card.querySelectorAll('.feishu-doc-body').forEach(function (body) {
           var nestedSheetCount = body.querySelectorAll('.structured-sheet').length;
-          if (nestedSheetCount > 1) {
+          var hasOabpRoot = !!body.querySelector('.structured-oabp-task-root');
+          if (nestedSheetCount > 1 || hasOabpRoot) {
             body.classList.add('agenda-doc-fs-scroll');
             body.classList.remove('agenda-doc-fs-fill');
             body.querySelectorAll('.structured-sheet').forEach(function (sheet) {
@@ -3482,12 +3726,12 @@
         if (!meetingLive || !curTopic || !topicHasReportOrFeishu(curTopic)) {
           card.style.display = 'none';
           setAgendaDocFullscreen(false);
-          agendaDocRenderedIndex = -1;
-          agendaDocFetchingIndex = -1;
-          agendaDocLastStateKey = '';
+          resetAgendaDocContentCache();
+          syncAgendaDocRefreshButton(null);
           return;
         }
         card.style.display = 'block';
+        syncAgendaDocRefreshButton(curTopic);
         if (titleEl) {
           var uniqueRefs = collectFeishuDocRefsFromTopic(curTopic);
           var docCount = uniqueRefs.length;
@@ -3883,9 +4127,7 @@
               if (window.HostMeetingRail) HostMeetingRail.resetMeetingMode();
             }
           }
-          agendaDocRenderedIndex = -1;
-          agendaDocFetchingIndex = -1;
-          agendaDocLastStateKey = '';
+          resetAgendaDocContentCache();
           var agendaDocOff = document.getElementById('agendaDocCard');
           if (agendaDocOff) agendaDocOff.style.display = 'none';
           document.getElementById('topicTimer').textContent = '议题剩余 —:—';
@@ -4327,6 +4569,14 @@
       if (btnAgendaFs) {
         btnAgendaFs.onclick = function () { setAgendaDocFullscreen(!agendaDocFullscreen); };
       }
+      var btnAgendaRefresh = document.getElementById('btnAgendaDocRefresh');
+      if (btnAgendaRefresh) {
+        btnAgendaRefresh.onclick = function () { refreshAgendaDocContent(); };
+      }
+      var btnAgendaRefreshFab = document.getElementById('btnAgendaDocRefreshFab');
+      if (btnAgendaRefreshFab) {
+        btnAgendaRefreshFab.onclick = function () { refreshAgendaDocContent(); };
+      }
       var btnAgendaFsFab = document.getElementById('btnAgendaDocFullscreenFab');
       if (btnAgendaFsFab) {
         btnAgendaFsFab.onclick = function () { setAgendaDocFullscreen(false); };
@@ -4459,6 +4709,7 @@
           meetingLive = true;
           meetingServerActive = true;
           lastHostStateObj = st;
+          resetAgendaDocContentCache();
           renderHostState(st);
           showCopyViewerLinkButton();
           startHostStatePoll();

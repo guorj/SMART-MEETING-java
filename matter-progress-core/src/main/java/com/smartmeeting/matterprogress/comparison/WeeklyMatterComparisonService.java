@@ -120,8 +120,8 @@ public class WeeklyMatterComparisonService {
 
         MatterProgressConfigRow outputRow = configRepository.findByConfigName(job.outputConfigName())
                 .orElseThrow(() -> new IllegalStateException("OUTPUT 配置不存在: " + job.outputConfigName()));
-        List<MatterProgressConfigRow> sourceRows = loadAndValidateSourceRows(job);
-        log.info("Weekly comparison MCP dispatch jobId={} sourceRows={} (oabp SQL via Agent)",
+        List<MatterProgressConfigRow> sourceRows = loadSourceRowsOptional(job);
+        log.info("Weekly comparison MCP dispatch jobId={} sourceRows={} (fixed oabp three-table SQL via Agent)",
                 job.id(), sourceRows.size());
 
         OpenClawMcpWeeklyComparisonDelegate.McpWeeklyComparisonResult mcpResult = mcpDelegate.execute(
@@ -155,12 +155,70 @@ public class WeeklyMatterComparisonService {
     }
 
     /**
-     * 入库 run + items，写回 host_agenda.runId 与 job.last_run_id。
+     * 入库分流：Agent 自行写库（parsed.runId>0）→ 校验+回写；否则 Bot 入库 run+item。
      */
     private WeeklyComparisonResult persistRunAndItems(WeeklyComparisonJob job,
                                                       MatterProgressConfigRow outputRow,
                                                       ParsedComparisonItems parsed,
                                                       Instant started) {
+        if (parsed.agentWroteRun()) {
+            return persistAgentWrittenRun(job, outputRow, parsed, started);
+        }
+        return persistBotWrittenRun(job, outputRow, parsed, started);
+    }
+
+    /**
+     * Agent 已自行 INSERT run+item（§5）；Bot 跳过入库，仅做 count 校验、回填 run 状态、回写 host_agenda/job。
+     */
+    private WeeklyComparisonResult persistAgentWrittenRun(WeeklyComparisonJob job,
+                                                          MatterProgressConfigRow outputRow,
+                                                          ParsedComparisonItems parsed,
+                                                          Instant started) {
+        long runId = parsed.runId();
+        int declaredCount = parsed.items().size();
+        int actualCount = runRepository.countItemsByRunId(runId);
+        Instant generatedAt = Instant.now();
+
+        String runStatus;
+        String runError;
+        if (!parsed.success()) {
+            runStatus = WeeklyComparisonRun.FAILED;
+            runError = parsed.errorMessage();
+            runRepository.markFailed(runId, runError);
+            jobRepository.updateRunResult(job.id(), "FAILED", runError, started, runId);
+            log.warn("Weekly comparison agent-wrote run parse failed jobId={} runId={} err={}",
+                    job.id(), runId, runError);
+            return WeeklyComparisonResult.failed(job.id(), runError);
+        } else if (actualCount != declaredCount) {
+            runStatus = WeeklyComparisonRun.PARTIAL;
+            runError = "Agent 写入 item 数与回传不一致: declared=" + declaredCount + " actual=" + actualCount;
+            runRepository.updateStatus(runId, actualCount, runStatus, runError);
+            log.warn("Weekly comparison agent-wrote run count mismatch jobId={} runId={} {}",
+                    job.id(), runId, runError);
+        } else {
+            runStatus = parsed.resolveRunStatus();
+            runError = buildRunError(parsed);
+            runRepository.updateStatus(runId, actualCount, runStatus, runError);
+            log.info("Weekly comparison agent-wrote run ok jobId={} runId={} status={} items={}",
+                    job.id(), runId, runStatus, actualCount);
+        }
+
+        configRepository.writeGeneratedReportRun(job.outputConfigName(), runId, generatedAt);
+        jobRepository.updateRunResult(job.id(), "SUCCESS", runError, started, runId);
+
+        if (WeeklyComparisonRun.PARTIAL.equals(runStatus)) {
+            return WeeklyComparisonResult.partial(job.id(), runId, actualCount);
+        }
+        return WeeklyComparisonResult.success(job.id(), runId, actualCount);
+    }
+
+    /**
+     * Bot 入库 run + items（旧模式 / Legacy / Agent 未写库降级）；写回 host_agenda.runId 与 job.last_run_id。
+     */
+    private WeeklyComparisonResult persistBotWrittenRun(WeeklyComparisonJob job,
+                                                         MatterProgressConfigRow outputRow,
+                                                         ParsedComparisonItems parsed,
+                                                         Instant started) {
         String title = formatTitle(job.outputDocTitleTpl());
         Instant generatedAt = Instant.now();
         String runStatus = parsed.resolveRunStatus();
@@ -232,6 +290,14 @@ public class WeeklyMatterComparisonService {
                     markdown));
         }
         return out;
+    }
+
+    private List<MatterProgressConfigRow> loadSourceRowsOptional(WeeklyComparisonJob job) {
+        List<String> names = job.sourceConfigNames();
+        if (names == null || names.isEmpty()) {
+            return List.of();
+        }
+        return configRepository.loadSources(names);
     }
 
     private List<MatterProgressConfigRow> loadAndValidateSourceRows(WeeklyComparisonJob job) {

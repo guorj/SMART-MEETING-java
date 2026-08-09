@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
 
 import java.time.LocalDateTime;
@@ -37,7 +38,7 @@ public final class HostAgendaJsonCodec {
                 return out;
             }
             for (JsonNode n : items) {
-                HostAgendaItem item = parseItemNode(n);
+                HostAgendaItem item = parseItemNode(n, mapper);
                 if (item != null) {
                     out.add(item);
                 }
@@ -57,7 +58,7 @@ public final class HostAgendaJsonCodec {
             if (!items.isArray() || agendaIndex >= items.size()) {
                 return null;
             }
-            return parseItemNode(items.get(agendaIndex));
+            return parseItemNode(items.get(agendaIndex), mapper);
         } catch (Exception ignored) {
             return null;
         }
@@ -93,6 +94,15 @@ public final class HostAgendaJsonCodec {
                 if (item.getOabpTaskSql() != null && !item.getOabpTaskSql().isBlank()) {
                     n.put("oabpTaskSql", item.getOabpTaskSql().strip());
                     n.put("oabpTaskShow", item.getOabpTaskShow() == null || item.getOabpTaskShow());
+                }
+                if (item.getOabpSqlPresetId() != null && !item.getOabpSqlPresetId().isBlank()) {
+                    n.put("oabpSqlPresetId", item.getOabpSqlPresetId().trim());
+                }
+                if (item.getOabpDisplayTemplate() != null && !item.getOabpDisplayTemplate().isEmpty()) {
+                    n.set("oabpDisplayTemplate", mapper.valueToTree(item.getOabpDisplayTemplate()));
+                }
+                if (Boolean.TRUE.equals(item.getOabpTaskSqlStrict())) {
+                    n.put("oabpTaskSqlStrict", true);
                 }
                 List<HostAgendaDocBinding> docs = normalizedDocs(item);
                 if (!docs.isEmpty()) {
@@ -399,7 +409,7 @@ public final class HostAgendaJsonCodec {
         return ids;
     }
 
-    private static HostAgendaItem parseItemNode(JsonNode n) {
+    private static HostAgendaItem parseItemNode(JsonNode n, ObjectMapper mapper) {
         if (n == null || n.isNull()) {
             return null;
         }
@@ -423,6 +433,20 @@ public final class HostAgendaJsonCodec {
             item.setOabpTaskShow(n.path("oabpTaskShow").asBoolean(true));
         } else {
             item.setOabpTaskShow(true);
+        }
+        String presetId = n.path("oabpSqlPresetId").asText("").trim();
+        if (!presetId.isEmpty()) {
+            item.setOabpSqlPresetId(presetId);
+        }
+        JsonNode templateNode = n.path("oabpDisplayTemplate");
+        if (mapper != null && templateNode.isObject() && !templateNode.isEmpty()) {
+            try {
+                item.setOabpDisplayTemplate(mapper.treeToValue(templateNode, OabpDisplayTemplate.class));
+            } catch (Exception ignored) {
+            }
+        }
+        if (n.has("oabpTaskSqlStrict")) {
+            item.setOabpTaskSqlStrict(n.path("oabpTaskSqlStrict").asBoolean(false));
         }
         List<HostAgendaDocBinding> docs = new ArrayList<>();
         JsonNode docsNode = n.path("docs");

@@ -1,6 +1,7 @@
 package com.smartmeeting.api.dto.host;
 
 import com.smartmeeting.api.dto.FeishuDocRefDto;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import lombok.Data;
 
 import java.util.List;
@@ -28,4 +29,10 @@ public class HostAgendaItemDto {
     private String oabpTaskSql;
     /** 可选：是否在主持页展示 oabp 查询结果；默认 true */
     private Boolean oabpTaskShow;
+    /** 可选：oabp 结果集展示模板；为空时直通 raw sheet（向后兼容） */
+    private OabpDisplayTemplate oabpDisplayTemplate;
+    /** 可选：oabp SQL 预设 id；custom 或 null 表示手写 SQL */
+    private String oabpSqlPresetId;
+    /** 可选：true 时严格按 SQL 结果展示，不应用展示模板与额外渲染 */
+    private Boolean oabpTaskSqlStrict;
 }

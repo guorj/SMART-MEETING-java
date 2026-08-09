@@ -26,6 +26,22 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
             "oabp_pro");
 
     @Test
+    void validateSourceRows_okWhenSourceRowsEmpty() {
+        WeeklyComparisonJob job = sampleJob(List.of());
+        assertThat(OpenClawMcpWeeklyComparisonDelegate.validateSourceRows(List.of(), job)).isNull();
+    }
+
+    @Test
+    void validateSourceRows_failsWhenOutputConfigMissing() {
+        WeeklyComparisonJob job = new WeeklyComparisonJob(
+                1L, "test-job", true, "0 10 * * MON", "Asia/Shanghai",
+                List.of(), "PRESET_LAST_7_DAYS", "{\"presetTypeCode\":1,\"days\":7}",
+                "", "通报-{date}", null);
+        assertThat(OpenClawMcpWeeklyComparisonDelegate.validateSourceRows(List.of(), job))
+                .contains("output_config_name");
+    }
+
+    @Test
     void validateSourceRows_okWhenSqlEmpty() {
         WeeklyComparisonJob job = sampleJob(List.of("cfg-a"));
         MatterProgressConfigRow row = sourceRow("cfg-a", null);
@@ -33,7 +49,7 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
     }
 
     @Test
-    void buildPrompt_skipsEmptyOabpSql() throws Exception {
+    void buildPrompt_alwaysEmitsOabpTodosSqlRegardlessOfPresetSql() throws Exception {
         WeeklyComparisonJob job = sampleJob(List.of("cfg-a", "cfg-b"));
         MatterProgressConfigRow withSql = sourceRow("cfg-a", "SELECT 1 AS n");
         MatterProgressConfigRow withoutSql = sourceRow("cfg-b", null);
@@ -46,9 +62,17 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
                 String.class);
         m.setAccessible(true);
         String prompt = (String) m.invoke(delegate, job, List.of(withSql, withoutSql), Optional.empty(), false, "task-1");
-        assertThat(prompt).contains("config=cfg-a");
-        assertThat(prompt).doesNotContain("config=cfg-b");
-        assertThat(prompt).contains("SELECT 1 AS n");
+        // [oabp_todos_sql] 固定三表 SELECT，与 preset oabpTaskSql 是否填写无关
+        assertThat(prompt).contains("[oabp_todos_sql]");
+        assertThat(prompt).contains("jq_todos_task");
+        assertThat(prompt).contains("jq_todos_subtask");
+        assertThat(prompt).contains("jq_todos_task_followup");
+        // 旧 [source_oabp_sql] 段已移除，preset 的 oabpTaskSql 不再下发
+        assertThat(prompt).doesNotContain("[source_oabp_sql]");
+        assertThat(prompt).doesNotContain("SELECT 1 AS n");
+        // [run_insert_payload] 段存在
+        assertThat(prompt).contains("[run_insert_payload]");
+        assertThat(prompt).contains("int_weekly_matter_comparison_run");
     }
 
     @Test
@@ -69,12 +93,10 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
     }
 
     @Test
-    void buildPromptContainsSourceOabpSql() throws Exception {
+    void buildPromptContainsOabpTodosSqlAndRunInsertPayload() throws Exception {
         WeeklyComparisonJob job = sampleJob(List.of("preset1-comp-agenda-01"));
-        MatterProgressConfigRow row = new MatterProgressConfigRow(
-                1L, "preset1-comp-agenda-01", 1, 0, "SOURCE", null, null, null, true,
-                "SELECT task_name FROM jq_project_task_tracking WHERE deleted = 0",
-                "oabp_pro");
+        MatterProgressConfigRow outputRow = new MatterProgressConfigRow(
+                2L, "preset1-weekly-report-out", 1, 0, "OUTPUT", null, null, null, true);
         var m = OpenClawMcpWeeklyComparisonDelegate.class.getDeclaredMethod(
                 "buildMcpSkillPrompt",
                 WeeklyComparisonJob.class,
@@ -83,9 +105,14 @@ class OpenClawMcpWeeklyComparisonDelegateTest {
                 boolean.class,
                 String.class);
         m.setAccessible(true);
-        String prompt = (String) m.invoke(delegate, job, List.of(row), Optional.empty(), false, "task-1");
-        assertThat(prompt).contains("[source_oabp_sql]");
-        assertThat(prompt).contains("jq_project_task_tracking");
+        String prompt = (String) m.invoke(delegate, job, List.of(), Optional.of(outputRow), false, "task-1");
+        assertThat(prompt).contains("[oabp_todos_sql]");
+        assertThat(prompt).contains("section=main_task");
+        assertThat(prompt).contains("section=subtask");
+        assertThat(prompt).contains("section=followup_latest");
+        assertThat(prompt).contains("[run_insert_payload]");
+        assertThat(prompt).contains("columns=job_id,output_config_name,preset_type_code,agenda_index,title");
+        assertThat(prompt).doesNotContain("[source_oabp_sql]");
         assertThat(prompt).doesNotContain("[source_feishu_urls]");
         assertThat(prompt).doesNotContain("[output_reference_url]");
     }

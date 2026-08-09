@@ -1,93 +1,164 @@
-## 会前事项对比 — 执行手册（oabp SOURCE + items JSON 入库）
+## 会前事项对比 — 执行手册（MCP 直读 oabp_pro 三表 + intelligence 纪要）
 
-> **v0.26+**：SOURCE 已改为 preset `host_agenda.oabpTaskSql`（oabp 库只读 SELECT）。Bot **只下发已填写的 SQL**；某 config 未填 `oabpTaskSql` 则**跳过**，**不导致任务失败**。**禁止**再读飞书多维表/docx 作为 SOURCE；**禁止**创建飞书通报 Doc；**禁止**输出 `generatedReportUrl=`。
+> **v0.30**：SOURCE 改为**固定三表 SELECT**（Bot 在数据块 `[oabp_todos_sql]` 段下发，已注入真实 schema）；Agent 用 `meeting-mysql__mysql_query` 直读 `oabp_pro` 库的 `jq_todos_task` / `jq_todos_subtask` / `jq_todos_task_followup` 三张待办表，并读 `intelligence` 库的 `int_meeting_minute` 会议纪要，归并生成 items。**禁止**读飞书多维表/docx 作为 SOURCE；**禁止**创建飞书通报 Doc；**禁止**输出 `generatedReportUrl=`。
 
 ### 0. 使用哪个 Skill、哪些 MCP（必须遵守）
 
 | 类型 | 名称 | 用途 |
 |------|------|------|
 | **Skill** | `matter-progress` | 本任务专用（Bot 以 `/skill:matter-progress` 触发） |
-| **MCP 读 SOURCE（oabp）** | `meeting-mysql__mysql_query` | 执行 [source_oabp_sql] 中每条 SELECT（只读，原样） |
-| **MCP 读纪要** | `meeting-mysql__mysql_query` | 执行 [minute_query_sql]（库 `intelligence`） |
-| **MCP 读上期通报（可选）** | `meeting-mysql__mysql_query` | 执行 [output_reference_sql]（库 `intelligence`，若有） |
+| **MCP 读 SOURCE（oabp_pro 三表）** | `meeting-mysql__mysql_query` | 执行数据块 `[oabp_todos_sql]` 段中的三条 SELECT（库 `oabp_pro`，只读） |
+| **MCP 读纪要** | `meeting-mysql__mysql_query` | 执行数据块 `[minute_query_sql]` 段中的 SELECT（库 `intelligence`） |
+| **MCP 读上期通报（可选）** | `meeting-mysql__mysql_query` | 执行数据块 `[output_reference_sql]` 段中的 SELECT（库 `intelligence`，若有） |
 
-- oabp 默认 schema：**{{oabpSchema}}**（MCP 连接默认库非 oabp 时，SQL 内表名须带 schema 前缀，如 `{{oabpSchema}}.jq_todos_task`）
+- oabp schema 由 Bot 在 `[oabp_todos_sql]` 段内已替换为真实库名（默认 `oabp_pro`）；**禁止**改写该段 SQL 文本
 - **禁止**调用 lark-mcp 读 SOURCE / 写 Doc
-- **禁止**臆造数据；SQL 执行失败时在最终回复简述原因，该 config 的事项全部省略
-- **禁止**修改 Bot 下发的 SQL 文本（禁止追加 WHERE、禁止改列名、禁止 DML/DDL、禁止分号多语句）
+- **禁止**臆造数据；SQL 执行失败时在最终回复简述原因，相应事项按现有纪要信息降级输出
+- **禁止**修改 Bot 下发的 SELECT SQL 文本（禁止追加 WHERE、禁止改列名、禁止分号多语句）；`[oabp_todos_sql]` / `[minute_query_sql]` / `[output_reference_sql]` 三段均为只读 SELECT，**禁止**改写
+- **写库白名单（仅限 §5.5）**：**仅允许**对 `intelligence.int_weekly_matter_comparison_run` 和 `intelligence.int_weekly_matter_comparison_item` 两表执行 **INSERT**；**禁止**对其他任何表执行 DML/DDL；**禁止**对这两张表执行 UPDATE/DELETE（由 Bot 回填 `item_count`/`generation_status`）
 - **禁止**复用历史轮次缓存；每次任务必须重新执行全部 SQL
 
-### 1. 读取 SOURCE（oabp 事项表）— meeting-mysql__mysql_query
+### 1. 读取 SOURCE — oabp_pro 待办三表（meeting-mysql__mysql_query）
 
-Bot 已从 preset 取出**已填写**的 `oabpTaskSql` 写入 **[source_oabp_sql]**；未填 SQL 的 config **不会出现在数据块中**，无需处理，**任务照常进行**。
+数据块 `[oabp_todos_sql]` 段含三条固定 SELECT（每组以 `config=` / `schema=` / `section=` / `sql=` 四行头 + SQL 体 表示，组间以 `---` 分隔），按 `section=` 标签识别三段，顺序执行：
 
-若 **[source_oabp_sql]** 为 `(none — …)` 或无任何 `config=` 组：**跳过本节**，直接仅用纪要（§2）生成 items。
+#### 1.1 主任务表 `jq_todos_task`（`section=main_task`，含决策人昵称）
 
-对 **[source_oabp_sql]** 每一组 `config` + `schema` + `sql`（组间以 `---` 分隔）：
+字段：`task_id` / `task_name` / `business_block` / `progress` / `status_label` / `status_raw` / `start_date` / `planned_end_date` / `remark` / `task_detail` / `decision_maker_name` 等。
 
-1. 调用 **`meeting-mysql__mysql_query`**，**原样**执行 `sql=` 后的 SELECT。
-2. 将每行映射为事项字段（按列别名/列名，常见 jq_todos SQL 映射如下）：
+`status` 映射：`0=未开始` `1=进行中` `2=已完成` `3=已延期`。
 
-| oabp 列（示例） | 映射到内存字段 |
-|-----------------|----------------|
-| `待办事项` / `task_name` | 事项名称 |
-| `执行人` / `assignee_name` / nickname | 责任人 |
-| `状态` / `status_label` | 状态 |
-| `截止日期` / `planned_end_date` | 截止/计划时间 |
-| `开始日期` / `start_date` | 开始时间（辅助） |
-| `进度` / `progress` | 进度（辅助） |
+#### 1.2 子任务表 `jq_todos_subtask`（`section=subtask`，含执行人昵称，多对一归并到主任务）
 
-3. 为每条记录保留 `sourceConfigName = config` 值（如 `preset1-comp-agenda-02`）。
-4. 查询失败（超时、Access denied、语法错误）：**跳过该 config 全部事项**，在 JSON 块外的简短说明中记录 `config` + 错误摘要。
+字段：`subtask_id` / `task_id`(=parent_id) / `subtask_name` / `asignee_id` / `assignee_name` / `subtask_remark` / `update_time`。
 
-**不要**再读取 [source_feishu_urls]（已废弃；若数据块中仍出现，忽略）。
+**执行人只在子任务表**（`asignee_id` → `system_users.nickname`）；主表 `decision_maker_user_id` 是决策人，不是执行人。
 
-### 2. 读取会议纪要 — meeting-mysql__mysql_query
+#### 1.3 跟进明细 `jq_todos_task_followup`（`section=followup_latest`，每任务取最新一条）
 
-1. 调用 **`meeting-mysql__mysql_query`**，SQL 见 **[minute_query_sql]**（库 `intelligence`，勿连 localhost）。
-2. 对每行：`meeting_id`、`title`、`content_markdown`（空则尝试 `content_url`）。
+字段：`task_id` / `task_type`(0主任务1子任务) / `followup_content` / `last_week_progress` / `this_week_plan` / `report_date` / `creator` / `update_time`。
+
+**归并规则（在内存中完成）**：
+
+1. 以 `task_id` 为主键，把 §1.2 的子任务、§1.3 的最新跟进记录挂到 §1.1 主任务上。
+2. 主任务事项名 = `jq_todos_task.task_name`；若主任务仅作为容器、实际事项在子任务，**仍以主任务为事项主体**，子任务用于补全责任人（多执行人用 `、` 连接）与进度细分。
+3. 责任人优先取 §1.2 子任务的 `assignee_name` 全集；若子任务为空，回退到主任务的 `decision_maker_name`，并在 `assignee` 字段后追加 `(决策人)` 标识。
+4. 状态以 `jq_todos_task.status_label` 为准；`status_raw=3`（已延期）或 `planned_end_date < 当日` 且非终态时归 `DELAYED`。
+5. 任一查询失败：**跳过对应补充字段**，主任务事项仍按 §1.1 数据输出，并在最终回复简短说明失败 SQL + 错误摘要。
+6. 若 `[oabp_todos_sql]` 段缺失或为 `(none — …)`：**跳过本节**，仅依据纪要（§2）生成 items，任务不失败。
+
+### 2. 读取会议纪要 — meeting-mysql__mysql_query（库 `intelligence`）
+
+1. 调用 `meeting-mysql__mysql_query`，**原样**执行数据块 `[minute_query_sql]` 段中的 SELECT（Bot 已注入 preset_type_code 与时间窗口）。
+2. 对每行：取 `meeting_id`、`title`、`content_markdown`（空则尝试 `content_url`）。
 3. 仅使用 `generation_status='READY'` 的纪要。
 4. 从纪要正文中抽取：事项名称、责任人、时间节点、状态描述、完成/截止语义。
+5. 纪要为空（无 READY 行）：**items 输出为空数组** `[]`，run 仍判 READY（0 条事项），任务不失败；在最终回复注明「未取到 READY 纪要」。**禁止**在纪要为空时仅凭 oabp 三表输出 items（§4 范围硬性要求 items 必须源自纪要）。
 
 ### 3. 读取上期通报（可选）— meeting-mysql__mysql_query
 
-若数据块含 **[output_reference_sql]**：
+若数据块含 `[output_reference_sql]` 段：
 
 1. 执行该 SELECT，读取上一期已入库事项（`matter_name` / `assignee` / `time_node` / `status_label` / `category`）。
 2. 用于对比「本周相对上期的变化」；**不得**直接复制上期 items 作为本期输出。
 3. 若无此段或查询无行：视为无上期参考，不影响任务成功。
 
-**不要**再读取 [output_reference_url] 飞书 Doc（已废弃；若仍出现，忽略）。
+**不要**再读取 `[output_reference_url]` 飞书 Doc（已废弃；若仍出现，忽略）。
 
 ### 4. 数据处理（判定待办状态）
 
 在内存中完成，**不要把中间分析写入最终 JSON**：
 
-**范围（硬性）**：最终 `items` **只包含近 7 天会议纪要中提及的事项**（含同义/简称/关键词匹配）。SOURCE oabp 全表仅用于补全这些事项的**当前状态**；纪要未提及的 SOURCE 行**不得**写入 items。
+**范围（硬性）**：最终 `items` **只包含会议纪要中提及的事项**（含同义/简称/关键词匹配；时间窗口由 `[minute_query_sql]` 限定）。SOURCE oabp 三表仅用于补全这些事项的**当前状态、责任人、截止日、最新跟进**；纪要未提及的 SOURCE 行**不得**写入 items。
 
-1. 以 **[minute_query_sql]** 结果为主，抽取纪要中所有待办事项及责任人、时间节点。
-2. 若有 **[source_oabp_sql]** 查询结果：按「事项名称 + 责任人」或关键词归并，补全/校正状态与截止日；若无 oabp 数据则仅依据纪要判定状态。
+1. 以 §2 纪要结果为主，抽取纪要中所有待办事项及责任人、时间节点。
+2. 与 §1 oabp 三表按「事项名称 + 责任人」或关键词归并：
+   - 补全/校正状态：以 `jq_todos_task.status_label` 为准。
+   - 补全截止日：取 `jq_todos_task.planned_end_date`。
+   - 补全责任人：取 §1.2 子任务 `assignee_name` 全集；无子任务用 `decision_maker_name`。
+   - 补全最新跟进：取 §1.3 `followup_content` / `this_week_plan`（仅用于内部判断，不写入 items 字段）。
+   - **纪要提及但 oabp 三表无匹配**（任务已删/未录入）：仍输出该 item，`matterName`/`assignee`/`timeNode` 取自纪要，`statusLabel` 按纪要语义归一化（无明确终态则 `进行中`/`IN_PROGRESS`），`sourceConfigName` **省略**（不填 `oabp-pro-todos`，表明该事项无 oabp SOURCE 对应）。
 3. 每条事项**仅归入一个** `category`（互斥，禁止重复出现在多个分组）。
 4. **状态 → category 映射（硬性）**：
 
-| category | statusLabel | 判定 |
+| category | statusLabel（**输出值，必须归一化**） | 判定 |
 |----------|-------------|------|
-| `DELAYED` | `延期` | 状态含「延期/已延期/逾期/超期/过期」；或状态非终态且有截止日且截止日 **早于当日** |
-| `COMPLETED` | `已完成` | 状态为「已完成/已关闭/已办结」等终态；或纪要明确已办结 |
+| `DELAYED` | `延期` | `status_raw=3`；或状态含「延期/已延期/逾期/超期/过期」；或状态非终态且 `planned_end_date` **早于当日** |
+| `COMPLETED` | `已完成` | `status_raw=2`；或状态为「已完成/已关闭/已办结」等终态；或纪要明确已办结 |
 | `IN_PROGRESS` | `进行中` | 其余非终态（含「未开始/进行中」且未满足延期条件） |
 
-5. **禁止错放**：`已完成` 不得入 `DELAYED`/`IN_PROGRESS`；未延期的 `进行中` 不得入 `DELAYED`。
-6. SOURCE 与纪要冲突时，**以 SOURCE oabp 的 `状态` 列为准**；仍无法判断则 `IN_PROGRESS`，`statusLabel=进行中`。
-7. **输出前自检**：逐条核对 `statusLabel` 与 `category` 一致；不一致则重新归类后再输出 JSON。
+5. **statusLabel 归一化（硬性，违反则 items 被 Bot 丢弃）**：SQL `status_label` 列返回的「已延期」「未开始」**禁止**直接输出，必须按下表归一化为 Bot parser 认可的三个值之一：
 
-### 5. 输出协议（必须遵守）
+| SQL/纪要返回值 | 输出 statusLabel | 输出 category |
+|----------------|------------------|---------------|
+| `已延期` / `逾期` / `超期` / `过期` | `延期` | `DELAYED` |
+| `已完成` / `已关闭` / `已办结` | `已完成` | `COMPLETED` |
+| `未开始` / `进行中` | `进行中` | `IN_PROGRESS` |
 
-**不写飞书 Doc、不写 Markdown 通报正文**。最终回复**只输出一个 JSON 块**（Bot 解析后批量 INSERT `int_weekly_matter_comparison_run` + `int_weekly_matter_comparison_item`）：
+Bot 端 parser 仅认可 `延期` / `已完成` / `进行中` 三个字符串；输出 `已延期` / `未开始` 等会被判为 `statusLabel↔category 不一致` 而**丢弃该条 item**。
+
+6. **禁止错放**：`已完成` 不得入 `DELAYED`/`IN_PROGRESS`；未延期的 `进行中` 不得入 `DELAYED`。
+7. SOURCE 与纪要冲突时，**以 SOURCE oabp 的 `status_label` 为准**（归一化后）；仍无法判断则 `IN_PROGRESS`，`statusLabel=进行中`。
+8. **输出前自检**：逐条核对 `statusLabel` 与 `category` 一致、且 `statusLabel` ∈ {`延期`,`已完成`,`进行中`}；不符合则重新归类/归一化后再输出 JSON。
+
+### 5. 写库入库 — Agent 直接 INSERT 两表（meeting-mysql__mysql_query）
+
+归并完成、§4 自检通过后，**Agent 自行用 `meeting-mysql__mysql_query` 把结果写入 `intelligence.int_weekly_matter_comparison_run` + `intelligence.int_weekly_matter_comparison_item` 两表**，再把 `run_id` 回传给 Bot（§6）。Bot 不再代为入库，仅做校验 + 回写 `host_agenda`/`job`。
+
+**严格顺序**：
+
+1. **INSERT run 批次头**：用数据块 `[run_insert_payload]` 段的 `columns=` + `values=` 组装并执行：
+
+   ```sql
+   INSERT INTO int_weekly_matter_comparison_run
+       (job_id, output_config_name, preset_type_code, agenda_index, title,
+        item_count, generation_status, generated_at, run_error)
+   VALUES (<values 行原样代入>);
+   ```
+
+   - `values=` 行已含 SQL 字面量（字符串已加单引号并转义、`NOW()`/`NULL` 为裸字面量），**直接拼接，不要再次转义或加引号**
+   - `item_count` 占位 `0`、`generation_status` 占位 `'READY'`，Bot 校验后会 UPDATE 回填真实值
+   - **禁止**改写 `values=` 行任何字段值（不要替换 job_id / output_config_name 等）
+
+2. **取 run_id**：执行 `SELECT LAST_INSERT_ID() AS run_id`。若返回 0/NULL（MCP 连接不复用导致 session 状态丢失），立即执行兜底：
+
+   ```sql
+   SELECT id AS run_id FROM int_weekly_matter_comparison_run
+   WHERE job_id = <步骤1的 job_id>
+   ORDER BY id DESC LIMIT 1;
+   ```
+
+   取到的 `run_id` 记在内存，后续 items INSERT 与 §6 回传都要用。
+
+3. **INSERT items**：对 §4 归并后的每条 item 执行：
+
+   ```sql
+   INSERT INTO int_weekly_matter_comparison_item
+       (run_id, category, matter_name, assignee, time_node, status_label, sort_order, source_config_name)
+   VALUES (<run_id>, '<category>', '<matterName>', <assignee|NULL>, <timeNode|NULL>,
+           '<statusLabel>', <sortOrder>, <sourceConfigName|NULL>);
+   ```
+
+   - 字符串字段（`matter_name`/`assignee`/`time_node`/`status_label`/`source_config_name`）须单引号包裹且内部单引号转义为两个单引号
+   - `assignee`/`time_node`/`source_config_name` 缺失时写裸 `NULL`（不要写 `'NULL'` 字符串）
+   - `run_id` 用步骤 2 取到的整数值，**不要**加引号
+
+4. **失败处理**：
+   - 步骤 1 INSERT run 失败 → **不输出 `runId`**，§6 JSON 块省略 `runId` 字段，在块外说明错误（如 `run INSERT failed: <错误摘要>`），Bot 走 Legacy fallback
+   - 步骤 3 部分成功部分失败 → 仍输出 `runId`（已写入的 run_id）+ 实际成功写入的 items，块外注明 `N items INSERT failed`，Bot 会按 count 校验判 PARTIAL
+   - **禁止**对 run/item 表执行 UPDATE/DELETE 修正；**禁止**对其他任何表 DML
+
+5. **不要**在最终回复输出 INSERT SQL 文本或影响的行数表；只输出 §6 JSON 块 + 必要的一两句执行摘要。
+
+### 6. 输出协议（必须遵守）
+
+**不写飞书 Doc、不写 Markdown 通报正文**。最终回复**只输出一个 JSON 块**（Bot 解析后做 count 校验 + 回写 `host_agenda`/`job`）：
 
 ```
 -----BEGIN_WEEKLY_COMPARISON_ITEMS-----
 {
   "generatedAt": "YYYY-MM-DD HH:mm:ss",
+  "runId": 12345,
   "items": [
     {
       "category": "DELAYED",
@@ -96,7 +167,7 @@ Bot 已从 preset 取出**已填写**的 `oabpTaskSql` 写入 **[source_oabp_sql
       "timeNode": "2026-06-20（截止）",
       "statusLabel": "延期",
       "sortOrder": 1,
-      "sourceConfigName": "preset1-comp-agenda-02"
+      "sourceConfigName": "oabp-pro-todos"
     }
   ]
 }
@@ -106,11 +177,12 @@ Bot 已从 preset 取出**已填写**的 `oabpTaskSql` 写入 **[source_oabp_sql
 **字段约束**：
 
 - `generatedAt`：本次生成时间，格式 `YYYY-MM-DD HH:mm:ss`
+- `runId`：§5 步骤 2 取到的 run_id（整数）；**Agent 写库成功后必填**，Bot 据此跳过自身入库、做 count 校验并回写 `host_agenda`/`job`。Agent 写库失败时**省略 `runId`**（不要写 0/null），Bot 检测到缺失则走 Legacy fallback
 - `category`：枚举 `DELAYED` | `COMPLETED` | `IN_PROGRESS`，须与 `statusLabel` 一致
 - `statusLabel`：仅允许 `延期` / `已完成` / `进行中`
-- `matterName`：必填
+- `matterName`：必填；优先用 `jq_todos_task.task_name`；纪要中的简称需归一到主任务名
 - `assignee` / `timeNode` / `sourceConfigName`：有值才输出；**缺失则省略字段**（禁止写「未提及」字符串）
-- `sourceConfigName`：填该事项归属的 SOURCE config（来自 [source_config_names] / [source_oabp_sql] 的 `config=`）
+- `sourceConfigName`：有 oabp 三表匹配的事项填 `oabp-pro-todos`；纪要提及但 oabp 无匹配的事项**省略该字段**（见 §4.2）
 - `sortOrder`：组内从 1 递增
 - 某组无事项：**不要**插入占位行；该 `category` 在 `items` 中零条
 
@@ -120,9 +192,9 @@ Bot 已从 preset 取出**已填写**的 `oabpTaskSql` 写入 **[source_oabp_sql
 - `COMPLETED`：完成时间降序；无完成时间用截止/计划时间降序
 - `IN_PROGRESS`：有截止日的按截止日升序；无截止日排在该组末尾
 
-### 6. 回复 Bot（必填）
+### 7. 回复 Bot（必填）
 
-JSON 块外可有一两句执行摘要（如哪些 config SQL 失败）；**最后一行必须是**：
+JSON 块外可有一两句执行摘要（如哪些 SQL 失败、纪要是否为空）；**最后一行必须是**：
 
 ```
 -----END_WEEKLY_COMPARISON_ITEMS-----
@@ -130,4 +202,17 @@ JSON 块外可有一两句执行摘要（如哪些 config SQL 失败）；**最�
 
 **禁止**输出：`generatedReportUrl=`、飞书 Doc URL、Markdown `## 延期事项` 通报正文、第四部分附录、数据来源说明。
 
-Bot 入库成功后，主持页通过 `host_agenda.generatedReportRunId` 或 oabpTaskSql 展示通报，**无需** Agent 写回 MySQL 或飞书。
+Bot 入库成功后，主持页通过 `host_agenda.generatedReportRunId` 展示通报，**无需** Agent 写回 MySQL 或飞书。
+
+### 8. 模板占位符与 Bot 渲染约定（供 Bot 渲染，Agent 无需处理）
+
+本模板仅以下占位符由 Bot `buildMcpTaskInstructions` 替换；Agent 看到的已是替换后的文本：
+
+| 占位符 | 含义 | 替换来源 |
+|--------|------|----------|
+| `{{oabpSchema}}` | oabp 库 schema 名（用于本说明文字） | `feishu.weekly-comparison.oabp.schema-name` / `DB_OABP_NAME`，默认 `oabp_pro` |
+| `{{outputConfigName}}` | 输出 config 名 | `job.outputConfigName()` |
+| `{{outputDocTitle}}` | 输出文档标题（已格式化日期） | `job.outputDocTitleTpl()` 渲染后 |
+| `{{weeklyComparisonFeishuAppId}}` | 飞书 App ID（仅说明用，本任务不写 Doc） | Bot 配置 |
+
+**真实可执行 SQL / 写库 payload** 由 Bot 在数据块 `[oabp_todos_sql]` / `[minute_query_sql]` / `[output_reference_sql]`（只读 SELECT）和 `[run_insert_payload]`（写库字段值）段内已拼好（含真实 schema、preset_type_code、时间窗口、job_id 等），Agent 直接执行/代入即可，**不要**自行替换占位符或改写 SQL/payload。

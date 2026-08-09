@@ -22,10 +22,21 @@ AdminModules.register({
     /** 切换会务类型时递增，作废进行中的 meta 自动保存，避免错写 display_name */
     let metaSaveEpoch = 0;
     let metaSavePendingCode = null;
+    /** 切换会务类型时递增，作废进行中的 agenda 自动保存，避免旧 OABP/SQL 写入新会务 */
+    let agendaSaveEpoch = 0;
     let skipInlineCommit = false;
     let uploadInProgress = false;
     let inlineCommitTimer = null;
     const materialBlobCache = {};
+
+    const loadOabpWizardScript = () => new Promise((resolve, reject) => {
+      if (globalThis.OabpDisplayWizard) return resolve();
+      const s = document.createElement('script');
+      s.src = '/static/admin/modules/oabp-display-template.js';
+      s.onload = () => resolve();
+      s.onerror = () => reject(new Error('无法加载 oabp-display-template.js'));
+      document.head.appendChild(s);
+    });
 
     const esc = s => (s || '').replace(/"/g, '&quot;').replace(/</g, '&lt;');
     const docKey = (i, bi) => i + '-' + bi;
@@ -167,10 +178,27 @@ AdminModules.register({
             .map(v => v.trim())
             .filter(Boolean);
         }
-        const oabpEl = tr.querySelector('.ag-oabp-sql');
-        if (oabpEl) bundleItems[i].oabpTaskSql = oabpEl.value.trim();
-        const oabpShowEl = tr.querySelector('.ag-oabp-show');
-        if (oabpShowEl) bundleItems[i].oabpTaskShow = oabpShowEl.checked;
+        if (globalThis.OabpDisplayWizard) {
+          OabpDisplayWizard.syncRowFromDom({ el: wrap, bundleItems: bundleItems }, i);
+        } else {
+          const oabpEl = tr.querySelector('.ag-oabp-sql');
+          if (oabpEl) bundleItems[i].oabpTaskSql = oabpEl.value.trim();
+          const oabpShowEl = tr.querySelector('.ag-oabp-show');
+          if (oabpShowEl) bundleItems[i].oabpTaskShow = oabpShowEl.checked;
+          const oabpTemplateEl = tr.querySelector('.ag-oabp-template');
+          if (oabpTemplateEl) {
+            const raw = oabpTemplateEl.value.trim();
+            if (!raw) {
+              bundleItems[i].oabpDisplayTemplate = null;
+            } else {
+              try {
+                bundleItems[i].oabpDisplayTemplate = JSON.parse(raw);
+              } catch (e) {
+                /* 保留内存值，保存时后端校验 */
+              }
+            }
+          }
+        }
       });
     };
 
@@ -206,6 +234,9 @@ AdminModules.register({
           owners: (r.owners || []).filter(Boolean),
           oabpTaskSql: (r.oabpTaskSql || '').trim() || null,
           oabpTaskShow: r.oabpTaskShow !== false,
+          oabpTaskSqlStrict: r.oabpTaskSqlStrict === true,
+          oabpSqlPresetId: r.oabpSqlPresetId || null,
+          oabpDisplayTemplate: r.oabpDisplayTemplate || null,
           bindings: normalizeBindingSlots(r.bindings || []).map(b => ({
             id: b.id || null,
             configName: b.configName,
@@ -222,6 +253,9 @@ AdminModules.register({
           }))
         }));
     };
+
+    const hasOabpTemplateInPayload = () => buildPayload().some(r =>
+      r.oabpDisplayTemplate && r.oabpDisplayTemplate.columns && r.oabpDisplayTemplate.columns.length);
 
     const normalizeAgendaOrderTitles = () => {
       bundleItems.forEach((row, idx) => {
@@ -355,6 +389,10 @@ AdminModules.register({
       await flushPendingAgendaSave();
       await flushPendingMetaSave();
       metaSaveEpoch += 1;
+      agendaSaveEpoch += 1;
+      if (globalThis.OabpDisplayWizard && OabpDisplayWizard.cancelPending) {
+        OabpDisplayWizard.cancelPending();
+      }
       metaSavePending = false;
       metaSavePendingCode = null;
       code = next;
@@ -413,18 +451,42 @@ AdminModules.register({
 
     const autoSaveBundle = () => {
       clearTimeout(saveTimer);
+      // 仅捕获 code/epoch；payload 必须在 timer 触发时再 build，
+      // 否则调度后 500ms 内的点选（展示方式/合计行等）会被旧 payload 覆盖并 render 复原
+      const scheduledCode = code;
+      const scheduledEpoch = agendaSaveEpoch;
       saveTimer = setTimeout(async () => {
+        saveTimer = null;
         if (saving || editingDocKey) return;
+        if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) return;
         saving = true;
         setAutosaveStatus('saving', '保存中…');
         try {
-          await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle', {
-            method: 'PUT', body: JSON.stringify(buildPayload())
+          const payload = buildPayload();
+          if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) {
+            saving = false;
+            return;
+          }
+          await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + scheduledCode + '/agenda-bundle', {
+            method: 'PUT', body: JSON.stringify(payload)
           });
-          const fresh = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
+          if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) {
+            saving = false;
+            return;
+          }
+          const fresh = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + scheduledCode + '/agenda-bundle');
+          if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) {
+            saving = false;
+            return;
+          }
+          if (globalThis.OabpDisplayWizard && OabpDisplayWizard.preserveTransientState) {
+            OabpDisplayWizard.preserveTransientState(bundleItems, fresh);
+          }
           bundleItems = fresh;
           await refreshHostAgendaJsonFromServer();
-          setAutosaveStatus('saved', '已自动保存');
+          setAutosaveStatus('saved', hasOabpTemplateInPayload()
+            ? '已保存 · 改模板后建议「执行刷新未开会」'
+            : '已自动保存');
           renderAgendaTable();
         } catch (e) {
           setAutosaveStatus('error', '保存失败: ' + (e.message || ''));
@@ -564,13 +626,24 @@ AdminModules.register({
     };
 
     const saveBundleImmediate = async () => {
+      const scheduledCode = code;
+      const scheduledEpoch = agendaSaveEpoch;
+      const payload = buildPayload();
       saving = true;
       setAutosaveStatus('saving', '保存中…');
       try {
-        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle', {
-          method: 'PUT', body: JSON.stringify(buildPayload())
+        await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + scheduledCode + '/agenda-bundle', {
+          method: 'PUT', body: JSON.stringify(payload)
         });
-        bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
+        if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) {
+          saving = false;
+          return;
+        }
+        bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + scheduledCode + '/agenda-bundle');
+        if (scheduledEpoch !== agendaSaveEpoch || scheduledCode !== code) {
+          saving = false;
+          return;
+        }
         await refreshHostAgendaJsonFromServer();
         setAutosaveStatus('saved', '已自动保存');
       } catch (e) {
@@ -800,9 +873,76 @@ AdminModules.register({
         renderAgendaTable();
         autoSaveBundle();
       };
-      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql, .ag-oabp-show').forEach(inp => {
+      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql, .ag-oabp-show, .ag-oabp-template').forEach(inp => {
         inp.addEventListener('blur', () => autoSaveBundle());
       });
+      if (globalThis.OabpDisplayWizard) {
+        OabpDisplayWizard.bindOabpSection({
+          el: el,
+          bundleItems: bundleItems,
+          code: code,
+          renderAgendaTable: renderAgendaTable,
+          autoSaveBundle: autoSaveBundle
+        }, el);
+      } else {
+      el.querySelectorAll('.ag-oabp-probe').forEach(btn => btn.onclick = async () => {
+        const i = +btn.dataset.i;
+        const card = el.querySelector('.agenda-card[data-i="' + i + '"]');
+        const statusEl = el.querySelector('.ag-oabp-preview-status[data-i="' + i + '"]');
+        const sqlEl = card ? card.querySelector('.ag-oabp-sql') : null;
+        if (!sqlEl || !sqlEl.value.trim()) {
+          if (statusEl) statusEl.textContent = '请先填写 SQL';
+          return;
+        }
+        if (statusEl) statusEl.textContent = '探测中…';
+        try {
+          const data = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda/' + i + '/oabp-columns', {
+            method: 'POST',
+            body: JSON.stringify({ oabpTaskSql: sqlEl.value.trim() })
+          });
+          const headers = (data && data.headers) || [];
+          if (statusEl) statusEl.textContent = '字段: ' + headers.join(', ');
+        } catch (e) {
+          if (statusEl) statusEl.textContent = '探测失败: ' + (e.message || '');
+        }
+      });
+      el.querySelectorAll('.ag-oabp-preview').forEach(btn => btn.onclick = async () => {
+        const i = +btn.dataset.i;
+        const card = el.querySelector('.agenda-card[data-i="' + i + '"]');
+        const statusEl = el.querySelector('.ag-oabp-preview-status[data-i="' + i + '"]');
+        const sqlEl = card ? card.querySelector('.ag-oabp-sql') : null;
+        const templateEl = card ? card.querySelector('.ag-oabp-template') : null;
+        if (!sqlEl || !sqlEl.value.trim()) {
+          if (statusEl) statusEl.textContent = '请先填写 SQL';
+          return;
+        }
+        let template = null;
+        if (templateEl && templateEl.value.trim()) {
+          try {
+            template = JSON.parse(templateEl.value.trim());
+          } catch (e) {
+            if (statusEl) statusEl.textContent = '模板 JSON 无效';
+            return;
+          }
+        }
+        if (statusEl) statusEl.textContent = '预览中…';
+        try {
+          const data = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda/' + i + '/oabp-preview', {
+            method: 'POST',
+            body: JSON.stringify({ oabpTaskSql: sqlEl.value.trim(), oabpDisplayTemplate: template })
+          });
+          const count = data && data.rowCount != null ? data.rowCount : 0;
+          const issues = (data && data.issues) || [];
+          if (statusEl) {
+            statusEl.textContent = issues.length
+              ? '校验: ' + issues.join('; ')
+              : '预览成功，共 ' + count + ' 条';
+          }
+        } catch (e) {
+          if (statusEl) statusEl.textContent = '预览失败: ' + (e.message || '');
+        }
+      });
+      }
       el.querySelectorAll('.ag-oabp-show').forEach(inp => {
         inp.addEventListener('change', () => autoSaveBundle());
       });
@@ -1188,6 +1328,15 @@ AdminModules.register({
       withMetaHydration(() => syncScheduleConfigForm(loadedScheduleConfig));
       bundleItems = await AdminApi.fetch('/api/v1/admin/agenda-config/presets/' + code + '/agenda-bundle');
       editingDocKey = null;
+      if (globalThis.OabpDisplayWizard) {
+        await OabpDisplayWizard.initRows({
+          el: document.getElementById('agenda-table-wrap'),
+          bundleItems: bundleItems,
+          code: code,
+          renderAgendaTable: renderAgendaTable,
+          autoSaveBundle: autoSaveBundle
+        });
+      }
       const jsonEl = document.getElementById('host-agenda-json');
       if (jsonEl) jsonEl.value = hostAgendaJson;
       withMetaHydration(() => syncMetaForm());
@@ -1426,6 +1575,14 @@ AdminModules.register({
             ? '<span class="tag tag-oabp tag-muted">项目任务 SQL（主持页隐藏）</span>'
             : '<span class="tag tag-oabp">项目任务 SQL</span>');
         }
+        if (row.oabpDisplayTemplate && row.oabpDisplayTemplate.columns && row.oabpDisplayTemplate.columns.length) {
+          const summary = globalThis.OabpDisplayWizard && OabpDisplayWizard.buildSummaryTag
+            ? OabpDisplayWizard.buildSummaryTag(row)
+            : ((row.oabpDisplayTemplate.displayMode === 'grouped_table' ? '按状态分组' : '平铺表格'));
+          tags.push('<span class="tag tag-oabp" title="展示模板配置">' + esc(summary) + '</span>');
+        } else if (row.oabpTaskSqlStrict) {
+          tags.push('<span class="tag tag-oabp" title="严格按 SQL 展示">严格按 SQL</span>');
+        }
         const tagHtml = tags.length ? `<div class="agenda-tags">${tags.join('')}</div>` : '';
         const bindings = row.bindings || [];
         const ownersText = (row.owners || []).join(', ');
@@ -1477,17 +1634,19 @@ AdminModules.register({
           html += '</div>';
         }
         html += `</section>
-            <section class="agenda-card-oabp">
+            ${globalThis.OabpDisplayWizard
+              ? OabpDisplayWizard.renderOabpSection(row, i, esc, { bundleItems: bundleItems, code: code, renderAgendaTable: renderAgendaTable, autoSaveBundle: autoSaveBundle })
+              : `<section class="agenda-card-oabp">
               <div class="agenda-doc-toolbar">
                 <span class="agenda-doc-label">oabp 项目任务 SQL</span>
-                <label class="agenda-oabp-show-label" title="${AdminHints.presets.oabpTaskShow.replace(/"/g, '&quot;')}">
+                <label class="agenda-oabp-show-label">
                   <input type="checkbox" class="ag-oabp-show" ${row.oabpTaskShow !== false ? 'checked' : ''}/>
                   主持页展示
                 </label>
               </div>
-              <textarea class="ag-oabp-sql code-area" rows="4" placeholder="SELECT 待办事项, ... FROM oabp_pro.jq_todos_task ..." title="${AdminHints.presets.oabpTaskSql.replace(/"/g, '&quot;')}">${esc(row.oabpTaskSql || '')}</textarea>
-              <p class="doc-inline-hint-block">${AdminHints.presets.oabpTaskSql}</p>
-            </section></div></article>`;
+              <textarea class="ag-oabp-sql code-area" rows="4">${esc(row.oabpTaskSql || '')}</textarea>
+            </section>`}
+          </div></article>`;
       });
       html += '</div><div class="agenda-footer"><button type="button" class="ui-btn ui-btn-secondary" id="ag-add-row">+ 会序项</button></div>';
       el.innerHTML = html;
@@ -1630,6 +1789,10 @@ AdminModules.register({
       await flushPendingAgendaSave();
       await flushPendingMetaSave();
       metaSaveEpoch += 1;
+      agendaSaveEpoch += 1;
+      if (globalThis.OabpDisplayWizard && OabpDisplayWizard.cancelPending) {
+        OabpDisplayWizard.cancelPending();
+      }
       await loadBundle();
       render();
       setAutosaveStatus('idle', '已加载');
@@ -1819,6 +1982,7 @@ AdminModules.register({
     };
     document.addEventListener('mousedown', window.__presetsOutsideCommitHandler, true);
 
+    await loadOabpWizardScript();
     await Promise.all([loadPresetOptions(), loadUserOptions(1)]);
     await loadBundle();
     bindMetaEvents();

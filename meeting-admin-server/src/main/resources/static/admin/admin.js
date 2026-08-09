@@ -1,7 +1,7 @@
-﻿(function () {
+(function () {
   const TOKEN_KEY = 'sm-admin-token';
   const LAST_ROUTE_KEY = 'sm-admin-last-route';
-  const STATIC_ASSET_VERSION = 'sm-ui-20260624-1';
+  const STATIC_ASSET_VERSION = 'sm-ui-20260716-2';
   let modules = [];
   let scriptsLoaded = {};
   let navigateSeq = 0;
@@ -233,7 +233,13 @@
   }
 
   async function ensureScript(m) {
-    if (!m.scriptPath || scriptsLoaded[m.moduleId]) return;
+    if (!m.scriptPath) return;
+    const routePath = (m.uiRouteHash || '').replace('#', '').split('?')[0];
+    const scriptCacheKey = m.moduleId + '@' + STATIC_ASSET_VERSION;
+    if (scriptsLoaded[scriptCacheKey] && routePath && AdminModules.registry[routePath]) return;
+    if (scriptsLoaded[scriptCacheKey] && routePath && !AdminModules.registry[routePath]) {
+      delete scriptsLoaded[scriptCacheKey];
+    }
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
       const sep = m.scriptPath.indexOf('?') >= 0 ? '&' : '?';
@@ -242,7 +248,10 @@
       s.onerror = () => reject(new Error('模块脚本加载失败: ' + m.scriptPath));
       document.body.appendChild(s);
     });
-    scriptsLoaded[m.moduleId] = true;
+    if (routePath && !AdminModules.registry[routePath]) {
+      throw new Error('模块脚本解析失败（请 Ctrl+Shift+R 强制刷新）：' + m.scriptPath);
+    }
+    scriptsLoaded[scriptCacheKey] = true;
   }
 
   async function navigate(hash) {

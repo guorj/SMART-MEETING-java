@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # Smart Meeting dev restarter: meeting-server (:8765) / meeting-admin-server (:8766)
 # Usage:
-#   ./scripts/start-dev.sh              # interactive menu
+#   ./scripts/start-dev.sh              # interactive menu (smart compile: skip if unchanged)
 #   ./scripts/start-dev.sh server       # restart meeting-server
 #   ./scripts/start-dev.sh admin        # restart meeting-admin
 #   ./scripts/start-dev.sh both         # restart both
 #   ./scripts/start-dev.sh both --local-deps
 #   ./scripts/start-dev.sh deps         # restart docker mysql+redis
-#   ./scripts/start-dev.sh compile
+#   ./scripts/start-dev.sh compile      # force compile all modules
+#   ./scripts/start-dev.sh server --skip-compile    # never compile
+#   ./scripts/start-dev.sh server --force-compile   # always compile
+#
+# Legacy (always compile, no devtools fork tuning): ./scripts/start-dev.legacy.sh
 #
 # Maven: 默认使用 PATH 中的本机 mvn（WSL 如 /usr/bin/mvn）；仅当无 mvn 或 USE_MVNW=1 时用 ./mvnw
+# DevTools: spring-boot:run -Dspring-boot.run.fork=false，改 Java 后 DevTools 热重启（无需反复跑本脚本）
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,27 +23,32 @@ cd "$ROOT"
 TARGET="menu"
 WITH_LOCAL_DEPS=false
 SKIP_COMPILE=false
+FORCE_COMPILE=false
 SKIP_DEP_CHECK=false
 
+STAMP_DIR="$ROOT/.dev/fingerprints"
+SCRIPT_START=$(date +%s)
+PHASE_START=$SCRIPT_START
+
 usage() {
-  sed -n '2,12p' "$0"
+  sed -n '2,16p' "$0"
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --local-deps) WITH_LOCAL_DEPS=true ;;
     --skip-compile) SKIP_COMPILE=true ;;
+    --force-compile) FORCE_COMPILE=true ;;
     --skip-dep-check) SKIP_DEP_CHECK=true ;;
     -h|--help) usage; exit 0 ;;
     server|admin|both|deps|compile|menu) TARGET="$1" ;;
     0) exit 0 ;;
-    1) TARGET=menu ;;
-    2) TARGET=server ;;
-    3) TARGET=admin ;;
-    4) TARGET=both ;;
-    5) WITH_LOCAL_DEPS=true; TARGET=both ;;
-    6) TARGET=deps ;;
-    7) TARGET=compile ;;
+    1) TARGET=server ;;
+    2) TARGET=admin ;;
+    3) TARGET=both ;;
+    4) WITH_LOCAL_DEPS=true; TARGET=both ;;
+    5) TARGET=deps ;;
+    6) TARGET=compile ;;
     *)
       echo "未知参数: $1 （示例: ./scripts/start-dev.sh server --skip-compile）" >&2
       usage >&2
@@ -62,10 +72,23 @@ export SPRING_PROFILES_ACTIVE ADMIN_TOKEN INTERNAL_RELOAD_TOKEN MEETING_SERVER_U
 banner() {
   echo ""
   echo "========================================"
-  echo "  Smart Meeting Dev Restarter"
+  echo "  Smart Meeting Dev Restarter (fast)"
   echo "  Root: $ROOT"
+  echo "  Legacy: ./scripts/start-dev.legacy.sh"
   echo "========================================"
   echo ""
+}
+
+phase_start() {
+  PHASE_START=$(date +%s)
+}
+
+phase_end() {
+  local label="$1"
+  local now elapsed
+  now=$(date +%s)
+  elapsed=$((now - PHASE_START))
+  echo "[time] ${label}: ${elapsed}s"
 }
 
 MVN_WRAPPER_BIN="${HOME}/.m2/wrapper/dists/apache-maven-3.9.6/bin/mvn"
@@ -86,7 +109,6 @@ ensure_maven_wrapper_download() {
 }
 
 resolve_mvn() {
-  # 默认本机 mvn；仅 USE_MVNW=1 时强制 ./mvnw 下载
   if [[ "${USE_MVNW:-0}" == "1" ]]; then
     ensure_maven_wrapper_download
     MVN_EXEC="$MVN_WRAPPER_BIN"
@@ -168,13 +190,14 @@ check_deps() {
   $mysql_ok
 }
 
-do_compile() {
-  local modules="$1"
-  echo "[..] install meeting-config-core (供 spring-boot:run 依赖) ..."
-  run_mvn -pl meeting-config-core install -DskipTests -q
-  echo "[..] install -pl $modules -am (install 到本地仓库供 spring-boot:run) ..."
-  run_mvn -pl "$modules" -am install -DskipTests -q
-  echo "[OK] install done"
+# 参与 install 的模块（含 -am 传递依赖）
+fingerprint_modules_for() {
+  case "$1" in
+    server)  echo "meeting-config-core,matter-progress-core,meeting-server" ;;
+    admin)   echo "meeting-config-core,meeting-admin-server" ;;
+    both|compile) echo "meeting-config-core,matter-progress-core,meeting-server,meeting-admin-server" ;;
+    *) echo "" ;;
+  esac
 }
 
 compile_modules_for() {
@@ -185,6 +208,89 @@ compile_modules_for() {
     compile) echo "meeting-config-core,meeting-server,meeting-admin-server" ;;
     *) echo "" ;;
   esac
+}
+
+# 模块源码 + pom 指纹（GNU find，WSL/Linux）
+module_source_fingerprint() {
+  local mod="$1"
+  local dir="$ROOT/$mod"
+  [[ -d "$dir" ]] || { echo "missing"; return; }
+  {
+    stat -c '%Y %n' "$ROOT/pom.xml" 2>/dev/null || stat -f '%m %N' "$ROOT/pom.xml" 2>/dev/null || true
+    stat -c '%Y %n' "$dir/pom.xml" 2>/dev/null || stat -f '%m %N' "$dir/pom.xml" 2>/dev/null || true
+    if command -v find >/dev/null 2>&1; then
+      find "$dir/src" -type f 2>/dev/null | sort | while read -r f; do
+        stat -c '%Y %n' "$f" 2>/dev/null || stat -f '%m %N' "$f" 2>/dev/null || true
+      done
+    fi
+  } | sha256sum | awk '{print $1}'
+}
+
+module_fp_file() {
+  echo "$STAMP_DIR/${1}.fp"
+}
+
+save_compile_fingerprint() {
+  local choice="$1"
+  local mods_csv mod
+  mods_csv="$(fingerprint_modules_for "$choice")"
+  mkdir -p "$STAMP_DIR"
+  IFS=',' read -ra MOD_ARR <<< "$mods_csv"
+  for mod in "${MOD_ARR[@]}"; do
+    module_source_fingerprint "$mod" >"$(module_fp_file "$mod")"
+  done
+}
+
+modules_need_compile() {
+  local choice="$1"
+  local mods_csv mod fp stored
+  mods_csv="$(fingerprint_modules_for "$choice")"
+  IFS=',' read -ra MOD_ARR <<< "$mods_csv"
+  for mod in "${MOD_ARR[@]}"; do
+    fp="$(module_source_fingerprint "$mod")"
+    stored="$(cat "$(module_fp_file "$mod")" 2>/dev/null || true)"
+    if [[ -z "$stored" || "$fp" != "$stored" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+should_skip_compile() {
+  local choice="$1"
+  [[ "$SKIP_COMPILE" == true ]] && return 0
+  [[ "$FORCE_COMPILE" == true ]] && return 1
+  [[ "$choice" == "compile" ]] && return 1
+  if modules_need_compile "$choice"; then
+    return 1
+  fi
+  return 0
+}
+
+do_compile() {
+  local modules="$1"
+  phase_start
+  echo "[..] install meeting-config-core (供 spring-boot:run 依赖) ..."
+  run_mvn -pl meeting-config-core install -DskipTests -q
+  echo "[..] install -pl $modules -am (install 到本地仓库供 spring-boot:run) ..."
+  run_mvn -pl "$modules" -am install -DskipTests -q
+  echo "[OK] install done"
+  phase_end "maven install"
+}
+
+maybe_compile() {
+  local choice="$1"
+  local mods
+  mods="$(compile_modules_for "$choice")"
+  [[ -n "$mods" ]] || return 0
+
+  if should_skip_compile "$choice"; then
+    echo "[OK] skip compile (相关模块源码未变；强制: --force-compile)"
+    return 0
+  fi
+
+  do_compile "$mods"
+  save_compile_fingerprint "$choice"
 }
 
 kill_pids() {
@@ -225,6 +331,8 @@ stop_module() {
   local title="$3"
   local pidfile="$ROOT/logs/${module}.pid"
   local stopped=false
+
+  phase_start
 
   if [[ -f "$pidfile" ]]; then
     local pid
@@ -270,9 +378,11 @@ stop_module() {
   else
     echo "[..] $title not running on :$port"
   fi
+
+  phase_end "stop $title"
 }
 
-# 先停再起：在模块目录执行 spring-boot:run（避免 -pl -am 在父 pom 上跑导致无 mainClass）
+# 先停再起：在模块目录执行 spring-boot:run（fork=false 配合 DevTools 热重启）
 restart_module() {
   local module="$1"
   local port="$2"
@@ -285,28 +395,34 @@ restart_module() {
   [[ -n "$MVN_EXEC" ]] || resolve_mvn >/dev/null
   [[ -d "$mod_dir" ]] || { echo "module dir not found: $mod_dir" >&2; exit 1; }
 
-  run_line="cd \"${mod_dir}\" && export SPRING_PROFILES_ACTIVE=\"${SPRING_PROFILES_ACTIVE}\" INTERNAL_RELOAD_TOKEN=\"${INTERNAL_RELOAD_TOKEN}\" ADMIN_TOKEN=\"${ADMIN_TOKEN}\" MEETING_SERVER_URL=\"${MEETING_SERVER_URL}\" && echo \">>> ${title} :${port} profile=${SPRING_PROFILES_ACTIVE}\" && \"${MVN_EXEC}\" spring-boot:run"
+  run_line="cd \"${mod_dir}\" && export SPRING_PROFILES_ACTIVE=\"${SPRING_PROFILES_ACTIVE}\" INTERNAL_RELOAD_TOKEN=\"${INTERNAL_RELOAD_TOKEN}\" ADMIN_TOKEN=\"${ADMIN_TOKEN}\" MEETING_SERVER_URL=\"${MEETING_SERVER_URL}\" && echo \">>> ${title} :${port} profile=${SPRING_PROFILES_ACTIVE} (DevTools fork=false)\" && \"${MVN_EXEC}\" spring-boot:run -Dspring-boot.run.fork=false"
+
+  phase_start
 
   if [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == MSYS* ]] || [[ -n "${WINDIR:-}" ]]; then
     if command -v start >/dev/null 2>&1; then
       start "$title" bash -lc "$run_line"
       echo "[OK] restarted $title in new window -> http://127.0.0.1:$port"
+      phase_end "start $title (detached)"
       return 0
     fi
     if command -v cmd.exe >/dev/null 2>&1; then
       cmd.exe //c start "" bash -lc "$run_line"
       echo "[OK] restarted $title in new window -> http://127.0.0.1:$port"
+      phase_end "start $title (detached)"
       return 0
     fi
   fi
   if command -v gnome-terminal >/dev/null 2>&1; then
     gnome-terminal --title="$title" -- bash -lc "$run_line; exec bash"
     echo "[OK] restarted $title -> http://127.0.0.1:$port"
+    phase_end "start $title (detached)"
     return 0
   fi
   if command -v osascript >/dev/null 2>&1; then
     osascript -e "tell app \"Terminal\" to do script \"$run_line\""
     echo "[OK] restarted $title -> http://127.0.0.1:$port"
+    phase_end "start $title (detached)"
     return 0
   fi
 
@@ -316,6 +432,7 @@ restart_module() {
   nohup bash -lc "$run_line" >>"$log" 2>&1 &
   echo $! >"$pidfile"
   wait_for_service "$port" "$log" "$pidfile" "$title"
+  phase_end "start $title"
 }
 
 wait_for_service() {
@@ -340,19 +457,20 @@ wait_for_service() {
 }
 
 print_menu_options() {
-  # 必须输出到 stderr，否则会被 choice="$(resolve_target)" 捕获
   {
     echo ""
-    echo "./scripts/start-dev.sh              # 交互菜单"
-    echo "./scripts/start-dev.sh server       # 重启 meeting-server :8765"
-    echo "./scripts/start-dev.sh admin        # 重启 meeting-admin :8766"
-    echo "./scripts/start-dev.sh both         # 重启两个服务"
-    echo "./scripts/start-dev.sh both --local-deps   # 重启 MySQL+Redis 并重启两个服务"
-    echo "./scripts/start-dev.sh deps         # 只重启 docker 依赖"
-    echo "./scripts/start-dev.sh compile      # 只编译"
+    echo "  1  server              重启 meeting-server :8765"
+    echo "  2  admin               重启 meeting-admin :8766"
+    echo "  3  both                重启两个服务"
+    echo "  4  both --local-deps   本地 Docker MySQL/Redis + 重启两个服务"
+    echo "  5  deps                只重启 docker 依赖"
+    echo "  6  compile             强制全量编译"
+    echo "  0  exit                退出"
     echo ""
-    echo "Choice: 1-7 对应上表顺序，或 server/admin/both/deps/compile，0 退出"
-    echo "提示: WSL 下已装 mvn 时会自动用本机 Maven；勿在 Git Bash 无 mvn 环境跑"
+    echo "  也可输入名称: server / admin / both / deps / compile"
+    echo "  命令行附加参数: --force-compile | --skip-compile | --skip-dep-check"
+    echo "  旧版（每次全量 compile）: ./scripts/start-dev.legacy.sh"
+    echo "  提示: 改 Java 后 IDE 保存 → DevTools 热重启；勿反复跑本脚本"
     echo ""
   } >&2
 }
@@ -361,48 +479,27 @@ show_menu() {
   local c
   while true; do
     print_menu_options
-    read -r -p "Choice [0-7]: " c
+    read -r -p "Choice [0-6]: " c
     c="$(echo "$c" | tr '[:upper:]' '[:lower:]' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
     if [[ -z "$c" ]]; then
-      echo "提示: 请输入 1-7 或 server/admin/both/deps/compile，0 退出" >&2
+      echo "提示: 请输入 0-6 或 server/admin/both/deps/compile" >&2
       echo "" >&2
       continue
     fi
     case "$c" in
-      1|menu)
-        continue
-        ;;
-      2|server|s)
-        echo server
-        return 0
-        ;;
-      3|admin|a)
-        echo admin
-        return 0
-        ;;
-      4|both|b)
-        echo both
-        return 0
-        ;;
-      5|both-local|both-deps|bl|'both --local-deps')
+      1|server|s) echo server; return 0 ;;
+      2|admin|a) echo admin; return 0 ;;
+      3|both|b) echo both; return 0 ;;
+      4|both-local|both-deps|bl|'both --local-deps')
         WITH_LOCAL_DEPS=true
         echo both
         return 0
         ;;
-      6|deps|d)
-        echo deps
-        return 0
-        ;;
-      7|compile|c)
-        echo compile
-        return 0
-        ;;
-      0|exit|quit|q)
-        echo exit
-        return 0
-        ;;
+      5|deps|d) echo deps; return 0 ;;
+      6|compile|c) echo compile; return 0 ;;
+      0|exit|quit|q) echo exit; return 0 ;;
       *)
-        echo "无效选项: \"$c\"（请参考上方 1-7）" >&2
+        echo "无效选项: \"$c\"（请输入 0-6）" >&2
         echo ""
         ;;
     esac
@@ -420,10 +517,14 @@ resolve_target() {
 run_target() {
   local choice="$1"
   [[ "$TARGET" != menu ]] && banner
+  phase_start
   ensure_java_maven
+  phase_end "java/maven check"
 
   if [[ "$WITH_LOCAL_DEPS" == true ]] || [[ "$choice" == deps ]]; then
+    phase_start
     start_local_deps || true
+    phase_end "local deps"
     if [[ "$choice" == deps ]]; then
       [[ "$SKIP_DEP_CHECK" == true ]] || check_deps || true
       echo "Deps restarted. Run: ./scripts/start-dev.sh server|admin|both"
@@ -432,6 +533,7 @@ run_target() {
   fi
 
   if [[ "$SKIP_DEP_CHECK" != true ]]; then
+    phase_start
     if ! check_deps; then
       if [[ "$WITH_LOCAL_DEPS" != true ]]; then
         echo ""
@@ -440,13 +542,10 @@ run_target() {
         [[ "$cont" =~ ^[yY]$ ]] || exit 1
       fi
     fi
+    phase_end "dependency check"
   fi
 
-  local mods
-  mods="$(compile_modules_for "$choice")"
-  if [[ -n "$mods" ]] && [[ "$SKIP_COMPILE" != true ]]; then
-    do_compile "$mods"
-  fi
+  maybe_compile "$choice"
 
   case "$choice" in
     server)
@@ -474,8 +573,11 @@ run_target() {
       ;;
   esac
 
+  local total=$(( $(date +%s) - SCRIPT_START ))
   echo ""
+  echo "[time] total: ${total}s"
   echo "Close terminal window (or kill pid in logs/*.pid) to stop."
+  echo "Tip: 改 Java 后 IDE 保存 → DevTools 热重启；改 meeting-config-core 后需 --force-compile"
 }
 
 [[ "$TARGET" == menu ]] && banner

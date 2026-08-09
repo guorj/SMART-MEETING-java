@@ -130,8 +130,9 @@ public class OpenClawMcpWeeklyComparisonDelegate {
             String reply = OpenClawReplyExtractor.extractFromBody(body);
             String text = reply != null ? reply : body;
             com.smartmeeting.matterprogress.model.ParsedComparisonItems parsed = itemsParser.parse(text);
-            log.info("OpenClaw MCP weekly-comparison done: jobId={} replyLength={} items={} discarded={} success={}",
-                    job.id(), text.length(), parsed.items().size(), parsed.discardedCount(), parsed.success());
+            log.info("OpenClaw MCP weekly-comparison done: jobId={} replyLength={} items={} discarded={} runId={} success={}",
+                    job.id(), text.length(), parsed.items().size(), parsed.discardedCount(),
+                    parsed.runId(), parsed.success());
             if (!parsed.success()) {
                 String preview = text.length() > 200 ? text.substring(0, 200) + "…" : text;
                 return McpWeeklyComparisonResult.failed(
@@ -145,9 +146,14 @@ public class OpenClawMcpWeeklyComparisonDelegate {
     }
 
     static String validateSourceRows(List<MatterProgressConfigRow> sourceRows, WeeklyComparisonJob job) {
-        if (sourceRows == null || sourceRows.isEmpty()) {
-            return "无有效 SOURCE 配置行（需 SOURCE/BOTH + enabled）";
+        if (job.outputConfigName() == null || job.outputConfigName().isBlank()) {
+            return "job.output_config_name 为空";
         }
+        String minuteType = job.minuteQueryType();
+        if (minuteType == null || minuteType.isBlank()) {
+            return "job.minute_query_type 为空";
+        }
+        // v0.30+ MCP 固定三表 SOURCE，不再要求 preset oabpTaskSql 或 sourceRows 非空
         return null;
     }
 
@@ -196,23 +202,11 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         StringBuilder sb = new StringBuilder();
         sb.append("-----BEGIN_WEEKLY_COMPARISON_DATA-----\n");
 
-        List<MatterProgressConfigRow> sqlRows = rowsWithOabpTaskSql(sourceRows);
         sb.append("[source_config_names]\n");
-        for (MatterProgressConfigRow row : sqlRows) {
-            sb.append(row.configName()).append('\n');
-        }
+        sb.append("oabp-pro-todos\n");
 
-        sb.append("[source_oabp_sql]\n");
-        if (sqlRows.isEmpty()) {
-            sb.append("(none — 无已填 oabpTaskSql 的 SOURCE；仅依据纪要生成 items，任务不失败)\n");
-        } else {
-            for (MatterProgressConfigRow row : sqlRows) {
-                sb.append("config=").append(row.configName()).append('\n');
-                sb.append("schema=").append(row.resolvedOabpSchemaHint()).append('\n');
-                sb.append("sql=").append(row.oabpTaskSql().strip()).append('\n');
-                sb.append("---\n");
-            }
-        }
+        sb.append("[oabp_todos_sql]\n");
+        sb.append(buildOabpTodosSqlBlock());
 
         outputRow.ifPresent(out -> {
             String outputConfigName = out.configName() != null && !out.configName().isBlank()
@@ -232,13 +226,19 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         sb.append("[minute_query_sql]\n");
         sb.append(buildMinuteQuerySql(job)).append('\n');
 
+        sb.append(buildRunInsertPayload(job, outputRow));
+
         sb.append("[mysql_target]\n");
         sb.append("hint=meeting-mysql MCP: minutes use database=intelligence; SOURCE SQL runs against oabp schema\n");
         sb.append("database=intelligence\n");
         sb.append("oabp_schema=").append(defaultOabpSchema).append('\n');
-        sb.append("tables=int_meeting_minute,int_matter_progress_doc_config\n");
-        sb.append("oabp_note=Execute each source sql as-is (tables may be unqualified if MCP default DB is oabp); "
-                + "or prefix tables with oabp_schema e.g. ").append(defaultOabpSchema).append(".jq_project_task_tracking\n");
+        sb.append("tables=int_meeting_minute,int_matter_progress_doc_config,")
+          .append(defaultOabpSchema).append(".jq_todos_task,")
+          .append(defaultOabpSchema).append(".jq_todos_subtask,")
+          .append(defaultOabpSchema).append(".jq_todos_task_followup\n");
+        sb.append("oabp_note=Execute [oabp_todos_sql] three-table SELECT as-is (preferred SOURCE); "
+                + "tables are qualified with oabp_schema e.g. ").append(defaultOabpSchema)
+          .append(".jq_todos_task.\n");
 
         sb.append("-----END_WEEKLY_COMPARISON_DATA-----");
         return sb.toString();
@@ -261,6 +261,117 @@ public class OpenClawMcpWeeklyComparisonDelegate {
         } catch (IOException e) {
             throw new IllegalStateException("failed to load " + resourcePath, e);
         }
+    }
+
+    private String buildRunInsertPayload(WeeklyComparisonJob job, Optional<MatterProgressConfigRow> outputRow) {
+        Integer presetTypeCode = outputRow.map(MatterProgressConfigRow::presetTypeCode).orElse(null);
+        Integer agendaIndex = outputRow.map(MatterProgressConfigRow::agendaIndex).orElse(null);
+        String outputConfigName = outputRow
+                .map(MatterProgressConfigRow::configName)
+                .filter(n -> n != null && !n.isBlank())
+                .orElse(nullToEmpty(job.outputConfigName()));
+        String title = formatTitle(job.outputDocTitleTpl());
+        StringBuilder sb = new StringBuilder();
+        sb.append("[run_insert_payload]\n");
+        sb.append("table=int_weekly_matter_comparison_run\n");
+        sb.append("columns=job_id,output_config_name,preset_type_code,agenda_index,title,")
+          .append("item_count,generation_status,generated_at,run_error\n");
+        sb.append("values=")
+          .append(job.id()).append(',')                              // job_id (long)
+          .append(sqlStringLiteral(outputConfigName)).append(',')    // output_config_name
+          .append(presetTypeCode != null ? presetTypeCode : "NULL").append(',')  // preset_type_code
+          .append(agendaIndex != null ? agendaIndex : "NULL").append(',')        // agenda_index
+          .append(sqlStringLiteral(title)).append(',')              // title
+          .append("0,").append(sqlStringLiteral("READY")).append(',')  // item_count + generation_status (placeholder)
+          .append("NOW(),NULL\n");                                  // generated_at + run_error
+        sb.append("note=Agent 组装 INSERT 时直接使用本行 values；item_count 占位 0、generation_status 占位 READY，")
+          .append("Bot 入库校验后会 UPDATE 回填真实值。generated_at 用 NOW() 取写库时刻。\n");
+        return sb.toString();
+    }
+
+    /** SQL 字符串字面量：null → NULL；非空 → 单引号包裹且内部单引号转义为两个单引号。 */
+    private static String sqlStringLiteral(String s) {
+        if (s == null) {
+            return "NULL";
+        }
+        return "'" + s.replace("'", "''") + "'";
+    }
+
+    private String buildOabpTodosSqlBlock() {
+        String s = defaultOabpSchema;
+        StringBuilder sb = new StringBuilder();
+        // 1. 主任务表 jq_todos_task（含决策人昵称）
+        sb.append("config=oabp-pro-todos\n");
+        sb.append("schema=").append(s).append('\n');
+        sb.append("section=main_task\n");
+        sb.append("sql=").append("""
+SELECT
+  t.id                                          AS task_id,
+  t.task_name,
+  t.business_block,
+  t.project_id,
+  t.progress,
+  CASE t.status
+    WHEN 0 THEN '未开始'
+    WHEN 1 THEN '进行中'
+    WHEN 2 THEN '已完成'
+    WHEN 3 THEN '已延期'
+  END                                            AS status_label,
+  t.status                                       AS status_raw,
+  t.start_date,
+  t.planned_end_date,
+  t.remark,
+  t.task_detail,
+  t.create_time,
+  t.update_time,
+  dm.nickname                                    AS decision_maker_name
+FROM %s.jq_todos_task t
+LEFT JOIN %s.system_users dm
+  ON dm.id = t.decision_maker_user_id
+  AND (dm.deleted = 0 OR dm.deleted IS NULL)
+WHERE (t.deleted = 0 OR t.deleted IS NULL)
+ORDER BY t.planned_end_date ASC
+""".formatted(s, s).strip()).append('\n');
+        sb.append("---\n");
+        // 2. 子任务表 jq_todos_subtask（含执行人昵称）
+        sb.append("config=oabp-pro-todos\n");
+        sb.append("schema=").append(s).append('\n');
+        sb.append("section=subtask\n");
+        sb.append("sql=").append("""
+SELECT
+  s.id          AS subtask_id,
+  s.parent_id   AS task_id,
+  s.task_name   AS subtask_name,
+  s.asignee_id,
+  u.nickname    AS assignee_name,
+  s.remark      AS subtask_remark,
+  s.update_time
+FROM %s.jq_todos_subtask s
+LEFT JOIN %s.system_users u
+  ON u.id = s.asignee_id
+  AND (u.deleted = 0 OR u.deleted IS NULL)
+WHERE (s.deleted = 0 OR s.deleted IS NULL)
+ORDER BY s.parent_id, s.id
+""".formatted(s, s).strip()).append('\n');
+        sb.append("---\n");
+        // 3. 跟进明细 jq_todos_task_followup（每任务最新一条）
+        sb.append("config=oabp-pro-todos\n");
+        sb.append("schema=").append(s).append('\n');
+        sb.append("section=followup_latest\n");
+        sb.append("sql=").append("""
+SELECT f.task_id, f.task_type, f.followup_content, f.last_week_progress,
+       f.this_week_plan, f.report_date, f.creator, f.update_time
+FROM %s.jq_todos_task_followup f
+WHERE (f.deleted = 0 OR f.deleted IS NULL)
+  AND f.id = (
+    SELECT MAX(f2.id)
+    FROM %s.jq_todos_task_followup f2
+    WHERE f2.task_id = f.task_id
+      AND (f2.deleted = 0 OR f2.deleted IS NULL)
+  )
+ORDER BY f.task_id
+""".formatted(s, s).strip()).append('\n');
+        return sb.toString();
     }
 
     private String buildOutputReferenceSql(String outputConfigName) {

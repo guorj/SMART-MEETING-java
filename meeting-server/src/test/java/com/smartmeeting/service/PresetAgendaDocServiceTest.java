@@ -14,6 +14,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -140,5 +142,34 @@ class PresetAgendaDocServiceTest {
         String id = svc.resolveDocumentId(null, 0, "https://x.feishu.cn/docx/doxRuntime");
         assertEquals("doxRuntime", id);
         assertNull(svc.resolveDocumentId(null, 0, ""));
+    }
+
+    @Test
+    void buildAgendaDocContent_oabpOnlyNoBindings_returnsOabpPart() {
+        // preset 模板：会序项仅有 oabpTaskSql，无任何 docs/feishu 绑定
+        MeetingTypePreset preset = new MeetingTypePreset();
+        preset.setCode(1);
+        preset.setHostAgenda("""
+                {"version":2,"items":[
+                  {"title":"管小慧汇报","minutes":4,
+                   "oabpTaskSql":"SELECT task_name AS 待办事项 FROM jq_todos_task",
+                   "oabpTaskShow":true}
+                ]}
+                """);
+        MeetingTypePresetMapper presetMapper = mock(MeetingTypePresetMapper.class);
+        when(presetMapper.selectById(1)).thenReturn(preset);
+        PresetAgendaDocService svc = newService(presetMapper);
+
+        Meeting meeting = new Meeting();
+        meeting.setPresetTypeCode(1);
+        // 会议快照为空 -> builder 回退读 preset
+        meeting.setHostAgenda(null);
+
+        var resp = svc.buildAgendaDocContent(meeting, 0, "管小慧汇报", null);
+        assertNotNull(resp);
+        assertEquals(0, resp.getAgendaIndex());
+        assertNotNull(resp.getParts());
+        assertFalse(resp.getParts().isEmpty(), "OABP part must be returned even with no bindings");
+        assertEquals("OABP", resp.getParts().get(0).getDocKind());
     }
 }

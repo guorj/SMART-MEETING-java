@@ -336,6 +336,14 @@ body.agenda-doc-fullscreen-lock {
   min-height: auto;
   display: block;
 }
+#agendaDocCard.agenda-doc-fullscreen .feishu-doc-body.agenda-doc-fs-scroll .structured-oabp-task-root {
+  flex: 0 0 auto;
+  min-height: auto;
+  display: block;
+}
+#agendaDocCard.agenda-doc-fullscreen .feishu-doc-body.agenda-doc-fs-scroll .structured-oabp-task-root .structured-sheet {
+  display: block;
+}
 #agendaDocCard.agenda-doc-fullscreen .structured-table-scroll {
   align-content: flex-start;
 }
@@ -1126,6 +1134,66 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 }
 .structured-oabp-status-count { font-size: 12px; color: var(--color-text-muted, #64748b); font-weight: 500; }
 .oabp-task-table td:first-child { min-width: 12em; max-width: 28em; }
+.oabp-task-table td.oabp-long-text-cell {
+  min-width: 14em;
+  max-width: 22em;
+  width: 22em;
+  vertical-align: top;
+}
+.oabp-long-text-wrap { display: flex; flex-direction: column; gap: 4px; align-items: flex-start; }
+.oabp-long-text-clamp {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.5;
+  max-width: 100%;
+  cursor: pointer;
+}
+.oabp-long-text-clamp:focus-visible {
+  outline: 2px solid var(--color-primary, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.oabp-long-text-more { margin-top: 0; }
+.oabp-long-text-dialog {
+  position: fixed; inset: 0; z-index: 10050;
+  display: flex; align-items: center; justify-content: center;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.45);
+}
+.oabp-long-text-dialog-panel {
+  width: min(640px, 100%);
+  max-height: min(80vh, 720px);
+  display: flex; flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.18);
+  overflow: hidden;
+}
+.oabp-long-text-dialog-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border, #e2e8f0);
+  background: var(--color-surface-2, #f8fafc);
+}
+.oabp-long-text-dialog-head h3 {
+  margin: 0; font-size: 15px; font-weight: 600; color: #0f172a;
+}
+.oabp-long-text-dialog-body {
+  padding: 16px 18px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.65;
+  font-size: 14px;
+  color: #1e293b;
+}
 .structured-slide-deck { display: flex; flex-direction: column; gap: 10px; }
 .structured-slide-image { max-width: 100%; border-radius: 8px; border: 1px solid var(--sm-border, #e2e8f0); background: #fff; }
 .structured-slide-nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }

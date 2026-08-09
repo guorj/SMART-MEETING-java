@@ -145,6 +145,7 @@ public class PresetAgendaDocService {
                 List.of());
         for (int i = 0; i < items.size() && i < coreItems.size(); i++) {
             HostAgendaDtoConverter.copyFeishuFields(coreItems.get(i), items.get(i));
+            HostAgendaDtoConverter.copyOabpFields(coreItems.get(i), items.get(i));
         }
     }
 

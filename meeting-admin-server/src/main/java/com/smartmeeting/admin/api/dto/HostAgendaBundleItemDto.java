@@ -1,6 +1,7 @@
 package com.smartmeeting.admin.api.dto;
 
 import com.smartmeeting.config.agenda.AgendaDocBindingSnapshot;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import lombok.Builder;
 import lombok.Data;
 
@@ -27,4 +28,10 @@ public class HostAgendaBundleItemDto {
     private String oabpTaskSql;
     /** 是否在主持页展示 oabp 项目任务；默认 true */
     private Boolean oabpTaskShow;
+    /** true 时严格按 SQL 展示，不应用展示模板 */
+    private Boolean oabpTaskSqlStrict;
+    /** 可选：oabp 展示模板 */
+    private OabpDisplayTemplate oabpDisplayTemplate;
+    /** SQL 数据源预设 id */
+    private String oabpSqlPresetId;
 }

@@ -1,5 +1,6 @@
 package com.smartmeeting.config.agenda;
 
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import lombok.Data;
 
 import java.util.ArrayList;
@@ -23,4 +24,12 @@ public class HostAgendaItem {
      * 为 false 时保留 SQL（如 weekly-comparison 仍可用），主持页不渲染该 part。
      */
     private Boolean oabpTaskShow;
+    /** 可选：oabp 结果集展示模板；为空时直通 raw sheet（向后兼容） */
+    private OabpDisplayTemplate oabpDisplayTemplate;
+    /** 简洁模式 SQL 预设 id；custom 或 null 表示手写 SQL */
+    private String oabpSqlPresetId;
+    /**
+     * true：主持页与预览严格按 SQL 结果展示（行序、列值），不应用展示模板，不做状态分组/徽章等额外渲染。
+     */
+    private Boolean oabpTaskSqlStrict;
 }

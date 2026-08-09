@@ -64,7 +64,7 @@
 | **本地静态服务** | 最快 CSS 迭代（零 JVM） | 在 `meeting-server/src/main/resources` 执行 `npx serve -l 5500`，浏览器打开 `http://localhost:5500/static/host-avatar-preview.html`，改 `static/styles/host-meeting.css` 后普通刷新 |
 | **完整主持页强刷** | 联调会序资料等全页 | 确保 IDE 已将 `src/main/resources/static` 同步到 `target/classes`（或 `mvn compile -pl meeting-server`），在 `/host/{meetingId}?token=...` **Ctrl+F5**；主持 HTML 为 `no-store`，CSS/JS 靠 `?v=sm-ui-*` 破缓存 |
 
-说明：项目未引入 `spring-boot-devtools`；若用 `java -jar` 跑 fat jar，改静态文件后需重新打包或重启。`host-strands-avatar.js` 经 esm.sh 加载 `ogl`，预览环境需能访问外网。
+说明：`meeting-server` / `meeting-admin-server` 已引入 `spring-boot-devtools`（`./scripts/start-dev.sh` 以 `fork=false` 启动）；日常改 Java 保存后 DevTools 热重启即可，勿反复跑脚本。旧版每次全量编译：`./scripts/start-dev.legacy.sh`。若用 `java -jar` 跑 fat jar，改静态文件后需重新打包或重启。`host-strands-avatar.js` 经 esm.sh 加载 `ogl`，预览环境需能访问外网。
 
 ### 2.0 工作台权限与多人前台（2026-06-08）
 

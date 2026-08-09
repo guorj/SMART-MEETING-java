@@ -70,6 +70,14 @@ public class JdbcWeeklyComparisonRunRepository {
         updateStatus(runId, 0, WeeklyComparisonRun.FAILED, error);
     }
 
+    /** 统计某 run 下实际写入的 item 行数（用于校验 Agent 自行写库后的真实条数）。 */
+    public int countItemsByRunId(long runId) {
+        Integer cnt = jdbc.queryForObject(
+                "SELECT COUNT(*) FROM int_weekly_matter_comparison_item WHERE run_id = ?",
+                Integer.class, runId);
+        return cnt != null ? cnt : 0;
+    }
+
     public Optional<WeeklyComparisonRun> findById(long runId) {
         return jdbc.query("""
                 SELECT id, job_id, output_config_name, preset_type_code, agenda_index, title,

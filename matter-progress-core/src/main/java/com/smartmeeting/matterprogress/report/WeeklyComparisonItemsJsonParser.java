@@ -69,6 +69,10 @@ public class WeeklyComparisonItemsJsonParser {
                 }
                 kept.add(item);
             }
+            long runId = root.path("runId").asLong(0);
+            if (runId > 0) {
+                return ParsedComparisonItems.okWithRunId(kept, discarded, runId);
+            }
             return ParsedComparisonItems.ok(kept, discarded);
         } catch (Exception e) {
             return ParsedComparisonItems.failed("JSON 解析失败: " + e.getMessage());

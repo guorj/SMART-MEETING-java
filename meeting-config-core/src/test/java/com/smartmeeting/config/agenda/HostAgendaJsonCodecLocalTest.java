@@ -1,6 +1,8 @@
 package com.smartmeeting.config.agenda;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.smartmeeting.config.oabp.OabpDisplayColumn;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -70,6 +72,34 @@ class HostAgendaJsonCodecLocalTest {
     }
 
     @Test
+    void roundTripOabpDisplayTemplate() {
+        OabpDisplayColumn col = new OabpDisplayColumn();
+        col.setSource("task_name");
+        col.setLabel("任务");
+        col.setVisible(true);
+        OabpDisplayTemplate template = new OabpDisplayTemplate();
+        template.setDisplayMode("table");
+        template.setSheetName("项目任务");
+        template.setColumns(List.of(col));
+
+        HostAgendaItem item = new HostAgendaItem();
+        item.setTitle("项目任务通报");
+        item.setMinutes(10);
+        item.setOabpTaskSql("SELECT task_name FROM jq_project_task_tracking WHERE deleted = 0");
+        item.setOabpDisplayTemplate(template);
+
+        String json = HostAgendaJsonCodec.toJson(mapper, List.of(item));
+        assertTrue(json.contains("oabpDisplayTemplate"));
+        assertTrue(json.contains("项目任务"));
+
+        List<HostAgendaItem> parsed = HostAgendaJsonCodec.parseItems(mapper, json);
+        assertEquals(1, parsed.size());
+        assertNotNull(parsed.get(0).getOabpDisplayTemplate());
+        assertEquals("table", parsed.get(0).getOabpDisplayTemplate().getDisplayMode());
+        assertEquals("任务", parsed.get(0).getOabpDisplayTemplate().getColumns().get(0).getLabel());
+    }
+
+    @Test
     void snapshotRoundTripLocal() {
         AgendaDocBindingSnapshot snap = AgendaDocBindingSnapshot.builder()
                 .configName("img-1")
@@ -105,7 +135,8 @@ class HostAgendaJsonCodecLocalTest {
         item.setDocs(List.of(feishu));
 
         String json = HostAgendaJsonCodec.toJson(mapper, List.of(item));
-        assertTrue(json.contains("\"showInHost\":false"));
+        assertTrue(json.matches("(?s).*\"showInHost\"\\s*:\\s*false.*"),
+                "showInHost=false must be serialized; json=" + json);
 
         List<HostAgendaItem> parsed = HostAgendaJsonCodec.parseItems(mapper, json);
         assertEquals(1, parsed.size());

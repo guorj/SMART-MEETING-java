@@ -14,6 +14,12 @@ import com.smartmeeting.config.agenda.AgendaPresetSnapshot;
 import com.smartmeeting.config.agenda.HostAgendaDocBinding;
 import com.smartmeeting.config.agenda.HostAgendaItem;
 import com.smartmeeting.config.agenda.HostAgendaJsonCodec;
+import com.smartmeeting.config.oabp.OabpDisplayPreset;
+import com.smartmeeting.config.oabp.OabpDisplayPresetRegistry;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
+import com.smartmeeting.config.oabp.OabpDisplayTemplateValidator;
+import com.smartmeeting.config.oabp.OabpSqlPreset;
+import com.smartmeeting.config.oabp.OabpSqlPresetRegistry;
 import com.smartmeeting.config.agenda.PresetAgendaMergeEngine;
 import com.smartmeeting.config.agenda.PresetScheduleConfigCodec;
 import com.smartmeeting.config.oabp.OabpReadOnlySqlValidator;
@@ -27,6 +33,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Service
@@ -39,6 +46,84 @@ public class AgendaConfigService {
     private final MeetingServerBridgeService meetingServerBridge;
     private final MeetingTypePresetMapper presetMapper;
     private final ObjectMapper objectMapper;
+
+    private static final long OABP_PROBE_CACHE_MS = 30_000L;
+    private final ConcurrentHashMap<String, CachedProbe> oabpProbeCache = new ConcurrentHashMap<>();
+
+    private record CachedProbe(long ts, Map<String, Object> data) {
+    }
+
+    public List<Map<String, Object>> listOabpSqlPresets() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (OabpSqlPreset p : OabpSqlPresetRegistry.list()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", p.getId());
+            row.put("name", p.getName());
+            row.put("description", p.getDescription());
+            row.put("sql", p.getSql());
+            out.add(row);
+        }
+        out.add(Map.of(
+                "id", "custom",
+                "name", "自定义 SQL…",
+                "description", "切换到专家模式手写 SQL",
+                "sql", ""));
+        return out;
+    }
+
+    public List<Map<String, Object>> listOabpDisplayPresets() {
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (OabpDisplayPreset p : OabpDisplayPresetRegistry.list()) {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("id", p.getId());
+            row.put("name", p.getName());
+            row.put("description", p.getDescription());
+            row.put("template", p.getTemplate());
+            out.add(row);
+        }
+        return out;
+    }
+
+    public Map<String, Object> oabpDisplayOptions() {
+        Map<String, Object> options = new LinkedHashMap<>();
+        options.put("displayModes", List.of(
+                Map.of("id", "table", "label", "平铺表格"),
+                Map.of("id", "grouped_table", "label", "按状态分组展示")));
+        options.put("formats", List.of(
+                Map.of("id", "plain", "label", "原文"),
+                Map.of("id", "date", "label", "日期"),
+                Map.of("id", "datetime", "label", "日期时间"),
+                Map.of("id", "percent", "label", "百分比"),
+                Map.of("id", "number", "label", "数字"),
+                Map.of("id", "enum", "label", "枚举映射")));
+        options.put("renderAs", List.of(
+                Map.of("id", "plain", "label", "普通文本"),
+                Map.of("id", "badge", "label", "状态徽章"),
+                Map.of("id", "progress_bar", "label", "进度条"),
+                Map.of("id", "long_text", "label", "长文本"),
+                Map.of("id", "numeric", "label", "数字对齐")));
+        options.put("filterGroupOps", List.of(
+                Map.of("id", "and", "label", "满足以下全部条件"),
+                Map.of("id", "or", "label", "满足以下任一条件"),
+                Map.of("id", "not", "label", "排除符合以下条件的数据")));
+        options.put("filterRuleOps", List.of(
+                Map.of("id", "==", "label", "等于"),
+                Map.of("id", "!=", "label", "不等于"),
+                Map.of("id", "contains", "label", "包含文字"),
+                Map.of("id", "not_contains", "label", "不包含"),
+                Map.of("id", "is_empty", "label", "为空"),
+                Map.of("id", "is_not_empty", "label", "不为空"),
+                Map.of("id", ">", "label", "大于"),
+                Map.of("id", ">=", "label", "大于等于"),
+                Map.of("id", "<", "label", "小于"),
+                Map.of("id", "<=", "label", "小于等于"),
+                Map.of("id", "in", "label", "在列表中"),
+                Map.of("id", "between", "label", "在范围内")));
+        options.put("sortDirs", List.of(
+                Map.of("id", "asc", "label", "从早到晚 / 从小到大"),
+                Map.of("id", "desc", "label", "从晚到早 / 从大到小")));
+        return options;
+    }
 
     public List<AgendaPresetSnapshot> listPresetHeaders() {
         List<MeetingTypePreset> rows = presetMapper.selectList(null);
@@ -212,6 +297,16 @@ public class AgendaConfigService {
             if (item.getMinutes() == null || item.getMinutes() <= 0) {
                 issues.add("会序 " + seq + "「" + item.getTitle().trim() + "」: 时长须大于 0");
             }
+            String oabpIssue = OabpReadOnlySqlValidator.validateOptional(item.getOabpTaskSql());
+            if (oabpIssue != null) {
+                issues.add("会序 " + seq + "「" + item.getTitle().trim() + "」oabpTaskSql: " + oabpIssue);
+            }
+            if (item.getOabpDisplayTemplate() != null && !item.getOabpDisplayTemplate().isEmpty()) {
+                issues.addAll(OabpDisplayTemplateValidator.validate(
+                        item.getOabpDisplayTemplate(), List.of(), 500).stream()
+                        .map(msg -> "会序 " + seq + " 展示模板: " + msg)
+                        .toList());
+            }
             if (item.getBindings() == null || item.getBindings().isEmpty()) {
                 continue;
             }
@@ -222,10 +317,6 @@ public class AgendaConfigService {
                     issues.add("会序 " + seq + " 存在重复 resource_slot=" + slot);
                 }
                 issues.addAll(validateBindingSnapshot(seq, b, configNames));
-            }
-            String oabpIssue = OabpReadOnlySqlValidator.validateOptional(item.getOabpTaskSql());
-            if (oabpIssue != null) {
-                issues.add("会序 " + seq + "「" + item.getTitle().trim() + "」oabpTaskSql: " + oabpIssue);
             }
         }
         issues.addAll(findCrossPresetConfigNameConflicts(presetTypeCode, configNames));
@@ -312,6 +403,9 @@ public class AgendaConfigService {
                     .hasRollCallKeyword(item.getTitle() != null && item.getTitle().contains("检点"))
                     .oabpTaskSql(item.getOabpTaskSql())
                     .oabpTaskShow(item.getOabpTaskShow() == null || item.getOabpTaskShow())
+                    .oabpTaskSqlStrict(Boolean.TRUE.equals(item.getOabpTaskSqlStrict()))
+                    .oabpDisplayTemplate(item.getOabpDisplayTemplate())
+                    .oabpSqlPresetId(item.getOabpSqlPresetId())
                     .bindings(bindings)
                     .build());
         }
@@ -367,6 +461,19 @@ public class AgendaConfigService {
             if (oabpSql != null) {
                 hi.setOabpTaskSql(oabpSql);
                 hi.setOabpTaskShow(item.getOabpTaskShow() == null || item.getOabpTaskShow());
+                hi.setOabpTaskSqlStrict(Boolean.TRUE.equals(item.getOabpTaskSqlStrict()) ? true : null);
+                if (item.getOabpSqlPresetId() != null && !item.getOabpSqlPresetId().isBlank()) {
+                    hi.setOabpSqlPresetId(item.getOabpSqlPresetId().trim());
+                }
+                OabpDisplayTemplate template = item.getOabpDisplayTemplate();
+                if (template != null && !template.isEmpty()) {
+                    List<String> templateIssues = OabpDisplayTemplateValidator.validate(template, List.of(), 500);
+                    if (!templateIssues.isEmpty()) {
+                        throw new BusinessException("会序 " + (i + 1) + " 展示模板: "
+                                + String.join("; ", templateIssues));
+                    }
+                    hi.setOabpDisplayTemplate(template);
+                }
             }
             if (item.getOwners() != null && !item.getOwners().isEmpty()) {
                 List<String> owners = item.getOwners().stream()
@@ -488,6 +595,38 @@ public class AgendaConfigService {
 
     public void refreshPresetCache(int presetTypeCode) {
         meetingServerBridge.refreshPresetCache(presetTypeCode);
+    }
+
+    public Map<String, Object> probeOabpColumns(String oabpTaskSql) {
+        if (oabpTaskSql == null || oabpTaskSql.isBlank()) {
+            throw new BusinessException("oabpTaskSql 不能为空");
+        }
+        try {
+            oabpTaskSql = OabpReadOnlySqlValidator.validateAndNormalize(oabpTaskSql);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(e.getMessage());
+        }
+        String cacheKey = Integer.toHexString(oabpTaskSql.hashCode());
+        long now = System.currentTimeMillis();
+        CachedProbe cached = oabpProbeCache.get(cacheKey);
+        if (cached != null && now - cached.ts() < OABP_PROBE_CACHE_MS) {
+            return cached.data();
+        }
+        Map<String, Object> data = meetingServerBridge.probeOabpColumns(oabpTaskSql);
+        oabpProbeCache.put(cacheKey, new CachedProbe(now, data));
+        return data;
+    }
+
+    public Map<String, Object> previewOabp(String oabpTaskSql, OabpDisplayTemplate template, Boolean sqlStrict) {
+        if (oabpTaskSql == null || oabpTaskSql.isBlank()) {
+            throw new BusinessException("oabpTaskSql 不能为空");
+        }
+        try {
+            oabpTaskSql = OabpReadOnlySqlValidator.validateAndNormalize(oabpTaskSql);
+        } catch (IllegalArgumentException e) {
+            throw new BusinessException(e.getMessage());
+        }
+        return meetingServerBridge.previewOabp(oabpTaskSql, template, sqlStrict);
     }
 
     public Map<String, Object> triggerOwnerConfirmNotify(int presetTypeCode, String templateCode, boolean skipExisting) {

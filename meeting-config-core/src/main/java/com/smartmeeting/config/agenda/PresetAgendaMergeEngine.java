@@ -58,11 +58,13 @@ public final class PresetAgendaMergeEngine {
             if (item == null) {
                 continue;
             }
-            if (hostAgendaItemHasFeishu(item)) {
-                continue;
-            }
             HostAgendaItem fromTemplate = HostAgendaJsonCodec.parseItemAtIndex(
                     new ObjectMapper(), presetHostAgendaJson, i);
+            if (hostAgendaItemHasFeishu(item)) {
+                // 已有飞书资料：不覆盖资料绑定，仅补齐缺失的 oabp 字段
+                fillOabpFromTemplate(item, fromTemplate);
+                continue;
+            }
             if (fromTemplate != null && hostAgendaItemHasFeishu(fromTemplate)) {
                 copyHostAgendaFields(fromTemplate, item);
             } else {
@@ -72,6 +74,36 @@ public final class PresetAgendaMergeEngine {
                     syncLegacyFromDocs(item);
                 }
             }
+            fillOabpFromTemplate(item, fromTemplate);
+        }
+    }
+
+    /**
+     * 当会序项未配置 oabpTaskSql 但 preset 模板项已配置时，从模板补齐 oabp 字段，
+     * 使主持页在无资料绑定时也能展示项目任务表格。
+     */
+    private static void fillOabpFromTemplate(HostAgendaItem item, HostAgendaItem fromTemplate) {
+        if (item == null || fromTemplate == null) {
+            return;
+        }
+        if (item.getOabpTaskSql() == null || item.getOabpTaskSql().isBlank()) {
+            if (fromTemplate.getOabpTaskSql() != null && !fromTemplate.getOabpTaskSql().isBlank()) {
+                item.setOabpTaskSql(fromTemplate.getOabpTaskSql().strip());
+            }
+        }
+        if (item.getOabpTaskShow() == null && fromTemplate.getOabpTaskShow() != null) {
+            item.setOabpTaskShow(fromTemplate.getOabpTaskShow());
+        }
+        if ((item.getOabpDisplayTemplate() == null || item.getOabpDisplayTemplate().isEmpty())
+                && fromTemplate.getOabpDisplayTemplate() != null && !fromTemplate.getOabpDisplayTemplate().isEmpty()) {
+            item.setOabpDisplayTemplate(fromTemplate.getOabpDisplayTemplate());
+        }
+        if ((item.getOabpSqlPresetId() == null || item.getOabpSqlPresetId().isBlank())
+                && fromTemplate.getOabpSqlPresetId() != null && !fromTemplate.getOabpSqlPresetId().isBlank()) {
+            item.setOabpSqlPresetId(fromTemplate.getOabpSqlPresetId().trim());
+        }
+        if (item.getOabpTaskSqlStrict() == null && fromTemplate.getOabpTaskSqlStrict() != null) {
+            item.setOabpTaskSqlStrict(fromTemplate.getOabpTaskSqlStrict());
         }
     }
 
@@ -227,6 +259,7 @@ public final class PresetAgendaMergeEngine {
             } else if (src.getFeishuDocUrl() != null && !src.getFeishuDocUrl().isBlank()) {
                 dto.setFeishuDocUrl(src.getFeishuDocUrl().trim());
             }
+            copyOabpFields(src, dto);
             out.add(dto);
         }
         return out;
@@ -284,6 +317,32 @@ public final class PresetAgendaMergeEngine {
             applyFirstUrlField(to);
         } else if (from.getFeishuDocUrl() != null && !from.getFeishuDocUrl().isBlank()) {
             to.setFeishuDocUrl(from.getFeishuDocUrl().trim());
+        }
+        copyOabpFields(from, to);
+    }
+
+    /**
+     * 复制 oabp 相关字段（与 {@link HostAgendaJsonCodec#toJson} 序列化字段对齐），
+     * 确保会议快照合并/刷新时不会丢失 oabpTaskSql / oabpTaskShow / oabpDisplayTemplate / oabpSqlPresetId。
+     */
+    private static void copyOabpFields(HostAgendaItem from, HostAgendaItem to) {
+        if (from == null || to == null) {
+            return;
+        }
+        if (from.getOabpTaskSql() != null && !from.getOabpTaskSql().isBlank()) {
+            to.setOabpTaskSql(from.getOabpTaskSql().strip());
+        }
+        if (from.getOabpTaskShow() != null) {
+            to.setOabpTaskShow(from.getOabpTaskShow());
+        }
+        if (from.getOabpDisplayTemplate() != null && !from.getOabpDisplayTemplate().isEmpty()) {
+            to.setOabpDisplayTemplate(from.getOabpDisplayTemplate());
+        }
+        if (from.getOabpSqlPresetId() != null && !from.getOabpSqlPresetId().isBlank()) {
+            to.setOabpSqlPresetId(from.getOabpSqlPresetId().trim());
+        }
+        if (from.getOabpTaskSqlStrict() != null) {
+            to.setOabpTaskSqlStrict(from.getOabpTaskSqlStrict());
         }
     }
 

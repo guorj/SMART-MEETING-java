@@ -83,4 +83,38 @@ class WeeklyComparisonItemsJsonParserTest {
         assertEquals(0, result.discardedCount());
         assertEquals("READY", result.resolveRunStatus());
     }
+
+    @Test
+    void parse_withRunId_agentWroteRun() {
+        String reply = "-----BEGIN_WEEKLY_COMPARISON_ITEMS-----\n"
+                + "{\"generatedAt\":\"2026-07-13 00:30:00\",\"runId\":12345,\"items\":["
+                + "{\"category\":\"COMPLETED\",\"matterName\":\"事项A\",\"statusLabel\":\"已完成\",\"sortOrder\":1}"
+                + "]}\n-----END_WEEKLY_COMPARISON_ITEMS-----";
+        ParsedComparisonItems result = parser.parse(reply);
+        assertTrue(result.success());
+        assertEquals(12345L, result.runId());
+        assertTrue(result.agentWroteRun());
+        assertEquals(1, result.items().size());
+    }
+
+    @Test
+    void parse_runIdZero_treatedAsMissing() {
+        String reply = "-----BEGIN_WEEKLY_COMPARISON_ITEMS-----\n"
+                + "{\"runId\":0,\"items\":[]}\n-----END_WEEKLY_COMPARISON_ITEMS-----";
+        ParsedComparisonItems result = parser.parse(reply);
+        assertTrue(result.success());
+        assertNull(result.runId());
+        assertFalse(result.agentWroteRun());
+    }
+
+    @Test
+    void parse_runIdMissing_agentWroteRunFalse() {
+        String reply = "-----BEGIN_WEEKLY_COMPARISON_ITEMS-----\n"
+                + "{\"items\":[{\"category\":\"IN_PROGRESS\",\"matterName\":\"Z\",\"statusLabel\":\"进行中\",\"sortOrder\":1}]}"
+                + "\n-----END_WEEKLY_COMPARISON_ITEMS-----";
+        ParsedComparisonItems result = parser.parse(reply);
+        assertTrue(result.success());
+        assertNull(result.runId());
+        assertFalse(result.agentWroteRun());
+    }
 }

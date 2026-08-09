@@ -12,6 +12,14 @@ CREATE DATABASE IF NOT EXISTS oabp_pro
 
 -- 按实际部署账号调整（示例与 intelligence 联调账号一致）
 GRANT ALL PRIVILEGES ON oabp_pro.* TO 'oabp'@'%';
+
+-- 会序 oabpTaskSql 跨库读取 intelligence 会前通报表（run/item/job）所需只读权限
+-- 缺失时 oabpTaskSql 引用 intelligence.int_weekly_matter_comparison_* 会报
+-- "bad SQL grammar"（实为 SELECT command denied, SQLState 42000）
+GRANT SELECT ON intelligence.int_weekly_matter_comparison_run  TO 'oabp'@'%';
+GRANT SELECT ON intelligence.int_weekly_matter_comparison_item TO 'oabp'@'%';
+GRANT SELECT ON intelligence.int_weekly_matter_comparison_job  TO 'oabp'@'%';
+
 FLUSH PRIVILEGES;
 
 -- 从 oabp 复制表结构（不复制数据；导入脚本会写入飞书快照）

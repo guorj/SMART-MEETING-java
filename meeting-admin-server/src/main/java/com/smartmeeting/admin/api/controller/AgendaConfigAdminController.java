@@ -5,10 +5,12 @@ import com.smartmeeting.admin.api.dto.HostAgendaBundleItemDto;
 import com.smartmeeting.admin.api.dto.HostAgendaItemRowDto;
 import com.smartmeeting.admin.service.AgendaConfigService;
 import com.smartmeeting.config.agenda.AgendaPresetSnapshot;
+import com.smartmeeting.config.oabp.OabpDisplayTemplate;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -131,6 +133,53 @@ public class AgendaConfigAdminController {
                 code,
                 body != null ? body.getTemplateCode() : null,
                 body == null || body.getSkipExisting() == null || body.getSkipExisting()));
+    }
+
+    @PostMapping("/presets/{code}/agenda/{index}/oabp-columns")
+    public ApiResponse<Map<String, Object>> oabpColumns(
+            @PathVariable int code,
+            @PathVariable int index,
+            @RequestBody OabpProbeRequest body) {
+        return ApiResponse.ok(agendaConfigService.probeOabpColumns(body != null ? body.getOabpTaskSql() : null));
+    }
+
+    @PostMapping("/presets/{code}/agenda/{index}/oabp-preview")
+    public ApiResponse<Map<String, Object>> oabpPreview(
+            @PathVariable int code,
+            @PathVariable int index,
+            @RequestBody OabpPreviewRequest body) {
+        if (body == null) {
+            body = new OabpPreviewRequest();
+        }
+        return ApiResponse.ok(agendaConfigService.previewOabp(
+                body.getOabpTaskSql(), body.getOabpDisplayTemplate(), body.getOabpTaskSqlStrict()));
+    }
+
+    @GetMapping("/oabp-sql/presets")
+    public ApiResponse<List<Map<String, Object>>> oabpSqlPresets() {
+        return ApiResponse.ok(agendaConfigService.listOabpSqlPresets());
+    }
+
+    @GetMapping("/oabp-display/presets")
+    public ApiResponse<List<Map<String, Object>>> oabpDisplayPresets() {
+        return ApiResponse.ok(agendaConfigService.listOabpDisplayPresets());
+    }
+
+    @GetMapping("/oabp-display/options")
+    public ApiResponse<Map<String, Object>> oabpDisplayOptions() {
+        return ApiResponse.ok(agendaConfigService.oabpDisplayOptions());
+    }
+
+    @Data
+    public static class OabpProbeRequest {
+        private String oabpTaskSql;
+    }
+
+    @Data
+    public static class OabpPreviewRequest {
+        private String oabpTaskSql;
+        private OabpDisplayTemplate oabpDisplayTemplate;
+        private Boolean oabpTaskSqlStrict;
     }
 
     @Data

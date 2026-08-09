@@ -69,6 +69,35 @@ public class MeetingServerBridgeService {
         postInternal(path, null);
     }
 
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> probeOabpColumns(String oabpTaskSql) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("oabpTaskSql", oabpTaskSql);
+        JsonNode data = postInternal("/api/v1/internal/oabp/agenda-query/columns", body);
+        if (data == null) {
+            throw new BusinessException("oabp columns 探测失败");
+        }
+        return objectMapper.convertValue(data, Map.class);
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> previewOabp(String oabpTaskSql, com.smartmeeting.config.oabp.OabpDisplayTemplate template,
+                                           Boolean sqlStrict) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("oabpTaskSql", oabpTaskSql);
+        if (template != null) {
+            body.put("oabpDisplayTemplate", template);
+        }
+        if (Boolean.TRUE.equals(sqlStrict)) {
+            body.put("oabpTaskSqlStrict", true);
+        }
+        JsonNode data = postInternal("/api/v1/internal/oabp/agenda-query/preview", body);
+        if (data == null) {
+            throw new BusinessException("oabp preview 失败");
+        }
+        return objectMapper.convertValue(data, Map.class);
+    }
+
     public void executePipeline(String meetingId, String stage, String templateCode) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("meetingId", meetingId);
