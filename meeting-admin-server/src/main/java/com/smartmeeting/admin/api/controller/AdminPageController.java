@@ -13,7 +13,14 @@ import java.util.concurrent.TimeUnit;
 @Controller
 public class AdminPageController {
 
-    @GetMapping({"/admin", "/admin/"})
+    /** 无尾斜杠的 /admin 统一 302 到 /admin/，避免相对静态资源路径解析错误。 */
+    @GetMapping("/admin")
+    public String redirectAdminSlash() {
+        return "redirect:/admin/";
+    }
+
+    /** 管理后台 SPA 入口页。 */
+    @GetMapping("/admin/")
     public ResponseEntity<Resource> adminIndex() {
         return serve("static/admin/index.html");
     }

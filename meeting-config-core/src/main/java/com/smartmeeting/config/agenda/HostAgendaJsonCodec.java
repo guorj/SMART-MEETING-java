@@ -91,6 +91,12 @@ public final class HostAgendaJsonCodec {
                 if (item.getDetail() != null && !item.getDetail().isBlank()) {
                     n.put("detail", item.getDetail().trim());
                 }
+                if (item.getExternalUrl() != null && !item.getExternalUrl().isBlank()) {
+                    n.put("externalUrl", item.getExternalUrl().trim());
+                    if (item.getExternalLinkLabel() != null && !item.getExternalLinkLabel().isBlank()) {
+                        n.put("externalLinkLabel", item.getExternalLinkLabel().trim());
+                    }
+                }
                 if (item.getOabpTaskSql() != null && !item.getOabpTaskSql().isBlank()) {
                     n.put("oabpTaskSql", item.getOabpTaskSql().strip());
                     n.put("oabpTaskShow", item.getOabpTaskShow() == null || item.getOabpTaskShow());
@@ -158,43 +164,8 @@ public final class HostAgendaJsonCodec {
         return out;
     }
 
-    public static Optional<AgendaReportBinding> findReportBinding(String hostAgendaJson, int agendaIndex,
-                                                                  ObjectMapper mapper) {
-        HostAgendaItem item = parseItemAtIndex(mapper, hostAgendaJson, agendaIndex);
-        if (item == null || item.getDocs() == null) {
-            return Optional.empty();
-        }
-        HostAgendaDocBinding row = item.getDocs().stream()
-                .filter(d -> d != null && d.isEnabled())
-                .filter(d -> {
-                    String role = d.getRole() != null ? d.getRole().trim().toUpperCase(Locale.ROOT) : "";
-                    return "OUTPUT".equals(role) || "BOTH".equals(role);
-                })
-                .max(Comparator.comparingInt(HostAgendaDocBinding::resolvedSlot))
-                .orElse(null);
-        if (row == null) {
-            return Optional.empty();
-        }
-        String outputFeishu = null;
-        if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getRole()))
-                && row.getUrl() != null && !row.getUrl().isBlank()) {
-            outputFeishu = row.getUrl().trim();
-        }
-        return Optional.of(new AgendaReportBinding(
-                row.getGeneratedReportUrl(),
-                row.getGeneratedReportAt(),
-                row.getGeneratedReportRunId(),
-                outputFeishu));
-    }
-
-    public static Optional<LocatedDoc> findDocByConfigName(String hostAgendaJson, String configName,
-                                                             ObjectMapper mapper) {
-        return findDocContextByConfigName(hostAgendaJson, configName, mapper)
-                .map(ctx -> new LocatedDoc(ctx.agendaIndex(), ctx.doc()));
-    }
-
     /**
-     * 按 configName 定位 docs[] 条目，并携带父会序项 {@code oabpTaskSql}（weekly-comparison SOURCE 用）。
+     * 按 configName 定位 docs[] 条目，并携带父会序项 {@code oabpTaskSql}。
      */
     public static Optional<DocContext> findDocContextByConfigName(String hostAgendaJson, String configName,
                                                                   ObjectMapper mapper) {
@@ -218,69 +189,6 @@ public final class HostAgendaJsonCodec {
         return Optional.empty();
     }
 
-    public static String updateGeneratedReport(ObjectMapper mapper, String hostAgendaJson, String configName,
-                                               String reportUrl, LocalDateTime generatedAt) {
-        if (hostAgendaJson == null || hostAgendaJson.isBlank() || configName == null || configName.isBlank()) {
-            return hostAgendaJson;
-        }
-        String name = configName.trim();
-        Optional<LocatedDoc> located = findDocByConfigName(hostAgendaJson, name, mapper);
-        if (located.isEmpty()) {
-            return hostAgendaJson;
-        }
-        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
-        LocatedDoc loc = located.get();
-        if (loc.agendaIndex() >= items.size()) {
-            return hostAgendaJson;
-        }
-        HostAgendaItem item = items.get(loc.agendaIndex());
-        if (item.getDocs() == null) {
-            return hostAgendaJson;
-        }
-        for (int j = 0; j < item.getDocs().size(); j++) {
-            HostAgendaDocBinding d = item.getDocs().get(j);
-            if (d != null && name.equals(d.getConfigName())) {
-                d.setGeneratedReportUrl(reportUrl);
-                d.setGeneratedReportAt(generatedAt);
-                break;
-            }
-        }
-        return toJson(mapper, items);
-    }
-
-    /**
-     * v0.26：写回最新 run id 与生成时间（不再写 URL）。保留旧 generatedReportUrl 只读兼容。
-     */
-    public static String updateGeneratedReportRun(ObjectMapper mapper, String hostAgendaJson, String configName,
-                                                   Long runId, LocalDateTime generatedAt) {
-        if (hostAgendaJson == null || hostAgendaJson.isBlank() || configName == null || configName.isBlank()) {
-            return hostAgendaJson;
-        }
-        String name = configName.trim();
-        Optional<LocatedDoc> located = findDocByConfigName(hostAgendaJson, name, mapper);
-        if (located.isEmpty()) {
-            return hostAgendaJson;
-        }
-        List<HostAgendaItem> items = parseItems(mapper, hostAgendaJson);
-        LocatedDoc loc = located.get();
-        if (loc.agendaIndex() >= items.size()) {
-            return hostAgendaJson;
-        }
-        HostAgendaItem item = items.get(loc.agendaIndex());
-        if (item.getDocs() == null) {
-            return hostAgendaJson;
-        }
-        for (int j = 0; j < item.getDocs().size(); j++) {
-            HostAgendaDocBinding d = item.getDocs().get(j);
-            if (d != null && name.equals(d.getConfigName())) {
-                d.setGeneratedReportRunId(runId);
-                d.setGeneratedReportAt(generatedAt);
-                break;
-            }
-        }
-        return toJson(mapper, items);
-    }
-
     public static AgendaDocBindingSnapshot toSnapshot(HostAgendaDocBinding doc, int presetTypeCode, int agendaIndex) {
         return AgendaDocBindingSnapshot.builder()
                 .configName(doc.getConfigName())
@@ -296,9 +204,6 @@ public final class HostAgendaJsonCodec {
                 .showInHost(doc.isShowInHost() ? 1 : 0)
                 .configRole(doc.getRole() != null ? doc.getRole() : "SOURCE")
                 .bitableDisplayMode(doc.getBitableDisplayMode())
-                .generatedReportUrl(doc.getGeneratedReportUrl())
-                .generatedReportAt(doc.getGeneratedReportAt())
-                .generatedReportRunId(doc.getGeneratedReportRunId())
                 .build();
     }
 
@@ -328,9 +233,6 @@ public final class HostAgendaJsonCodec {
                 .bitableDisplayMode(snap.getBitableDisplayMode())
                 .enabled(snap.getEnabled() == null || snap.getEnabled() == 1)
                 .showInHost(snap.isShowInHost())
-                .generatedReportUrl(snap.getGeneratedReportUrl())
-                .generatedReportAt(snap.getGeneratedReportAt())
-                .generatedReportRunId(snap.getGeneratedReportRunId())
                 .build();
     }
 
@@ -424,6 +326,14 @@ public final class HostAgendaJsonCodec {
         String detail = n.path("detail").asText("").trim();
         if (!detail.isEmpty()) {
             item.setDetail(detail);
+        }
+        String externalUrl = n.path("externalUrl").asText("").trim();
+        if (!externalUrl.isEmpty()) {
+            item.setExternalUrl(externalUrl);
+            String externalLabel = n.path("externalLinkLabel").asText("").trim();
+            if (!externalLabel.isEmpty()) {
+                item.setExternalLinkLabel(externalLabel);
+            }
         }
         String oabpSql = n.path("oabpTaskSql").asText("").trim();
         if (!oabpSql.isEmpty()) {
@@ -544,33 +454,6 @@ public final class HostAgendaJsonCodec {
         if (bdm.isEmpty()) {
             bdm = d.path("bitable_display_mode").asText("").trim();
         }
-        LocalDateTime genAt = null;
-        String genAtStr = d.path("generatedReportAt").asText("").trim();
-        if (genAtStr.isEmpty()) {
-            genAtStr = d.path("generated_report_at").asText("").trim();
-        }
-        if (!genAtStr.isEmpty()) {
-            try {
-                genAt = LocalDateTime.parse(genAtStr, ISO_LOCAL);
-            } catch (Exception ignored) {
-            }
-        }
-        String genUrl = d.path("generatedReportUrl").asText("").trim();
-        if (genUrl.isEmpty()) {
-            genUrl = d.path("generated_report_url").asText("").trim();
-        }
-        Long genRunId = null;
-        if (d.has("generatedReportRunId") && !d.path("generatedReportRunId").isNull()) {
-            genRunId = d.path("generatedReportRunId").asLong(0);
-            if (genRunId == 0) {
-                genRunId = null;
-            }
-        } else if (d.has("generated_report_run_id") && !d.path("generated_report_run_id").isNull()) {
-            genRunId = d.path("generated_report_run_id").asLong(0);
-            if (genRunId == 0) {
-                genRunId = null;
-            }
-        }
         return HostAgendaDocBinding.builder()
                 .configName(configName.isEmpty() ? null : configName)
                 .role(role.isEmpty() ? "SOURCE" : role)
@@ -583,9 +466,6 @@ public final class HostAgendaJsonCodec {
                 .bitableDisplayMode(bdm.isEmpty() ? null : bdm)
                 .enabled(!d.has("enabled") || d.path("enabled").asInt(1) == 1)
                 .showInHost(!d.has("showInHost") || d.path("showInHost").asBoolean(true))
-                .generatedReportUrl(genUrl.isEmpty() ? null : genUrl)
-                .generatedReportAt(genAt)
-                .generatedReportRunId(genRunId)
                 .build();
     }
 
@@ -632,15 +512,6 @@ public final class HostAgendaJsonCodec {
         }
         n.put("enabled", doc.isEnabled());
         n.put("showInHost", doc.isShowInHost());
-        if (doc.getGeneratedReportUrl() != null && !doc.getGeneratedReportUrl().isBlank()) {
-            n.put("generatedReportUrl", doc.getGeneratedReportUrl().trim());
-        }
-        if (doc.getGeneratedReportRunId() != null) {
-            n.put("generatedReportRunId", doc.getGeneratedReportRunId());
-        }
-        if (doc.getGeneratedReportAt() != null) {
-            n.put("generatedReportAt", doc.getGeneratedReportAt().format(ISO_LOCAL));
-        }
     }
 
     private static List<HostAgendaDocBinding> normalizedDocs(HostAgendaItem item) {

@@ -1,16 +1,11 @@
 package com.smartmeeting.service.agent;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.config.OpenClawProperties;
-import com.smartmeeting.entity.Meeting;
 import lombok.extern.slf4j.Slf4j;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
-
-import com.smartmeeting.service.host.AgendaBriefingMarkdownValidator;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -30,8 +25,7 @@ import java.util.concurrent.Semaphore;
  *   <li>飞书多维表数据由 MCP Server 直接读取</li>
  * </ul>
  *
- * <p>会前进度（上次待办进度卡片 + progress-analysis Skill）已在 v0.9 下线，
- * 由 feishu-scheduled-bot + matter-progress-core 的「会前事项对比通报」取代。
+ * <p>会前 matter-progress / 会序通报 Skill 已下线；本 Provider 仅用于 Step 4.1 纪要增强。
  */
 @Slf4j
 @Component
@@ -45,7 +39,6 @@ public class OpenClawMcpProvider implements AgentProvider {
 
     private final OpenClawGatewayWsClient gatewayWsClient;
     private final OpenClawProperties openClawProperties;
-    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${openclaw.gateway-url:}")
     private String gatewayUrl;
@@ -70,90 +63,44 @@ public class OpenClawMcpProvider implements AgentProvider {
         int permits = Math.max(1, openClawProperties.getMaxConcurrentInvokes());
         gatewayInvokeSemaphore = new Semaphore(permits, true);
         log.info("OpenClaw gateway invoke semaphore: permits={}", permits);
-    }
-
-    // ========== runMatterProgressReport ==========
-
-    @Override
-    public String runMatterProgressReport(Meeting meeting, String bitableDirective) {
-        return runMatterProgressReport(meeting, bitableDirective, null, null);
-    }
-
-    @Override
-    public String runMatterProgressReport(Meeting meeting,
-                                          String bitableDirective,
-                                          String feishuUrl,
-                                          String agendaTitle) {
-        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, -1, null);
-    }
-
-    @Override
-    public String runMatterProgressReport(Meeting meeting,
-                                          String bitableDirective,
-                                          String feishuUrl,
-                                          String agendaTitle,
-                                          int agendaIndex,
-                                          String requestId) {
-        String taskId = requestId != null && !requestId.isBlank()
-                ? OpenClawTaskIds.briefing(meeting.getId(), agendaIndex >= 0 ? agendaIndex : 0,
-                parseGenerationFromRequestId(requestId))
-                : OpenClawTaskIds.briefing(meeting.getId(), agendaIndex >= 0 ? agendaIndex : 0, 0);
-        return runMatterProgressReport(meeting, bitableDirective, feishuUrl, agendaTitle, agendaIndex, requestId, taskId);
-    }
-
-    @Override
-    public String runMatterProgressReport(Meeting meeting,
-                                          String bitableDirective,
-                                          String feishuUrl,
-                                          String agendaTitle,
-                                          int agendaIndex,
-                                          String requestId,
-                                          String taskId) {
-        if (!isAvailable()) {
-            log.info("OpenClaw MCP Provider disabled or misconfigured, skip matter progress");
-            return null;
-        }
-
-        String effectiveTaskId = taskId != null && !taskId.isBlank()
-                ? taskId.trim()
-                : OpenClawTaskIds.briefing(meeting.getId(), Math.max(0, agendaIndex), 0);
-        String briefingSessionKey = resolveSessionKeyForTask(effectiveTaskId, sessionKey);
-        String prompt;
-        if (openClawProperties.isSkillMode()) {
-            prompt = buildSkillPrompt("matter-progress", map -> {
-                map.put("taskId", effectiveTaskId);
-                map.put("meetingId", meeting.getId());
-                map.put("title", meeting.getTitle() != null ? meeting.getTitle() : "");
-                map.put("company", meeting.getCompany() != null ? meeting.getCompany() : "");
-                map.put("groupName", meeting.getGroupName() != null ? meeting.getGroupName() : "");
-                if (bitableDirective != null && !bitableDirective.isBlank()) {
-                    map.put("bitableHint", bitableDirective.trim());
-                }
-                if (feishuUrl != null && !feishuUrl.isBlank()) {
-                    map.put("feishuUrl", feishuUrl.trim());
-                }
-                if (agendaTitle != null && !agendaTitle.isBlank()) {
-                    map.put("agendaTitle", agendaTitle.trim());
-                }
-                if (agendaIndex >= 0) {
-                    map.put("agendaIndex", String.valueOf(agendaIndex));
-                }
-                if (requestId != null && !requestId.isBlank()) {
-                    map.put("requestId", requestId.trim());
-                }
-            });
-        } else {
-            if (bitableDirective == null || bitableDirective.isBlank()) {
-                return null;
-            }
-            prompt = buildFullMatterProgressPrompt(meeting, bitableDirective);
-        }
-
-        return callGateway(prompt, OpenClawTaskIds.TASK_MATTER_PROGRESS, briefingSessionKey, effectiveTaskId);
+        validateGatewayConnectivity();
     }
 
     /**
-     * 每个 taskId 独立 sessionKey，避免 Gateway 把纪要增强结果复用到会序通报会话。
+     * 启动时探测 Gateway 可达性，并提示远程连接常见的 scopes 为空问题。
+     */
+    private void validateGatewayConnectivity() {
+        if (!isAvailable()) {
+            log.warn("OpenClaw MCP Provider misconfigured: enabled={}, gatewayUrl={}, hasAuth={}",
+                    openClawProperties.isEnabled(),
+                    gatewayUrl == null || gatewayUrl.isBlank() ? "(empty)" : gatewayUrl,
+                    (authToken != null && !authToken.isBlank())
+                            || (deviceToken != null && !deviceToken.isBlank()));
+            return;
+        }
+        boolean pingOk = gatewayWsClient.pingHttp(gatewayUrl);
+        if (!pingOk) {
+            log.warn("OpenClaw Gateway 不可达: {} — 本地开发请先运行 scripts/openclaw-tunnel.ps1，"
+                            + "或确认 Gateway 进程在目标主机 :18789 监听",
+                    gatewayUrl);
+            return;
+        }
+        boolean remote = !OpenClawGatewayWsClient.isLoopbackGateway(gatewayUrl);
+        boolean hasDeviceToken = deviceToken != null && !deviceToken.isBlank();
+        if (remote && !hasDeviceToken) {
+            log.warn("OpenClaw Gateway 为远程地址 {} 且未配置 device-token："
+                            + "共享 token 跨机连接时 operator scopes 会被 Gateway 清空，chat.send 将失败。"
+                            + "修复任选其一：① 改 OPENCLAW_GATEWAY_URL=http://127.0.0.1:18789 并运行 scripts/openclaw-tunnel.ps1；"
+                            + "② 配置 OPENCLAW_DEVICE_TOKEN；"
+                            + "③ 在 Gateway 主机 openclaw.json 增加 gateway.auth.scopes: [operator.read, operator.write]",
+                    gatewayUrl);
+        } else {
+            log.info("OpenClaw Gateway reachable: {}", gatewayUrl);
+        }
+    }
+
+    /**
+     * 每个 taskId 独立 sessionKey，避免 Gateway 把不同任务的结果复用到同一会话。
      */
     static String resolveSessionKeyForTask(String taskId, String baseSessionKey) {
         String base = baseSessionKey != null && !baseSessionKey.isBlank()
@@ -164,21 +111,6 @@ public class OpenClawMcpProvider implements AgentProvider {
             tid = tid.substring(0, 120);
         }
         return base + ":task:" + tid;
-    }
-
-    private static int parseGenerationFromRequestId(String requestId) {
-        if (requestId == null || requestId.isBlank()) {
-            return 0;
-        }
-        int last = requestId.lastIndexOf('-');
-        if (last < 0 || last >= requestId.length() - 1) {
-            return 0;
-        }
-        try {
-            return Integer.parseInt(requestId.substring(last + 1).trim());
-        } catch (NumberFormatException e) {
-            return 0;
-        }
     }
 
     // ========== enhanceMeetingMinutes ==========
@@ -274,25 +206,10 @@ public class OpenClawMcpProvider implements AgentProvider {
                     taskType, taskId, gatewayMs);
             return null;
         }
-        if (OpenClawTaskIds.TASK_MATTER_PROGRESS.equals(taskType)
-                && AgendaBriefingMarkdownValidator.rejectReason(body.trim()) != null) {
-            log.warn("OpenClaw MCP raw body rejected (task mismatch): taskType={}, taskId={}, reason={}",
-                    taskType, taskId, AgendaBriefingMarkdownValidator.rejectReason(body.trim()));
-            return null;
-        }
         String markdown = OpenClawReplyExtractor.extractFromBody(body);
         if (markdown == null || markdown.isBlank()) {
             log.warn("OpenClaw MCP could not extract text: taskType={}, taskId={}, gatewayMs={}, bodyPrefix={}",
                     taskType, taskId, gatewayMs, body.length() > 120 ? body.substring(0, 120) + "…" : body);
-            return null;
-        }
-
-        if (OpenClawTaskIds.TASK_MATTER_PROGRESS.equals(taskType)
-                && AgendaBriefingMarkdownValidator.rejectReason(markdown) != null) {
-            String reason = AgendaBriefingMarkdownValidator.rejectReason(markdown);
-            log.warn("OpenClaw MCP response rejected (task mismatch): expected={}, taskId={}, reason={}, replyPrefix={}",
-                    taskType, taskId, reason,
-                    markdown.length() > 200 ? markdown.substring(0, 200) + "…" : markdown);
             return null;
         }
 
@@ -301,7 +218,7 @@ public class OpenClawMcpProvider implements AgentProvider {
         return markdown;
     }
 
-    /** matter_progress 使用全局 OpenClaw 超时。 */
+    /** 使用全局 OpenClaw 超时。 */
     private int effectiveTimeoutSeconds(String taskType) {
         int t = openClawProperties.getTimeoutSeconds();
         return t > 0 ? t : 60;
@@ -327,17 +244,6 @@ public class OpenClawMcpProvider implements AgentProvider {
     }
 
     // ========== 完整 prompt 构建（skillMode=false 兼容模式） ==========
-
-    private String buildFullMatterProgressPrompt(Meeting meeting, String bitableDirective) {
-        StringBuilder task = new StringBuilder();
-        task.append(bitableDirective.trim()).append("\n\n");
-        task.append("## 当前会议上下文（供你写通报时引用）\n");
-        task.append("- 会议ID：").append(meeting.getId()).append("\n");
-        task.append("- 主题：").append(meeting.getTitle()).append("\n");
-        task.append("- 集团/会议组：").append(meeting.getCompany()).append(" / ").append(meeting.getGroupName()).append("\n\n");
-        task.append("请严格按上文「输出要求」生成事项进度通报。");
-        return task.toString();
-    }
 
     private String buildFullMinutePrompt(String meetingTitle, Integer meetingType,
                                          String participants, String rawMinute,

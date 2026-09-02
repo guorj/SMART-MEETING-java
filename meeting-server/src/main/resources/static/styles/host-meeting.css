@@ -6,7 +6,8 @@ body.host-page {
   background: var(--color-bg);
   color: var(--color-text);
   min-height: 100vh;
-  padding: 16px 20px max(20px, env(safe-area-inset-bottom, 0px));
+  min-height: 100dvh;
+  padding: max(16px, env(safe-area-inset-top, 0px)) 20px max(20px, env(safe-area-inset-bottom, 0px));
   -webkit-font-smoothing: antialiased;
 }
 
@@ -76,6 +77,7 @@ body.host-page {
   gap: 16px;
   align-items: stretch;
   min-height: calc(100vh - 200px);
+  min-height: calc(100dvh - 200px);
 }
 .host-col-left {
   display: flex;
@@ -94,6 +96,7 @@ body.host-page {
 .host-col-left .card-matter #progressReportBody {
   flex: 1;
   min-height: min(420px, calc(100vh - 320px));
+  min-height: min(420px, calc(100dvh - 320px));
   max-height: none;
   margin-top: 0;
 }
@@ -139,7 +142,7 @@ body.host-page {
 .agenda-doc-fs-fab {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
   z-index: 12;
   display: flex;
   gap: 8px;
@@ -189,7 +192,7 @@ body.agenda-doc-fullscreen-lock {
   max-height: 100dvh;
   display: flex !important;
   flex-direction: column;
-  padding: 8px 12px 10px;
+  padding: max(8px, env(safe-area-inset-top, 0px)) 12px max(10px, env(safe-area-inset-bottom, 0px));
   background: transparent;
   box-shadow: none;
   filter: none !important;
@@ -1013,6 +1016,7 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
 .local-material-preview img {
   width: 100%; max-width: 100%; height: auto;
   max-height: min(560px, calc(100vh - 320px));
+  max-height: min(560px, calc(100dvh - 320px));
   object-fit: contain; border-radius: var(--radius-sm);
   display: block; margin: 8px auto 0; background: var(--color-surface-2);
 }
@@ -1021,7 +1025,8 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   margin-top: 10px; padding: 12px 14px;
   background: var(--color-surface-2); border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
-  max-height: min(560px, calc(100vh - 320px)); overflow: auto;
+  max-height: min(560px, calc(100vh - 320px));
+  max-height: min(560px, calc(100dvh - 320px)); overflow: auto;
   font-size: 14px; line-height: 1.7; color: var(--color-text-secondary); width: 100%;
 }
 .local-material-preview.local-doc-preview { white-space: normal; }
@@ -1107,6 +1112,12 @@ button:disabled { opacity: 0.35; cursor: not-allowed; }
   .timers-display .timer:first-child { font-size: clamp(1.75rem, 8vw, 2.25rem); }
   .feishu-field-row { grid-template-columns: 1fr; gap: 2px; }
   .feishu-bitable-table { min-width: 360px; font-size: 12px; }
+  .extend-select { font-size: 16px; }
+  .btn-agenda-icon {
+    width: var(--touch-min, 44px);
+    height: var(--touch-min, 44px);
+    min-width: var(--touch-min, 44px);
+  }
 }
 /* ===== Structured content rendering ===== */
 .feishu-structured-img { max-width: 100%; border-radius: 6px; margin: 8px 0; }

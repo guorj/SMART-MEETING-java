@@ -43,6 +43,7 @@ public class FeishuMinutesCallbackHandler {
 
     private final MeetingMapper meetingMapper;
     private final MeetingVcProperties vcProperties;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
 
     public void handleRecordingReady(JsonNode body) {
         if (!vcProperties.isRecordingEnabled()) {
@@ -78,6 +79,7 @@ public class FeishuMinutesCallbackHandler {
         meeting.setVcRecordingUrl(recordingUrl);
         meetingMapper.updateById(meeting);
         log.info("recording_ready_v1 persisted: meetingId={}, minuteToken={}", meeting.getId(), minuteToken);
+        postMeetingOrchestrator.resumePostMeetingAfterVcReady(meeting.getId());
     }
 
     /**

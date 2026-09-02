@@ -1,15 +1,15 @@
 package com.smartmeeting.config;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.entity.MeetingSystemConfig;
 import com.smartmeeting.repository.MeetingSystemConfigMapper;
 import com.smartmeeting.service.DashboardGrantService;
+import com.smartmeeting.service.FeishuMinutesUserTokenProvider;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.util.List;
 
@@ -26,18 +26,19 @@ class MeetingRuntimeConfigLoaderTest {
     private MeetingSystemConfigMapper configMapper;
     @Mock
     private DashboardGrantService dashboardGrantService;
+    @Mock
+    private FeishuMinutesUserTokenProvider feishuMinutesUserTokenProvider;
 
     private MeetingRuntimeConfigLoader loader;
     private MeetingMinuteProperties minuteProperties;
+    private MeetingFeishuMinutesProperties feishuMinutesProperties;
 
-    @BeforeEach
-    void setUp() {
-        minuteProperties = new MeetingMinuteProperties();
-        loader = new MeetingRuntimeConfigLoader(
+    private MeetingRuntimeConfigLoader newLoader(MeetingRuntimeConfig host, MeetingAsrProperties asr) {
+        return new MeetingRuntimeConfigLoader(
                 configMapper,
-                new MeetingRuntimeConfig(),
+                host,
                 minuteProperties,
-                new MeetingAsrProperties(),
+                asr != null ? asr : new MeetingAsrProperties(),
                 new MeetingTodoProperties(),
                 new MeetingPipelineProperties(),
                 new MeetingSchedulerProperties(),
@@ -46,9 +47,18 @@ class MeetingRuntimeConfigLoaderTest {
                 new MeetingIsvProperties(),
                 new MeetingWebProperties(),
                 new MeetingVcProperties(),
+                feishuMinutesProperties,
+                feishuMinutesUserTokenProvider,
                 new OpenClawProperties(),
                 new ObjectMapper(),
                 dashboardGrantService);
+    }
+
+    @BeforeEach
+    void setUp() {
+        minuteProperties = new MeetingMinuteProperties();
+        feishuMinutesProperties = new MeetingFeishuMinutesProperties();
+        loader = newLoader(new MeetingRuntimeConfig(), null);
         when(configMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -88,20 +98,25 @@ class MeetingRuntimeConfigLoaderTest {
 
         MeetingRuntimeConfig host = new MeetingRuntimeConfig();
         MeetingAsrProperties asr = new MeetingAsrProperties();
-        loader = new MeetingRuntimeConfigLoader(
-                configMapper, host, minuteProperties, asr,
-                new MeetingTodoProperties(), new MeetingPipelineProperties(),
-                new MeetingSchedulerProperties(), new MeetingNotificationProperties(),
-                new MeetingVoiceprintProperties(), new MeetingIsvProperties(),
-                new MeetingWebProperties(), new MeetingVcProperties(),
-                new OpenClawProperties(),
-                new ObjectMapper(), dashboardGrantService);
+        loader = newLoader(host, asr);
 
         loader.reload();
 
         assertTrue(minuteProperties.isGenerationEnabled());
         assertEquals("10,3", host.getReminder().getMeetingMinutesLeft());
         assertEquals("auto", asr.getOfflineRoleMode());
+    }
+
+    @Test
+    void reload_appliesFeishuMinutesUserTokenFromDb() {
+        MeetingSystemConfig refreshRow = new MeetingSystemConfig();
+        refreshRow.setConfigKey("meeting.feishu.minutes.user-refresh-token");
+        refreshRow.setValueJson("\"r-test-refresh\"");
+        when(configMapper.selectList(any())).thenReturn(List.of(refreshRow));
+
+        loader.reload();
+
+        assertEquals("r-test-refresh", feishuMinutesProperties.getUserRefreshToken());
     }
 
     @Test
@@ -125,14 +140,7 @@ class MeetingRuntimeConfigLoaderTest {
         when(configMapper.selectList(any())).thenReturn(List.of(masterOff, ttsOn, rollCallOn, autoRollCallOn));
 
         MeetingRuntimeConfig host = new MeetingRuntimeConfig();
-        loader = new MeetingRuntimeConfigLoader(
-                configMapper, host, minuteProperties, new MeetingAsrProperties(),
-                new MeetingTodoProperties(), new MeetingPipelineProperties(),
-                new MeetingSchedulerProperties(), new MeetingNotificationProperties(),
-                new MeetingVoiceprintProperties(), new MeetingIsvProperties(),
-                new MeetingWebProperties(), new MeetingVcProperties(),
-                new OpenClawProperties(),
-                new ObjectMapper(), dashboardGrantService);
+        loader = newLoader(host, new MeetingAsrProperties());
 
         loader.reload();
 

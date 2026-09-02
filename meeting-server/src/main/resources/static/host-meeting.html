@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <script>
     (function () {
       var p = location.pathname || '';
@@ -17,17 +17,17 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260610-32">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260825-mobile2">
   <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260610-32">
-  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260611-fs-bitable">
-  <link rel="stylesheet" href="static/styles/host-meeting-rail.css?v=sm-ui-20260611-rail3">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260825-mobile2">
+  <link rel="stylesheet" href="static/styles/host-meeting.css?v=sm-ui-20260825-mobile2">
+  <link rel="stylesheet" href="static/styles/host-meeting-rail.css?v=sm-ui-20260825-mobile2">
   <link rel="stylesheet" href="static/styles/host-agenda-fs-present.css?v=sm-ui-20260611-fs-bitable">
-  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260825-mobile2">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.2/gsap.min.js"></script>
   <script src="ui-kit/icons.js?v=sm-ui-20260610-32"></script>
   <script src="ui-kit/motion.js?v=sm-ui-20260610-32"></script>
-  <script src="ui-kit/image-lightbox.js?v=sm-ui-20260610-32"></script>
+  <script src="ui-kit/image-lightbox.js?v=sm-ui-20260825-mobile2"></script>
   <script type="module" src="static/host-strands-avatar.js?v=sm-ui-20260610-32"></script>
   <script>if(!window.Iconsax){window.Iconsax={render:function(){return''},renderModule:function(){return''}};}</script>
 </head>
@@ -84,7 +84,7 @@
         <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
       </div>
       <div class="host-rail-idle-hint card-light" id="hostRailIdleHint" hidden>
-        <p class="muted">会议尚未开始。移入屏幕右侧或点击右下角图标打开主持面板，然后选择「开始会议」。</p>
+        <p class="muted"><span class="host-idle-hint-mobile">点击右下角图标打开主持面板</span><span class="host-idle-hint-desktop">移入屏幕右侧或点击右下角图标打开主持面板</span>，然后选择「开始会议」。</p>
       </div>
       <section class="card-light card-matter blur-fade" id="agendaDocCard" style="display:none" aria-label="会序模块">
         <div class="agenda-doc-panel-head">
@@ -198,9 +198,9 @@
   <script src="static/vendor/marked.min.js?v=sm-20260518-2"></script>
   <script src="static/vendor/purify.min.js?v=sm-20260518-2"></script>
   <script src="static/recorder.js?v=sm-ui-20260611-reconnect"></script>
-  <script src="static/host-meeting-rail.js?v=sm-ui-20260611-rail3"></script>
-  <script src="static/host-agenda-fs-present.js?v=sm-ui-20260611-fs-bitable"></script>
-  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-rail2"></script>
+  <script src="static/host-meeting-rail.js?v=sm-ui-20260825-mobile2"></script>
+  <script src="static/host-agenda-fs-present.js?v=sm-ui-20260825-mobile2"></script>
+  <script src="ui-kit/magic-bento.js?v=sm-ui-20260825-mobile2"></script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (window.HostMeetingRail) HostMeetingRail.init();
@@ -647,16 +647,6 @@
         return m[1].toLowerCase() + '|' + m[2] + '|' + table + '|' + view;
       }
 
-      function topicHasWeeklyReport(topic) {
-        if (!topic) return false;
-        if (topic.generatedReportRunId) return true;
-        return !!(topic.generatedReportUrl && String(topic.generatedReportUrl).trim());
-      }
-
-      function topicHasOutputFeishuDoc(topic) {
-        return !!(topic && topic.outputFeishuDocUrl && String(topic.outputFeishuDocUrl).trim());
-      }
-
       function topicHasLocalMaterial(topic) {
         return !!(topic && topic.localMaterials && topic.localMaterials.length);
       }
@@ -669,8 +659,7 @@
       }
 
       function topicHasReportOrFeishu(topic) {
-        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasOutputFeishuDoc(topic)
-            || topicHasLocalMaterial(topic) || topicHasOabpTaskSql(topic);
+        return topicHasFeishuDoc(topic) || topicHasLocalMaterial(topic) || topicHasOabpTaskSql(topic);
       }
 
       function isImageMimeType(mime) {
@@ -839,8 +828,7 @@
         var localKeys = (topic.localMaterials || []).map(function (m) {
           return m && m.fileId ? m.fileId : '';
         }).filter(Boolean).sort().join(',');
-        return agendaIndex + '|' + (topic.generatedReportUrl || '') + '|' + (topic.outputFeishuDocUrl || '')
-            + '|' + (topic.generatedReportAt || '') + '|' + refKeys + '|local:' + localKeys
+        return agendaIndex + '|' + refKeys + '|local:' + localKeys
             + '|oabp:' + (topicHasOabpTaskSql(topic) ? String(topic.oabpTaskSql || '').trim() : '');
       }
 
@@ -901,126 +889,12 @@
             panel.appendChild(block);
           });
         }
+        appendExternalOpenLink(panel, topic);
         el.appendChild(panel);
       }
 
       /**
-       * 在飞书资料 panel 末尾追加会前事项对比通报与 OUTPUT 补充资料外链。
-       * @param {object|null} weeklyFromApi agenda-doc-content 返回的 weeklyReport（含 plainText）
-       */
-      function appendWeeklyReportBlocks(panel, topic, weeklyFromApi) {
-        if (!panel || !topic) return;
-        var apiReport = weeklyFromApi || null;
-        if (topicHasWeeklyReport(topic)) {
-          var reportBlock = document.createElement('section');
-          reportBlock.className = 'feishu-part-block weekly-report-block';
-          var title = document.createElement('h4');
-          title.textContent = '会前事项对比通报';
-          reportBlock.appendChild(title);
-          var reportAt = (apiReport && apiReport.generatedReportAt) || topic.generatedReportAt;
-          if (reportAt) {
-            var at = document.createElement('p');
-            at.className = 'muted';
-            at.textContent = '生成时间：' + reportAt;
-            reportBlock.appendChild(at);
-          }
-          // v0.26：优先结构化 items（库内）
-          if (apiReport && apiReport.items && apiReport.items.length >= 0 && apiReport.runId) {
-            renderWeeklyItemsBlock(reportBlock, apiReport);
-          } else if (apiReport && apiReport.contentType && apiReport.structuredContent) {
-            var body = document.createElement('div');
-            body.className = 'feishu-doc-body';
-            if (renderStructuredContent(body, {
-              contentType: apiReport.contentType,
-              structuredContent: apiReport.structuredContent
-            }, { useMainPanel: false })) {
-              reportBlock.appendChild(body);
-            } else if (apiReport.plainText) {
-              appendFeishuDocBodyContent(body, apiReport.plainText, 'DOCX');
-              reportBlock.appendChild(body);
-            }
-          } else if (apiReport && apiReport.plainText) {
-            var body = document.createElement('div');
-            body.className = 'feishu-doc-body';
-            appendFeishuDocBodyContent(body, apiReport.plainText, 'DOCX');
-            reportBlock.appendChild(body);
-          } else if (apiReport && apiReport.fetchError) {
-            var err = document.createElement('div');
-            err.className = 'feishu-fetch-error';
-            err.textContent = apiReport.fetchError;
-            reportBlock.appendChild(err);
-          }
-          // 无 runId 时才渲染旧飞书外链（过渡期）
-          if (!(apiReport && apiReport.runId)) {
-            var reportUrl = (apiReport && apiReport.generatedReportUrl) || topic.generatedReportUrl;
-            var reportLink = buildFeishuOpenLink(reportUrl, 'DOCX');
-            if (reportLink) reportBlock.appendChild(reportLink);
-          }
-          panel.appendChild(reportBlock);
-        }
-        if (topicHasOutputFeishuDoc(topic) && topic.outputFeishuDocUrl !== topic.generatedReportUrl) {
-          var outBlock = document.createElement('section');
-          outBlock.className = 'feishu-part-block weekly-output-doc-block';
-          var outTitle = document.createElement('h4');
-          outTitle.textContent = '补充资料（OUTPUT 配置）';
-          outBlock.appendChild(outTitle);
-          var outLink = buildFeishuOpenLink(topic.outputFeishuDocUrl, '');
-          if (outLink) outBlock.appendChild(outLink);
-          panel.appendChild(outBlock);
-        }
-      }
-
-      /**
-       * 渲染 v0.26 结构化事项三组（延期/已完成/进行中）。无事项的组显示「无」。
-       */
-      function renderWeeklyItemsBlock(reportBlock, apiReport) {
-        var items = apiReport.items || [];
-        var groups = [
-          { key: 'DELAYED', label: '延期事项' },
-          { key: 'COMPLETED', label: '已完成事项' },
-          { key: 'IN_PROGRESS', label: '进行中事项' }
-        ];
-        groups.forEach(function (g) {
-          var h = document.createElement('div');
-          h.className = 'weekly-items-group';
-          var gh = document.createElement('p');
-          gh.className = 'weekly-items-group-title';
-          gh.textContent = g.label;
-          h.appendChild(gh);
-          var groupItems = items.filter(function (it) { return it.category === g.key; });
-          if (!groupItems.length) {
-            var none = document.createElement('p');
-            none.className = 'muted';
-            none.textContent = '无';
-            h.appendChild(none);
-          } else {
-            var ul = document.createElement('ul');
-            ul.className = 'weekly-items-list';
-            groupItems.forEach(function (it) {
-              var li = document.createElement('li');
-              var assignee = it.assignee ? it.assignee : '未提及';
-              var time = it.timeNode ? it.timeNode : '未提及';
-              li.textContent = '事项：' + it.matterName
-                + '，责任人：' + assignee
-                + '，时间节点：' + time
-                + '，状态：' + it.statusLabel;
-              ul.appendChild(li);
-            });
-            h.appendChild(ul);
-          }
-          reportBlock.appendChild(h);
-        });
-        if (apiReport.fetchError) {
-          var err = document.createElement('div');
-          err.className = 'feishu-fetch-error';
-          err.textContent = apiReport.fetchError;
-          reportBlock.appendChild(err);
-        }
-      }
-
-      /**
-       * 会序主区完整渲染（无正文 API）：SOURCE 外链列表 + 会前对比/OUTPUT 外链。
-       * 正文场景由 loadAgendaDocContent 先 renderAgendaDocParts 再 appendWeeklyReportBlocks。
+       * 会序主区完整渲染（无正文 API）：SOURCE 外链列表 + 本地资料。
        */
       function renderLocalMaterials(panel, topic, opts) {
         opts = opts || {};
@@ -1100,7 +974,6 @@
         renderAgendaDocLinksOnly(el, topic, opts);
         var panel = el.querySelector('.feishu-doc-panel');
         renderLocalMaterials(panel, topic);
-        appendWeeklyReportBlocks(panel, topic);
       }
 
       function escapeHtml(s) {
@@ -1859,6 +1732,48 @@
         a.rel = 'noopener noreferrer';
         a.textContent = '↗ 在飞书中打开' + feishuKindLabel(kind);
         return a;
+      }
+
+      /** 会序外链按钮：从 URL 推断域名作为默认文案，支持自定义 externalLinkLabel。 */
+      function buildExternalOpenLink(url, label) {
+        var u = url != null ? String(url).trim() : '';
+        if (!u) return null;
+        if (!/^https?:\/\//i.test(u)) {
+          return null;
+        }
+        var text = label && String(label).trim() ? String(label).trim() : '';
+        if (!text) {
+          try {
+            text = new URL(u).hostname;
+          } catch (e) {
+            text = u;
+          }
+        }
+        var a = document.createElement('a');
+        a.className = 'feishu-open-link external-open-link';
+        a.href = u;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = '↗ 打开 ' + text;
+        return a;
+      }
+
+      /** 议程项是否配置了外链按钮。 */
+      function topicHasExternalLink(topic) {
+        return !!(topic && topic.externalUrl && String(topic.externalUrl).trim());
+      }
+
+      /** 将外链按钮追加到容器末尾；无外链时返回 false。 */
+      function appendExternalOpenLink(containerEl, topic) {
+        if (!containerEl || !topicHasExternalLink(topic)) return false;
+        var link = buildExternalOpenLink(topic.externalUrl, topic.externalLinkLabel);
+        if (!link) return false;
+        var wrap = document.createElement('p');
+        wrap.className = 'agenda-external-link-wrap';
+        wrap.style.margin = '8px 0 0';
+        wrap.appendChild(link);
+        containerEl.appendChild(wrap);
+        return true;
       }
 
       function appendFeishuDocBodyContent(bodyEl, plainText, docKind) {
@@ -2896,7 +2811,7 @@
         if (headers.length && !rows.length) {
           var empty = document.createElement('p');
           empty.className = 'muted feishu-fetch-error';
-          empty.textContent = '查询成功但无数据行（请检查 oabpTaskSql 是否含 intelligence. 前缀、seed 是否已入库，或改用 generatedReportRunId）';
+          empty.textContent = '查询成功但无数据行（请检查 oabpTaskSql 是否含 intelligence. 前缀、seed 是否已入库）';
           el.appendChild(empty);
           return true;
         }
@@ -3111,12 +3026,7 @@
         if (agendaDocRenderedIndex !== agendaIndex) return;
         var el = targets.mirrorBody;
         var lines = [];
-        if (topicHasWeeklyReport(topic)) {
-          lines.push('会前事项对比通报已生成，请见左侧主区正文。');
-          if (topic.generatedReportAt) {
-            lines.push('生成时间：' + topic.generatedReportAt);
-          }
-        } else if (topicHasOutputFeishuDoc(topic) || topicHasFeishuDoc(topic)) {
+        if (topicHasFeishuDoc(topic)) {
           lines.push('会序参考资料链接见左侧主区。');
         } else if (topicHasOabpTaskSql(topic)) {
           lines.push('项目任务表格见左侧主区。');
@@ -3250,7 +3160,7 @@
       }
 
       function topicNeedsAgendaDocFetch(topic) {
-        return topicHasFeishuDoc(topic) || topicHasWeeklyReport(topic) || topicHasLocalMaterial(topic)
+        return topicHasFeishuDoc(topic) || topicHasLocalMaterial(topic)
             || topicHasOabpTaskSql(topic);
       }
 
@@ -3274,14 +3184,13 @@
       }
 
       function applyAgendaDocApiResult(targets, topic, opts, res, agendaIndex, agendaTitle) {
-        var weeklyReport = res.data && res.data.weeklyReport ? res.data.weeklyReport : null;
         if (res.ok && res.data && res.data.parts && res.data.parts.length) {
           renderAgendaDocParts(targets.body, res.data.parts, opts);
           var partsPanel = targets.body.querySelector('.feishu-doc-panel');
           if (!partsIncludeLocalMaterials(res.data.parts)) {
             renderLocalMaterials(partsPanel, topic, { skipImages: partsIncludeImageGallery(res.data.parts) });
           }
-          appendWeeklyReportBlocks(partsPanel, topic, weeklyReport);
+          appendExternalOpenLink(partsPanel, topic);
           var firstUrl = res.data.feishuDocUrl;
           var firstKind = res.data.docKind;
           if (!firstUrl && res.data.parts[0]) {
@@ -3291,15 +3200,6 @@
           if (targets.linkEl && firstUrl) {
             showAgendaDocExternalLink(targets.linkEl, firstUrl, firstKind);
           }
-          return;
-        }
-        if (res.ok && res.data && weeklyReport) {
-          applyAgendaDocContainerStyles(targets.body, opts.useMainPanel);
-          targets.body.innerHTML = '';
-          var panel = ensureFeishuDocPanel(targets.body);
-          panel.classList.add('feishu-doc-panel-weekly-only');
-          renderLocalMaterials(panel, topic);
-          appendWeeklyReportBlocks(panel, topic, weeklyReport);
           return;
         }
         if (res.ok || res.status === 404) {
@@ -3314,7 +3214,6 @@
           errBox.className = 'feishu-fetch-error';
           errBox.textContent = res.message || ('加载会序「' + (agendaTitle || ('第 ' + (agendaIndex + 1) + ' 项')) + '」资料失败');
           errPanel.insertBefore(errBox, errPanel.firstChild);
-          appendWeeklyReportBlocks(errPanel, topic, null);
         } else {
           renderAgendaDocPanelContent(targets.body, topic, opts);
         }
@@ -3391,14 +3290,14 @@
 
       var agendaDocFullscreen = false;
 
-      var agendaDocMaterialBlockSelectors = '.feishu-part-block, .local-material-block, .weekly-report-block';
+      var agendaDocMaterialBlockSelectors = '.feishu-part-block, .local-material-block';
       var agendaDocFsFillSelectors = [
         '.feishu-doc-panel', '.feishu-part-block', '.feishu-doc-body',
         '.structured-bitable-root', '.structured-bitable-table-wrap', '.structured-sheet',
         '.feishu-bitable-wrap', '.feishu-bitable-table-group', '.structured-slide-deck',
         '.structured-docx-blocks', '.structured-image-gallery', '.local-material-gallery',
         '.local-material-html-preview', '.local-material-block', '.local-material-preview',
-        '.weekly-report-block', '.feishu-record-cards'
+        '.feishu-record-cards'
       ];
       var agendaDocFsScrollSelectors = [
         '.structured-table-scroll', '.feishu-bitable-scroll', '.structured-pdf-scroll-view',
@@ -3737,9 +3636,7 @@
           var docCount = uniqueRefs.length;
           var mainBodyEl = document.getElementById('progressReportBody');
           var hasInlineBody = mainBodyEl && !!mainBodyEl.querySelector('.feishu-doc-body');
-          var panelPrefix = (topicHasWeeklyReport(curTopic) && !topicHasFeishuDoc(curTopic) && !topicHasLocalMaterial(curTopic) && !topicHasOabpTaskSql(curTopic))
-              ? '会前对比通报'
-              : (hasInlineBody || topicHasFeishuDoc(curTopic) || topicHasLocalMaterial(curTopic) || topicHasOabpTaskSql(curTopic) ? '会序资料' : '会序飞书链接');
+          var panelPrefix = (hasInlineBody || topicHasFeishuDoc(curTopic) || topicHasLocalMaterial(curTopic) || topicHasOabpTaskSql(curTopic) ? '会序资料' : '会序飞书链接');
           var kindLbl = docCount > 1 ? ('共 ' + docCount + ' 份') : (docCount === 1 ? feishuKindLabel(uniqueRefs[0].kind) : (topicHasOabpTaskSql(curTopic) ? feishuKindLabel('OABP') : feishuKindLabel(curTopic.feishuDocKind)));
           titleEl.textContent = panelPrefix + (kindLbl ? ('（' + kindLbl + '）') : '') + ' · '
               + (curTopic.title || ('第 ' + (curTopicIdx + 1) + ' 项'));
@@ -3769,7 +3666,9 @@
           feishuDocKind: it.feishuDocKind || '',
           feishuDocs: it.feishuDocs || null,
           oabpTaskSql: it.oabpTaskSql || '',
-          oabpTaskShow: it.oabpTaskShow
+          oabpTaskShow: it.oabpTaskShow,
+          externalUrl: it.externalUrl || '',
+          externalLinkLabel: it.externalLinkLabel || ''
         };
       }
 
@@ -3782,7 +3681,9 @@
           feishuDocKind: t.feishuDocKind || '',
           feishuDocs: t.feishuDocs || null,
           oabpTaskSql: t.oabpTaskSql || '',
-          oabpTaskShow: t.oabpTaskShow
+          oabpTaskShow: t.oabpTaskShow,
+          externalUrl: t.externalUrl || '',
+          externalLinkLabel: t.externalLinkLabel || ''
         };
       }
 
@@ -3913,6 +3814,7 @@
           bodyEl.className = 'current-agenda-detail-body muted';
           bodyEl.textContent = '本项暂无补充说明。创建会议时在会序 JSON 的 items[].detail 中可填写 Markdown。';
         }
+        appendExternalOpenLink(bodyEl, cur);
       }
 
       function updateExtendTopicControls(enabled) {
@@ -4161,9 +4063,8 @@
             feishuDocUrl: t.feishuDocUrl || '',
             feishuDocKind: t.feishuDocKind || '',
             feishuDocs: t.feishuDocs || [],
-            generatedReportUrl: t.generatedReportUrl || '',
-            generatedReportAt: t.generatedReportAt || '',
-            outputFeishuDocUrl: t.outputFeishuDocUrl || ''
+            externalUrl: t.externalUrl || '',
+            externalLinkLabel: t.externalLinkLabel || ''
           };
         });
         var el = document.getElementById('topics');
@@ -4638,12 +4539,55 @@
 
       if (detectIOS()) {
         document.getElementById('iosNoticeHost').style.display = 'block';
-        document.addEventListener('visibilitychange', function () {
-          if (document.hidden && recorder && recorder.isRecording) {
+      }
+
+      async function recoverHostUiAfterResume() {
+        if (window.HostMeetingRail && typeof HostMeetingRail.recoverFromBackground === 'function') {
+          HostMeetingRail.recoverFromBackground();
+        }
+        if (window.AgendaFsPresent && typeof AgendaFsPresent.recoverFromBackground === 'function') {
+          AgendaFsPresent.recoverFromBackground();
+        }
+        var fsCard = document.getElementById('agendaDocCard');
+        if (fsCard && fsCard.classList.contains('agenda-doc-fullscreen') && !agendaDocFullscreen) {
+          finishAgendaDocFullscreenRestore(fsCard, document.getElementById('btnAgendaDocFullscreen'));
+        }
+        if (window.ImageLightbox && typeof ImageLightbox.close === 'function') {
+          ImageLightbox.close();
+        }
+        document.querySelectorAll('.host-rail-shell.blur-fade, .host-rail-drawer .blur-fade').forEach(function (el) {
+          el.classList.add('visible');
+        });
+        if (hostTtsAvatar && typeof hostTtsAvatar.warmUpAudio === 'function') {
+          hostTtsAvatar.warmUpAudio();
+        }
+        if (recorder && recorder.audioContext) {
+          try {
+            if (recorder.audioContext.state === 'suspended') {
+              await recorder.audioContext.resume();
+            }
+          } catch (e) { console.warn(e); }
+        }
+        if (canOperate && hostSessionStarted && meetingLive) {
+          syncRecordingReconnectUi(lastHostStateObj);
+        }
+        refreshHostStateFromApi();
+      }
+
+      function onHostPageVisibilityChange() {
+        if (document.hidden) {
+          if (detectIOS() && recorder && recorder.isRecording) {
             showErr('录音中，请保持屏幕常亮');
           }
-        });
+          return;
+        }
+        recoverHostUiAfterResume();
       }
+
+      document.addEventListener('visibilitychange', onHostPageVisibilityChange);
+      window.addEventListener('pageshow', function (ev) {
+        if (ev.persisted) recoverHostUiAfterResume();
+      });
       const wsHost = meetingWsUrl('/ws/host/' + encodeURIComponent(meetingId) + '?token=' + encodeURIComponent(token));
       let sock = null;
       function connectHostWs() {

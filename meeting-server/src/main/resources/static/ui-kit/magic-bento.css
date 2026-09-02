@@ -48,6 +48,22 @@
   box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .magic-bento-card--border-glow:hover {
+    --glow-intensity: 1;
+  }
+}
+
+@media (pointer: coarse) {
+  .magic-bento-card:hover {
+    transform: none;
+    box-shadow: none;
+  }
+  .magic-bento-card--border-glow:hover {
+    --glow-intensity: 0;
+  }
+}
+
 .magic-bento-card__header,
 .magic-bento-card__content {
   display: flex;

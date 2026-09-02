@@ -14,8 +14,7 @@ public final class AgendaDocBindingSnapshots {
     public static AgendaDocBindingSnapshot of(Long id, String configName, Integer presetTypeCode,
                                               Integer agendaIndex, Integer resourceSlot,
                                               String feishuDocUrl, Integer enabled, String configRole,
-                                              String bitableDisplayMode, String generatedReportUrl,
-                                              java.time.LocalDateTime generatedReportAt) {
+                                              String bitableDisplayMode) {
         return AgendaDocBindingSnapshot.builder()
                 .id(id)
                 .configName(configName)
@@ -26,8 +25,6 @@ public final class AgendaDocBindingSnapshots {
                 .enabled(enabled)
                 .configRole(configRole)
                 .bitableDisplayMode(bitableDisplayMode)
-                .generatedReportUrl(generatedReportUrl)
-                .generatedReportAt(generatedReportAt)
                 .build();
     }
 

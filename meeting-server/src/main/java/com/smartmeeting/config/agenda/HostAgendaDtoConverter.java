@@ -21,6 +21,7 @@ public final class HostAgendaDtoConverter {
         item.setDetail(dto.getDetail());
         item.setFeishuDocUrl(dto.getFeishuDocUrl());
         copyOabpFields(dto, item);
+        copyExternalLinkFields(dto, item);
         if (dto.getFeishuDocs() != null) {
             List<HostAgendaFeishuDocRef> refs = new ArrayList<>();
             for (FeishuDocRefDto r : dto.getFeishuDocs()) {
@@ -72,6 +73,7 @@ public final class HostAgendaDtoConverter {
             dto.setDetail(item.getDetail());
             dto.setFeishuDocUrl(item.getFeishuDocUrl());
             copyOabpFields(item, dto);
+            copyExternalLinkFields(item, dto);
             if (item.getFeishuDocs() != null) {
                 List<FeishuDocRefDto> refs = new ArrayList<>();
                 for (HostAgendaFeishuDocRef r : item.getFeishuDocs()) {
@@ -132,6 +134,28 @@ public final class HostAgendaDtoConverter {
         item.setOabpTaskShow(dto.getOabpTaskShow());
         item.setOabpDisplayTemplate(dto.getOabpDisplayTemplate());
         item.setOabpSqlPresetId(dto.getOabpSqlPresetId());
+    }
+
+    /** 将 core 的外链字段回写到 DTO（toDtoList/enrich 回写用）。 */
+    public static void copyExternalLinkFields(HostAgendaItem core, HostAgendaItemDto dto) {
+        if (core == null || dto == null) {
+            return;
+        }
+        if (core.getExternalUrl() != null && !core.getExternalUrl().isBlank()) {
+            dto.setExternalUrl(core.getExternalUrl());
+        }
+        if (core.getExternalLinkLabel() != null && !core.getExternalLinkLabel().isBlank()) {
+            dto.setExternalLinkLabel(core.getExternalLinkLabel());
+        }
+    }
+
+    /** 将 DTO 的外链字段写入 core（toCore 用）。 */
+    private static void copyExternalLinkFields(HostAgendaItemDto dto, HostAgendaItem item) {
+        if (dto == null || item == null) {
+            return;
+        }
+        item.setExternalUrl(dto.getExternalUrl());
+        item.setExternalLinkLabel(dto.getExternalLinkLabel());
     }
 
     public static List<HostAgendaFeishuDocRef> runtimeDocsFromDto(List<FeishuDocRefDto> runtimeDocs) {

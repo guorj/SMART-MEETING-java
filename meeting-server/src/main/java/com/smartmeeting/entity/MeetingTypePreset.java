@@ -42,4 +42,6 @@ public class MeetingTypePreset {
     /** AI 主持议题模板 JSON：{@code {"items":[{"title","minutes"},...]}}，模板会议按 code 读取本表 */
     @TableField(value = "host_agenda", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
     private String hostAgenda;
+    /** 纪要生成 OpenClaw Skill 名（如 {@code tech-committee-minutes}）；空则走 LLM 降级。 */
+    private String minuteSkillName;
 }

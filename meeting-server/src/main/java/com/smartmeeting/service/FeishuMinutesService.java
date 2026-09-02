@@ -31,7 +31,8 @@ import java.util.regex.Pattern;
  * 飞书妙记（Minutes）Open API 客户端。
  * <p>
  * 封装妙记元数据查询、音视频下载链接获取、下载 + ffmpeg 转码为 16k mono s16le PCM。
- * 鉴权复用 {@link FeishuService#getTenantToken()}；下载使用独立长超时 {@link RestTemplate}。
+ * 元数据接口使用 {@link FeishuService#getTenantToken()}；
+ * 媒体下载<strong>仅</strong>使用 {@link FeishuMinutesUserTokenProvider}（{@code user_access_token}）。
  * <p>
  * 参考实现：{@code jq-openclaw/services/feishu-router/fetch-minutes.mjs}（Node 版，已验证可用）。
  * <p>
@@ -49,6 +50,7 @@ public class FeishuMinutesService {
     private static final Pattern MINUTE_TOKEN_FROM_URL = Pattern.compile("/minutes/([A-Za-z0-9]+)");
 
     private final FeishuService feishuService;
+    private final FeishuMinutesUserTokenProvider minutesUserTokenProvider;
     private final ObjectMapper objectMapper;
     private final FfmpegAudioConverter ffmpegAudioConverter;
     private final MeetingAudioProperties audioProperties;
@@ -117,15 +119,30 @@ public class FeishuMinutesService {
 
     /**
      * 获取妙记音视频下载链接（有效期约 1 天）。
+     * <p>
+     * 仅使用 {@code user_access_token}（与飞书 API 调试台一致）；未配置用户 token 时不回退 tenant。
      *
      * @param minuteToken 妙记 token
-     * @return download_url；调用失败返回 null
+     * @return download_url；调用失败或未配置用户 token 时返回 null
      */
     public String getMediaDownloadUrl(String minuteToken) {
+        if (!minutesUserTokenProvider.isConfigured()) {
+            log.warn("FeishuMinutes media download requires user_access_token; configure "
+                    + "meeting.feishu.minutes.user-refresh-token or user-access-token");
+            return null;
+        }
+        String userToken = minutesUserTokenProvider.getUserAccessToken();
+        if (userToken == null || userToken.isBlank()) {
+            log.warn("FeishuMinutes user_access_token unavailable (refresh failed?); token={}", minuteToken);
+            return null;
+        }
+        return requestMediaDownloadUrl(minuteToken, userToken, "user_access_token");
+    }
+
+    private String requestMediaDownloadUrl(String minuteToken, String accessToken, String tokenKind) {
         try {
-            String token = feishuService.getTenantToken();
             HttpHeaders headers = new HttpHeaders();
-            headers.setBearerAuth(token);
+            headers.setBearerAuth(accessToken);
             ResponseEntity<JsonNode> resp = restTemplate.exchange(
                     feishuBaseUrl + "/open-apis/minutes/v1/minutes/" + minuteToken + "/media",
                     HttpMethod.GET, new HttpEntity<>(headers), JsonNode.class);
@@ -133,13 +150,18 @@ public class FeishuMinutesService {
             if (root == null || root.path("code").asInt(0) != 0) {
                 String msg = root == null ? "empty body" : root.path("msg").asText("unknown");
                 int code = root == null ? -1 : root.path("code").asInt(-1);
-                log.warn("FeishuMinutes getMediaDownloadUrl failed: token={}, code={}, msg={}", minuteToken, code, msg);
+                log.warn("FeishuMinutes getMediaDownloadUrl failed: token={}, auth={}, code={}, msg={}",
+                        minuteToken, tokenKind, code, msg);
                 return null;
             }
             String url = root.path("data").path("download_url").asText("");
+            if (!url.isBlank()) {
+                log.info("FeishuMinutes getMediaDownloadUrl ok: token={}, auth={}", minuteToken, tokenKind);
+            }
             return url.isBlank() ? null : url;
         } catch (Exception e) {
-            log.warn("FeishuMinutes getMediaDownloadUrl exception: token={}, err={}", minuteToken, e.getMessage());
+            log.warn("FeishuMinutes getMediaDownloadUrl exception: token={}, auth={}, err={}",
+                    minuteToken, tokenKind, e.getMessage());
             return null;
         }
     }

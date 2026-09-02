@@ -28,9 +28,17 @@
   function syncDrawerUi() {
     var drawer = $('hostRailDrawer');
     var toggle = $('hostRailMobileToggle');
+    var backdrop = $('hostRailDrawerBackdrop');
+    var mobileOpen = drawerOpen && isMobileRail();
     if (drawer) {
       drawer.classList.toggle('is-open', drawerOpen);
       drawer.setAttribute('aria-hidden', drawerOpen ? 'false' : 'true');
+      if (isMobileRail()) {
+        if (drawerOpen) drawer.removeAttribute('inert');
+        else drawer.setAttribute('inert', '');
+      } else {
+        drawer.removeAttribute('inert');
+      }
     }
     if (toggle) {
       toggle.classList.toggle('is-active', drawerOpen);
@@ -38,6 +46,8 @@
       toggle.setAttribute('aria-label', drawerOpen ? '关闭主持面板' : '打开主持面板');
       toggle.title = drawerOpen ? '关闭主持面板' : '主持面板';
     }
+    document.body.classList.toggle('host-rail-drawer-open', mobileOpen);
+    if (backdrop) backdrop.hidden = !mobileOpen;
   }
 
   function openDrawer(options) {
@@ -209,6 +219,20 @@
         toggleDrawer();
       });
     }
+    var shell = document.querySelector('.host-rail-shell');
+    var drawerEl = $('hostRailDrawer');
+    if (shell && drawerEl && !$('hostRailDrawerBackdrop')) {
+      var backdrop = document.createElement('div');
+      backdrop.id = 'hostRailDrawerBackdrop';
+      backdrop.className = 'host-rail-drawer-backdrop';
+      backdrop.hidden = true;
+      backdrop.setAttribute('aria-hidden', 'true');
+      shell.insertBefore(backdrop, drawerEl);
+      backdrop.addEventListener('click', function () {
+        drawerPinned = false;
+        closeDrawer(true);
+      });
+    }
     if (MOBILE_RAIL_MQ && MOBILE_RAIL_MQ.addEventListener) {
       MOBILE_RAIL_MQ.addEventListener('change', function () {
         if (!isMobileRail() && !drawerPinned) closeDrawer(true);
@@ -229,6 +253,18 @@
 
   function onFullscreenEnter() {
     closeDrawer(true);
+  }
+
+  /** 从后台切回时重置移动端抽屉命中区域（iOS fixed+transform 触摸失效） */
+  function recoverFromBackground() {
+    if (!isRailLayout()) return;
+    syncDrawerUi();
+    if (!isMobileRail()) return;
+    var drawer = $('hostRailDrawer');
+    if (!drawer || drawerOpen) return;
+    drawer.style.display = 'none';
+    void drawer.offsetHeight;
+    drawer.style.display = '';
   }
 
   function handleEscapeKey(agendaDocFullscreen) {
@@ -253,6 +289,7 @@
     syncViewerMode: syncViewerMode,
     syncIdleHint: syncIdleHint,
     onFullscreenEnter: onFullscreenEnter,
+    recoverFromBackground: recoverFromBackground,
     handleEscapeKey: handleEscapeKey,
     isMobile: isMobileRail
   };

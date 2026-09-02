@@ -27,7 +27,7 @@ class OpenClawGatewayWsClientLiveTest {
     }
 
     @Test
-    void chatSendMatterProgressSkill() {
+    void chatSendMinuteEnhancementSkill() {
         boolean hasAuth = (TOKEN != null && !TOKEN.isBlank())
                 || (DEVICE_TOKEN != null && !DEVICE_TOKEN.isBlank());
         Assumptions.assumeTrue(hasAuth, "Set OPENCLAW_AUTH_TOKEN or OPENCLAW_DEVICE_TOKEN");
@@ -38,11 +38,12 @@ class OpenClawGatewayWsClientLiveTest {
 
         OpenClawGatewayWsClient client = new OpenClawGatewayWsClient(new OpenClawProperties());
         String prompt = """
-                /skill:matter-progress
+                /skill:minute-enhancement
                 meetingId=test-meeting-001
-                title=联调测试会议
-                company=测试集团
-                groupName=综合管理会
+                meetingTitle=联调测试会议
+                meetingType=2
+                participants=测试用户
+                rawMinuteLength=128
                 """;
 
         String reply = client.sendChatMessage(GATEWAY, TOKEN, DEVICE_TOKEN, SESSION_KEY, prompt, 120);

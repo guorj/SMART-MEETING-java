@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <script>
     (function () {
       var p = location.pathname || '';
@@ -20,13 +20,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="ui-kit/tokens.css?v=sm-ui-20260611-rail2">
-  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/components.css?v=sm-ui-20260825-mobile2">
   <link rel="stylesheet" href="ui-kit/icons.css?v=sm-ui-20260611-rail2">
-  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260611-rail2">
-  <link rel="stylesheet" href="styles/host-meeting.css?v=sm-ui-20260611-fs-bitable">
-  <link rel="stylesheet" href="styles/host-meeting-rail.css?v=sm-ui-20260611-rail3">
+  <link rel="stylesheet" href="ui-kit/motion.css?v=sm-ui-20260825-mobile2">
+  <link rel="stylesheet" href="styles/host-meeting.css?v=sm-ui-20260825-mobile2">
+  <link rel="stylesheet" href="styles/host-meeting-rail.css?v=sm-ui-20260825-mobile2">
   <link rel="stylesheet" href="styles/host-agenda-fs-present.css?v=sm-ui-20260611-fs-bitable">
-  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260611-rail2">
+  <link rel="stylesheet" href="ui-kit/magic-bento.css?v=sm-ui-20260825-mobile2">
   <script src="ui-kit/icons.js?v=sm-ui-20260611-rail2"></script>
   <script src="ui-kit/motion.js?v=sm-ui-20260611-rail2"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -123,7 +123,7 @@
         <div id="currentAgendaDetailBody" class="current-agenda-detail-body"></div>
       </div>
       <div class="host-rail-idle-hint card-light" id="hostRailIdleHint" hidden>
-        <p class="muted">会议尚未开始。移入屏幕右侧或点击右下角图标打开主持面板，然后选择「开始会议」。</p>
+        <p class="muted"><span class="host-idle-hint-mobile">点击右下角图标打开主持面板</span><span class="host-idle-hint-desktop">移入屏幕右侧或点击右下角图标打开主持面板</span>，然后选择「开始会议」。</p>
       </div>
       <section class="card-light card-matter blur-fade" id="agendaDocCard" aria-label="会序模块">
         <div class="agenda-doc-panel-head">
@@ -243,10 +243,29 @@
     </div>
   </div>
 
-  <script src="host-meeting-rail.js?v=sm-ui-20260611-rail3"></script>
-  <script src="host-agenda-fs-present.js?v=sm-ui-20260611-fs-bitable"></script>
+  <script src="host-meeting-rail.js?v=sm-ui-20260825-mobile2"></script>
+  <script src="host-agenda-fs-present.js?v=sm-ui-20260825-mobile2"></script>
   <script src="host-meeting-preview.js?v=sm-ui-20260611-fs-bitable"></script>
-  <script src="ui-kit/magic-bento.js?v=sm-ui-20260611-rail2"></script>
+  <script src="ui-kit/magic-bento.js?v=sm-ui-20260825-mobile2"></script>
+  <script>
+    function recoverPreviewUiAfterResume() {
+      if (window.HostMeetingRail && typeof HostMeetingRail.recoverFromBackground === 'function') {
+        HostMeetingRail.recoverFromBackground();
+      }
+      if (window.AgendaFsPresent && typeof AgendaFsPresent.recoverFromBackground === 'function') {
+        AgendaFsPresent.recoverFromBackground();
+      }
+      document.querySelectorAll('.host-rail-shell.blur-fade, .host-rail-drawer .blur-fade').forEach(function (el) {
+        el.classList.add('visible');
+      });
+    }
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) recoverPreviewUiAfterResume();
+    });
+    window.addEventListener('pageshow', function (ev) {
+      if (ev.persisted) recoverPreviewUiAfterResume();
+    });
+  </script>
   <script>
     document.addEventListener('DOMContentLoaded', function () {
       if (!window.MagicBento || !window.gsap) return;

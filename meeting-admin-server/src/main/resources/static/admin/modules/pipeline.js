@@ -12,7 +12,7 @@ AdminModules.register({
     const STAGES = ['PRE', 'MID', 'POST'];
     const stageTitle = { PRE: '会前 PRE', MID: '会中 MID', POST: '会后 POST' };
     const STEP_TYPES = [
-      'preset-sync', 'settings-reload', 'weekly-job', 'push-notification',
+      'preset-sync', 'settings-reload', 'push-notification',
       'pre-confirm-card', 'pre-inventory-card', 'pre-push-doc-link', 'pre-voiceprint-check', 'pre-agenda-notify',
       'pre-agenda-owner-confirm-notify',
       'pre-agenda-leader-notify',

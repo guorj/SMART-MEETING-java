@@ -24,14 +24,10 @@ public class AgendaDocBindingSnapshot {
     private String originalFilename;
     private String mimeType;
     private Integer enabled;
-    /** 1=主持页展示，0=隐藏（资料仍可用于对比任务等） */
+    /** 1=主持页展示，0=隐藏 */
     private Integer showInHost;
     private String configRole;
     private String bitableDisplayMode;
-    private String generatedReportUrl;
-    private LocalDateTime generatedReportAt;
-    /** v0.26：指向 int_weekly_matter_comparison_run.id（最新批次） */
-    private Long generatedReportRunId;
 
     public boolean isShowInHost() {
         return showInHost == null || showInHost == 1;

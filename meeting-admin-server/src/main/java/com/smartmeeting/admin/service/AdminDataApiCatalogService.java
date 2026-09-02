@@ -22,7 +22,6 @@ public class AdminDataApiCatalogService {
         addAgendaConfig(list);
         addMeetings(list);
         addSystemConfig(list);
-        addWeeklyJobs(list);
         addUsers(list);
         addMeetingServerInternal(list);
         return list;
@@ -197,62 +196,6 @@ public class AdminDataApiCatalogService {
                 null,
                 "{ \"code\": 0, \"data\": { \"reloaded\": true } }",
                 curlAdmin("POST", "/api/v1/admin/system-config/reload-runtime", null),
-                null));
-    }
-
-    private void addWeeklyJobs(List<AdminApiReferenceEntryDto> list) {
-        String cat = "周报任务 · weekly-jobs";
-        list.add(entry("weekly-job-post", cat, "POST",
-                "/api/v1/admin/weekly-jobs",
-                "新建周报对比任务",
-                "写入 feishu 定时任务配置表；保存后需重启 feishu-scheduled-bot 或刷新 Quartz。",
-                "meeting-admin-server :8766",
-                adminAuth(),
-                jsonContent(),
-                """
-                {
-                  "jobName": "preset1-weekly-compare",
-                  "enabled": true,
-                  "cronExpression": "0 10 * * MON",
-                  "scheduleTimezone": "Asia/Shanghai",
-                  "sourceConfigNames": ["preset1-comp-agenda-01", "preset1-comp-agenda-02"],
-                  "minuteQueryType": "PRESET_LAST_7_DAYS",
-                  "minuteQueryParamsJson": "{\\"presetTypeCode\\":1,\\"days\\":7}",
-                  "outputConfigName": "preset1-weekly-report-out",
-                  "outputDocTitleTpl": "周报 {date}",
-                  "feishuFolderToken": ""
-                }
-                """.trim(),
-                "{ \"code\": 0, \"data\": { \"id\": 12 } }",
-                curlAdmin("POST", "/api/v1/admin/weekly-jobs", """
-                {"jobName":"preset1-weekly-compare","enabled":true,"cronExpression":"0 10 * * MON","sourceConfigNames":["preset1-comp-agenda-01"],"minuteQueryType":"PRESET_LAST_7_DAYS","minuteQueryParamsJson":"{\\"presetTypeCode\\":1,\\"days\\":7}","outputConfigName":"preset1-weekly-report-out"}
-                """),
-                null));
-
-        list.add(entry("weekly-job-put", cat, "PUT",
-                "/api/v1/admin/weekly-jobs/{id}",
-                "更新周报任务",
-                "全量更新任务字段。",
-                "meeting-admin-server :8766",
-                adminAuth(),
-                jsonContent(),
-                "{ \"jobName\": \"preset1-weekly-compare\", \"enabled\": false, \"cronExpression\": \"0 10 * * MON\" }",
-                "{ \"code\": 0, \"data\": null }",
-                curlAdmin("PUT", "/api/v1/admin/weekly-jobs/12", """
-                {"jobName":"preset1-weekly-compare","enabled":false,"cronExpression":"0 10 * * MON"}
-                """),
-                null));
-
-        list.add(entry("weekly-job-delete", cat, "DELETE",
-                "/api/v1/admin/weekly-jobs/{id}",
-                "删除周报任务",
-                "按 id 删除。",
-                "meeting-admin-server :8766",
-                adminAuth(),
-                null,
-                null,
-                "{ \"code\": 0, \"data\": null }",
-                curlAdmin("DELETE", "/api/v1/admin/weekly-jobs/12", null),
                 null));
     }
 

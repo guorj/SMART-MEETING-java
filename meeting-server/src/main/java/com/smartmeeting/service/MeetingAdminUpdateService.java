@@ -35,6 +35,8 @@ public class MeetingAdminUpdateService {
     private final ParticipantMapper participantMapper;
     private final MeetingService meetingService;
     private final MeetingStateMachineService meetingStateMachineService;
+    private final MeetingCalendarSyncService meetingCalendarSyncService;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Transactional
@@ -93,13 +95,18 @@ public class MeetingAdminUpdateService {
         if (request.getDocToken() != null) {
             meeting.setDocToken(request.getDocToken());
         }
+        boolean vcTokenUpdated = false;
         if (request.getVcMinuteToken() != null) {
             String token = request.getVcMinuteToken().trim();
             meeting.setVcMinuteToken(token.isBlank() ? null : token);
+            vcTokenUpdated = !token.isBlank();
         }
 
         meetingMapper.updateById(meeting);
         log.info("Meeting updated via admin: meetingId={}", meetingId);
+        if (vcTokenUpdated) {
+            postMeetingOrchestrator.resumePostMeetingAfterVcReady(meetingId);
+        }
         return meetingService.getMeeting(meetingId);
     }
 
@@ -160,6 +167,7 @@ public class MeetingAdminUpdateService {
             if (meeting.getStatus() == null || !NOT_STARTED.contains(meeting.getStatus())) {
                 throw new BusinessException(400, "仅未开始会议可取消");
             }
+            meetingCalendarSyncService.deleteScheduledCalendarEvent(meeting);
             meetingStateMachineService.forceStatus(meeting.getId(), MeetingStatus.CANCELLED);
             meeting.setStatus(MeetingStatus.CANCELLED.name());
             return;

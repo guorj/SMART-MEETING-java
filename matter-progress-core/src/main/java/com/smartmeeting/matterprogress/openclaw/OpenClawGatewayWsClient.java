@@ -195,8 +195,13 @@ public class OpenClawGatewayWsClient {
                                 log.info("OpenClaw connected: loopback={}, role={}, scopes={}",
                                         loopback, auth.path("role").asText(""), scopes);
                                 if (!scopes.isArray() || scopes.isEmpty()) {
-                                    errorRef.set("connect ok but scopes empty; use http://127.0.0.1:18789 "
-                                            + "on the Gateway host, or set openclaw.device-token after pairing");
+                                    String hint = loopback
+                                            ? "loopback connect ok but scopes empty; check gateway.auth on host"
+                                            : "remote connect ok but scopes empty; use http://127.0.0.1:18789 via SSH tunnel, "
+                                            + "set openclaw.device-token after pairing, "
+                                            + "or add gateway.auth.scopes on Gateway host";
+                                    errorRef.set("connect ok but scopes empty; " + hint);
+                                    log.warn("OpenClaw {} (gateway={})", hint, gatewayHttpUrl);
                                     done.countDown();
                                     return;
                                 }

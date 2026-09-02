@@ -1,23 +1,14 @@
 # =============================================================================
-# Prod Profile — meeting-server 生产/准生产
+# Prod Profile — meeting-server 生产/准生产（阿里云 39.97.61.212 / oa.qdyhjz.cn）
 # =============================================================================
-# 激活：SPRING_PROFILES_ACTIVE=prod
-# 与 dev 对齐：同库、同三方密钥、同 base-url；差异主要在会后开关默认值
+# 激活：SPRING_PROFILES_ACTIVE=prod（application.yml 默认）
+# 同机组件：feishu-scheduled-bot :8764、OpenClaw Gateway :18789
 # 业务开关 → [Admin热更] schema-seed/meeting-runtime-defaults-prod.sql + Admin
-# 配置层级标签见 application.yml 文件头
-#   asr.offline-enabled=true + minute.generation-enabled=true（下方）
-#   → 先离线转写，再纪要生成 → COMPLETED
-#
-# 消息：排除 Kafka + meeting.kafka.enabled=false → LocalEventBus（与 dev 一致）
-#       若上 Kafka：设 KAFKA_ENABLED=true、取消 exclude，并创建 topic
-#       meeting.offline.asr / meeting.events / todo.extract
 # =============================================================================
 spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.kafka.KafkaAutoConfiguration
-      # 若启用 Redis 预设缓存，可取消下一行注释并配置 spring.data.redis
-      # - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
 
   datasource:
     url: jdbc:mysql://60.205.1.17:3306/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
@@ -29,12 +20,41 @@ spring:
     init:
       mode: never
 
+  data:
+    redis:
+      host: 60.205.1.17
+      port: 6379
+      password: jq@2026
+      database: 10
+      timeout: 5000ms
+
 meeting:
   kafka:
     enabled: false
 
-  # 业务开关 → Admin + schema-seed/meeting-runtime-defaults-prod.sql
   base-url: "https://oa.qdyhjz.cn/meeting-server"
+
+  notification:
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764/scheduled-bot}
+
+  agenda-material:
+    storage-dir: ${AGENDA_MATERIAL_DIR:/root/smart-meeting-java/data/agenda-materials}
+
+  recording:
+    timeout-check-enabled: true
+
+  # ----- 录音 PCM -----
+  audio:
+    sample-rate: 16000
+    bit-depth: 16
+    channels: 1
+    frame-duration-ms: 40
+    max-duration-hours: 4
+    silence-auto-pause-min: 30
+    cache-retention-hours: 72
+    cache-dir: ${MEETING_AUDIO_CACHE_DIR:/root/smart-meeting-java/data/audio}
+    queue-maxsize: 100
+    write-flush-interval: 25
 
   # ----- 飞书 -----
   feishu:
@@ -50,6 +70,10 @@ meeting:
       instruction-card-on-first-start: false
       menu-event-key-start-meeting: "start_meeting"
       menu-v6-fallback-to-last-group-chat: true
+    minutes:
+      # 妙记 /media 下载须 user_access_token（与 API 调试台一致）；tenant 常 2091005
+      user-access-token: ${FEISHU_MINUTES_USER_ACCESS_TOKEN:}
+      user-refresh-token: ${FEISHU_MINUTES_USER_REFRESH_TOKEN:}
   # ----- ASR / 离线说话人（开关 → Admin；此处仅连接参数）-----
   asr:
     primary: xfyun
@@ -94,25 +118,10 @@ meeting:
     timeout-seconds: 120
     max-retries: 2
 
-  # ----- 录音 PCM -----
-  audio:
-    sample-rate: 16000
-    bit-depth: 16
-    channels: 1
-    frame-duration-ms: 40
-    max-duration-hours: 4
-    silence-auto-pause-min: 30
-    cache-retention-hours: 72
-    cache-dir: "./data/audio"
-    queue-maxsize: 100
-    write-flush-interval: 25
-
-  # ----- JWT -----
   jwt:
     secret: "IQ7vgVe5uBy0XJ6q8mzrqHgRzl9md+1oO1qKLHnxchxdUyhN2qa3aRqiCK+99U5K"
     expire-hours: 4
 
-  # ----- 心跳 -----
   heartbeat:
     interval: 30
     frontend-ws-close-timeout: 5
@@ -131,9 +140,12 @@ logging:
     root: INFO
     com.smartmeeting: info
   file:
-    path: "./logs/smart-meeting"
+    path: /root/smart-meeting-java/logs/meeting-server
     max-size: 100MB
     max-history: 7
+
+smart-meeting:
+  skills-dir: ${SMART_MEETING_SKILLS_DIR:/root/smart-meeting-java/skills}
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl

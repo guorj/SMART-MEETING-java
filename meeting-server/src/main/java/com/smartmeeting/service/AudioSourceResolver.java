@@ -10,18 +10,8 @@ import org.springframework.stereotype.Service;
 import java.nio.file.Path;
 
 /**
- * 会后音频源选择：有妙记 token（File B）则用 File B，否则回退 File A（浏览器 PCM）。
- * <p>
- * 策略简化（不阻塞等待 webhook）：
- * <ol>
- *   <li>{@code meeting.vc.recording-enabled=false} → 直接返回 null（调用方走 File A 逻辑）</li>
- *   <li>{@code vc_minute_token} 为空 → 返回 null（webhook 未到，走 File A）</li>
- *   <li>调 {@link FeishuMinutesService#downloadAndTranscodeToPcm} 下载转码</li>
- *   <li>成功 → 返回 {meetingId}_vc.pcm 路径，source=vc_recording</li>
- *   <li>失败 → 返回 null（告警，回退 File A）</li>
- * </ol>
- * <p>
- * 不做 A+B 合并。主持人未入飞书的极端场景仍用 File A，转写覆盖不全可接受。
+ * 会后音频源选择：有妙记 token（File B）则下载转码；无 token 时由 {@link PostMeetingOrchestrator}
+ * 决定是否等待 VC 回调，本类不负责 File A 回退。
  */
 @Slf4j
 @Service

@@ -76,7 +76,7 @@ AdminModules.register({
         throw new Error((file.name || '文件') + ' 超过 ' + mb + 'MB 限制');
       }
     };
-    const materialAdminUrl = fileId => '/api/v1/admin/agenda-config/materials/' + encodeURIComponent(fileId);
+    const materialAdminUrl = fileId => AdminApi.resolveUrl('/api/v1/admin/agenda-config/materials/' + encodeURIComponent(fileId));
     const fetchMaterialBlobUrl = async fileId => {
       if (!fileId) return '';
       if (materialBlobCache[fileId]) return materialBlobCache[fileId];
@@ -199,6 +199,10 @@ AdminModules.register({
             }
           }
         }
+        const extUrlEl = tr.querySelector('.ag-external-url');
+        if (extUrlEl) bundleItems[i].externalUrl = extUrlEl.value.trim();
+        const extLabelEl = tr.querySelector('.ag-external-label');
+        if (extLabelEl) bundleItems[i].externalLinkLabel = extLabelEl.value.trim();
       });
     };
 
@@ -237,6 +241,8 @@ AdminModules.register({
           oabpTaskSqlStrict: r.oabpTaskSqlStrict === true,
           oabpSqlPresetId: r.oabpSqlPresetId || null,
           oabpDisplayTemplate: r.oabpDisplayTemplate || null,
+          externalUrl: (r.externalUrl || '').trim() || null,
+          externalLinkLabel: (r.externalLinkLabel || '').trim() || null,
           bindings: normalizeBindingSlots(r.bindings || []).map(b => ({
             id: b.id || null,
             configName: b.configName,
@@ -873,7 +879,7 @@ AdminModules.register({
         renderAgendaTable();
         autoSaveBundle();
       };
-      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql, .ag-oabp-show, .ag-oabp-template').forEach(inp => {
+      el.querySelectorAll('.ag-title, .ag-min, .ag-owners, .ag-oabp-sql, .ag-oabp-show, .ag-oabp-template, .ag-external-url, .ag-external-label').forEach(inp => {
         inp.addEventListener('blur', () => autoSaveBundle());
       });
       if (globalThis.OabpDisplayWizard) {
@@ -1646,6 +1652,13 @@ AdminModules.register({
               </div>
               <textarea class="ag-oabp-sql code-area" rows="4">${esc(row.oabpTaskSql || '')}</textarea>
             </section>`}
+            <section class="agenda-card-external">
+              <div class="agenda-doc-toolbar">
+                <span class="agenda-doc-label">外链按钮（主持页「当前议程」展示为 ↗ 打开 XXX，新窗口跳转）</span>
+              </div>
+              <input type="text" class="ag-external-url code-area" placeholder="https://oa.jiqingjituan.com/analysis/todos" value="${esc(row.externalUrl || '')}" style="width:100%;margin-bottom:6px"/>
+              <input type="text" class="ag-external-label code-area" placeholder="按钮文案（可空，缺省按 URL 自动生成）" value="${esc(row.externalLinkLabel || '')}" style="width:100%"/>
+            </section>
           </div></article>`;
       });
       html += '</div><div class="agenda-footer"><button type="button" class="ui-btn ui-btn-secondary" id="ag-add-row">+ 会序项</button></div>';
@@ -1671,7 +1684,7 @@ AdminModules.register({
     root.innerHTML = `
       <div class="ui-card card admin-card blur-fade">
         <h2>会务预设</h2>
-        <p class="module-intro-inline">点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存。资料「角色」决定 weekly-jobs 能否引用为源/产出。</p>
+        <p class="module-intro-inline">点击资料区域直接编辑，失焦后自动保存；会序标题/时长修改后亦会自动保存。</p>
         <div class="preset-picker-section">
           <p class="preset-picker-label">选择会务类型</p>
           <div id="preset-picker-grid" class="preset-picker-grid"></div>

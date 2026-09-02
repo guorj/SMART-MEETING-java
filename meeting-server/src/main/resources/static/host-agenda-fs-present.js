@@ -174,9 +174,21 @@
 
   function playExit(card, onDone) {
     var done = typeof onDone === 'function' ? onDone : function () {};
-    if (!card || !isPresenting) {
+    var finished = false;
+    var exitFallbackTimer = null;
+    function finish() {
+      if (finished) return;
+      finished = true;
+      if (exitFallbackTimer) {
+        clearTimeout(exitFallbackTimer);
+        exitFallbackTimer = null;
+      }
       cleanup();
       done();
+    }
+
+    if (!card || !isPresenting) {
+      finish();
       return;
     }
     if (exitInFlight) return;
@@ -186,18 +198,16 @@
     var chrome = getChrome();
 
     if (prefersReducedMotion() || !global.gsap) {
-      cleanup();
-      done();
+      finish();
       return;
     }
 
     killActiveTweens();
 
+    exitFallbackTimer = setTimeout(finish, 600);
+
     var tl = global.gsap.timeline({
-      onComplete: function () {
-        cleanup();
-        done();
-      }
+      onComplete: finish
     });
     activeTweens.push(tl);
 
@@ -206,10 +216,32 @@
     if (backdrop) tl.to(backdrop, { opacity: 0, duration: 0.22, ease: 'power2.in' }, 0.04);
   }
 
+  /**
+   * 后台挂起时 GSAP 可能中断。退出动画中 → cleanup 交由 host 还原 DOM；
+   * 仍在全屏展示 → 重建 chrome/backdrop，避免误拆 presentation 层。
+   */
+  function recoverFromBackground() {
+    killActiveTweens();
+    var card = activeCard || document.getElementById('agendaDocCard');
+    var wasExitInFlight = exitInFlight;
+    exitInFlight = false;
+
+    if (wasExitInFlight) {
+      cleanup();
+      return;
+    }
+    if (card && card.classList.contains('agenda-doc-fullscreen')) {
+      playEnter(card);
+      return;
+    }
+    if (isPresenting) cleanup();
+  }
+
   global.AgendaFsPresent = {
     playEnter: playEnter,
     playExit: playExit,
     cleanup: cleanup,
+    recoverFromBackground: recoverFromBackground,
     updateChromeText: updateChromeText
   };
 })(window);

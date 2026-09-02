@@ -7,6 +7,7 @@ AdminModules.register({
     const categoryLabel = {
       host: 'AI 主持',
       minute: '会后纪要',
+      vc: '飞书 VC 录制',
       asr: '语音识别与声纹',
       pipeline: '流水线',
       scheduler: '会前调度',
@@ -15,7 +16,7 @@ AdminModules.register({
       openclaw: 'OpenClaw',
       infra: '基础设施'
     };
-    const catOrder = ['host', 'minute', 'asr', 'pipeline', 'scheduler', 'notification', 'web', 'openclaw', 'infra'];
+    const catOrder = ['host', 'minute', 'vc', 'asr', 'pipeline', 'scheduler', 'notification', 'web', 'openclaw', 'infra'];
 
     const hotCount = schema.filter(s => reloadTier(s) === 'hot').length;
     const coldCount = schema.filter(s => reloadTier(s) === 'cold').length;
@@ -91,7 +92,9 @@ function ensureSettingsStyles() {
   const link = document.createElement('link');
   link.id = 'settings-config-css';
   link.rel = 'stylesheet';
-  link.href = '/static/admin/settings-config.css';
+  link.href = (window.AdminApi && AdminApi.resolveUrl
+    ? AdminApi.resolveUrl('/static/admin/settings-config.css')
+    : ((window.__ADMIN_CTX__ || '') + '/static/admin/settings-config.css'));
   document.head.appendChild(link);
 }
 
@@ -135,12 +138,18 @@ function nodeSortKey(n) {
     'meeting.host.reminder.topic-minutes-left': '04',
     'meeting.host.reminder.meeting-minutes-left': '05',
     'meeting.minute.llm-enabled': '01',
-    'meeting.minute.ai-enhancement-enabled': '02',
-    'meeting.minute.feishu-doc-enabled': '03',
-    'meeting.minute.notify-enabled': '04',
-    'meeting.minute.persist-enabled': '05',
-    'meeting.minute.expose-content-in-api': '06',
+    'meeting.minute.skill-generation-enabled': '02',
+    'meeting.minute.ai-enhancement-enabled': '03',
+    'meeting.minute.feishu-doc-enabled': '04',
+    'meeting.minute.notify-enabled': '05',
+    'meeting.minute.persist-enabled': '06',
+    'meeting.minute.expose-content-in-api': '07',
     'meeting.todo.extraction-enabled': '07',
+    'meeting.vc.recording-enabled': '01',
+    'meeting.vc.auto-record': '02',
+    'meeting.vc.callback-timeout-min': '03',
+    'meeting.feishu.minutes.user-refresh-token': '04',
+    'meeting.feishu.minutes.user-access-token': '05',
     'meeting.asr.offline-enabled': '01',
     'meeting.asr.realtime-enabled': '02',
     'meeting.asr.offline-role-enabled': '01',

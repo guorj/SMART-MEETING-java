@@ -7,27 +7,27 @@ package com.smartmeeting.service.agent;
  */
 public final class OpenClawTaskIds {
 
-    public static final String TASK_MATTER_PROGRESS =
-            com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.TASK_MATTER_PROGRESS;
     public static final String TASK_MINUTE_ENHANCEMENT =
             com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.TASK_MINUTE_ENHANCEMENT;
+    public static final String TASK_MINUTE_GENERATION =
+            com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.TASK_MINUTE_GENERATION;
 
     private OpenClawTaskIds() {
-    }
-
-    public static String briefing(String meetingId, int agendaIndex, int generation) {
-        return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.briefing(meetingId, agendaIndex, generation);
     }
 
     public static String minuteEnhancement(String meetingId, long nonce) {
         return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.minuteEnhancement(meetingId, nonce);
     }
 
-    public static boolean isBriefingTask(String taskId) {
-        return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.isBriefingTask(taskId);
+    public static String minuteGeneration(String meetingId, long nonce) {
+        return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.minuteGeneration(meetingId, nonce);
     }
 
     public static boolean isMinuteEnhancementTask(String taskId) {
         return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.isMinuteEnhancementTask(taskId);
+    }
+
+    public static boolean isMinuteGenerationTask(String taskId) {
+        return com.smartmeeting.matterprogress.openclaw.OpenClawTaskIds.isMinuteGenerationTask(taskId);
     }
 }

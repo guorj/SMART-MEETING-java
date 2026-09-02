@@ -34,4 +34,8 @@ public class HostAgendaBundleItemDto {
     private OabpDisplayTemplate oabpDisplayTemplate;
     /** SQL 数据源预设 id */
     private String oabpSqlPresetId;
+    /** 可选：会序外链 URL（如 OA 分析页），主持页展示为「↗ 打开 XXX」按钮 */
+    private String externalUrl;
+    /** 可选：外链按钮文案，缺省时按 URL 自动生成 */
+    private String externalLinkLabel;
 }

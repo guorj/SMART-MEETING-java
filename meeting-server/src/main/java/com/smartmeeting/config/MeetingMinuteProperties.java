@@ -27,6 +27,12 @@ public class MeetingMinuteProperties {
      */
     private boolean aiEnhancementEnabled = true;
 
+    /**
+     * 是否按会务类型将 SKILL.md 正文注入 LLM system prompt（直调 meeting.llm，不走 OpenClaw）。
+     * false 时使用通用纪要 Prompt。
+     */
+    private boolean skillGenerationEnabled = true;
+
     /** 是否调用 LLM 生成结构化纪要初稿；false 时使用简易纪要（转写摘要 + 会议信息）。 */
     private boolean llmEnabled = true;
 

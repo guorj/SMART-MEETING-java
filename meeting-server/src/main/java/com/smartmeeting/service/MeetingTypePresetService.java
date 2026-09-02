@@ -175,6 +175,14 @@ public class MeetingTypePresetService {
                 if (!detail.isEmpty()) {
                     dto.setDetail(detail);
                 }
+                String externalUrl = n.path("externalUrl").asText("").trim();
+                if (!externalUrl.isEmpty()) {
+                    dto.setExternalUrl(externalUrl);
+                    String externalLabel = n.path("externalLinkLabel").asText("").trim();
+                    if (!externalLabel.isEmpty()) {
+                        dto.setExternalLinkLabel(externalLabel);
+                    }
+                }
                 String docUrl = n.path("feishuDocUrl").asText("").trim();
                 if (docUrl.isEmpty()) {
                     String legacyId = n.path("feishuDocToken").asText("").trim();

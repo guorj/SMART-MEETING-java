@@ -39,8 +39,7 @@ import java.util.stream.Collectors;
  * {@link MeetingMinuteService} 判断纪要是否存在；
  * {@link DomainEventPublisher} + Outbox 触发纪要生成链路。
  *
- * <p>会前进度已迁至 feishu-scheduled-bot + matter-progress-core（会前事项对比通报），
- * 建会时不再推送「上次待办进度」飞书卡片。
+ * <p>会前 matter-progress / 上次待办进度卡片已下线，建会时不再推送相关飞书卡片。
  */
 @Slf4j
 @Service
@@ -60,6 +59,7 @@ public class MeetingService {
     private final PostMeetingOrchestrator postMeetingOrchestrator;
     private final RecordingService recordingService;
     private final MeetingWebPageUrls meetingWebPageUrls;
+    private final MeetingCalendarSyncService meetingCalendarSyncService;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     /**
@@ -87,7 +87,8 @@ public class MeetingService {
                           MeetingScenarioResolver meetingScenarioResolver,
                           PostMeetingOrchestrator postMeetingOrchestrator,
                           RecordingService recordingService,
-                          MeetingWebPageUrls meetingWebPageUrls) {
+                          MeetingWebPageUrls meetingWebPageUrls,
+                          MeetingCalendarSyncService meetingCalendarSyncService) {
         this.meetingMapper = meetingMapper;
         this.participantMapper = participantMapper;
         this.feishuService = feishuService;
@@ -102,6 +103,7 @@ public class MeetingService {
         this.postMeetingOrchestrator = postMeetingOrchestrator;
         this.recordingService = recordingService;
         this.meetingWebPageUrls = meetingWebPageUrls;
+        this.meetingCalendarSyncService = meetingCalendarSyncService;
     }
 
     /**
@@ -231,6 +233,7 @@ public class MeetingService {
                 && !MeetingStatus.INVITED.name().equals(status)) {
             throw new BusinessException(400, "仅可取消未开始的会议: " + status);
         }
+        meetingCalendarSyncService.deleteScheduledCalendarEvent(meeting);
         meetingStateMachineService.apply(meetingId, MeetingEvent.CANCEL_MEETING);
         meeting.setStatus(MeetingStatus.CANCELLED.name());
         meetingMapper.updateById(meeting);
@@ -434,6 +437,12 @@ public class MeetingService {
                 if (dto.getDetail() != null && !dto.getDetail().isBlank()) {
                     n.put("detail", dto.getDetail().trim());
                 }
+                if (dto.getExternalUrl() != null && !dto.getExternalUrl().isBlank()) {
+                    n.put("externalUrl", dto.getExternalUrl().trim());
+                    if (dto.getExternalLinkLabel() != null && !dto.getExternalLinkLabel().isBlank()) {
+                        n.put("externalLinkLabel", dto.getExternalLinkLabel().trim());
+                    }
+                }
                 if (dto.getFeishuDocs() != null && !dto.getFeishuDocs().isEmpty()) {
                     var docs = n.putArray("feishuDocs");
                     for (com.smartmeeting.api.dto.FeishuDocRefDto ref : dto.getFeishuDocs()) {
@@ -485,6 +494,14 @@ public class MeetingService {
                 String detail = n.path("detail").asText("").trim();
                 if (!detail.isEmpty()) {
                     dto.setDetail(detail);
+                }
+                String externalUrl = n.path("externalUrl").asText("").trim();
+                if (!externalUrl.isEmpty()) {
+                    dto.setExternalUrl(externalUrl);
+                    String externalLabel = n.path("externalLinkLabel").asText("").trim();
+                    if (!externalLabel.isEmpty()) {
+                        dto.setExternalLinkLabel(externalLabel);
+                    }
                 }
                 JsonNode docsV2 = n.path("docs");
                 if (docsV2.isArray() && docsV2.size() > 0) {

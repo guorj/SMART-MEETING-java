@@ -36,8 +36,6 @@ class DatabaseSeedStartupValidatorTest {
         validator = new DatabaseSeedStartupValidator(env, databaseProperties,
                 meetingMinuteMapper, presetAgendaDocService, new ObjectMapper());
         when(meetingMinuteMapper.selectCount(any())).thenReturn(0L);
-        when(presetAgendaDocService.findReportBindingForAgenda(anyInt(), anyInt()))
-                .thenReturn(java.util.Optional.empty());
     }
 
     @Test

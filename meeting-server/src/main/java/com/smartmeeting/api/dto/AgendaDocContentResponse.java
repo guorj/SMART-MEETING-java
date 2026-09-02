@@ -24,6 +24,4 @@ public class AgendaDocContentResponse {
     private String plainText;
     /** 同一会序多条资料分项 */
     private List<AgendaDocPartDto> parts;
-    /** 会前事项对比通报（OUTPUT/BOTH 的 generated_report_url 正文，可为 null） */
-    private AgendaWeeklyReportDto weeklyReport;
 }

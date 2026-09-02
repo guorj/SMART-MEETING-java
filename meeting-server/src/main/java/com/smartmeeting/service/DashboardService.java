@@ -310,6 +310,10 @@ public class DashboardService {
             throw new BusinessException(400, "预约会议须填写计划开始时间");
         }
         Integer presetCode = request.getPresetTypeCode();
+        if (presetCode == null || presetCode <= 0) {
+            presetCode = PresetDraftPolicy.UNLIMITED_DRAFT_PRESET_CODE;
+            request.setPresetTypeCode(presetCode);
+        }
         if (PresetDraftPolicy.shouldReuseSingleDraft(presetCode)) {
             Meeting existing = coordinator.findDraftByPreset(feishuUserId, presetCode);
             if (existing != null) {

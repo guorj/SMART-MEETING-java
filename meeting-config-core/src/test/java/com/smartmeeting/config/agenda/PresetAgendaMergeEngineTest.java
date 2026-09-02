@@ -123,9 +123,7 @@ class PresetAgendaMergeEngineTest {
         assertEquals(1, parsed.size());
         assertEquals(1, parsed.get(0).getDocs().size());
         assertEquals("preset1-weekly-report-out", parsed.get(0).getDocs().get(0).getConfigName());
-        var report = PresetAgendaMergeEngine.findReportBindingInHostAgenda(json, 0, JSON);
-        assert report.isPresent();
-        assertEquals("https://x.feishu.cn/base/app1", report.get().outputFeishuDocUrl());
+        assertEquals("OUTPUT", parsed.get(0).getDocs().get(0).getRole());
     }
 
     @Test

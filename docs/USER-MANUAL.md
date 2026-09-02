@@ -38,7 +38,7 @@
 - **改期**：`PATCH /api/v1/meetings/{id}/schedule`（或 Dashboard/Admin 桥接）；更新 DB 后若 `room_id` 已有飞书 event_id 则 PATCH 日历（`need_notification` 通知参会人）。
 - **会前日历** 步骤 `pre-calendar-create`：`calendarMode=upsert`（有 event 则更新）；预约型默认读 `scheduled_time`。
 - **飞书视频会议**：Dashboard 预约与流水线创建日历时，**默认**绑定飞书原生 VC（`vchat.vcType=vc`，日历详情出现 `vc.feishu.cn/j/...` 与「发起视频会议」）。Admin 步骤 config 可关闭（`vchat.enabled=false`）或改为 `third_party`（填 `meetingUrl` 指向智能会议录音页）。
-- **飞书云录制接入（2026-06-28）**：开启 `meeting.vc.recording-enabled=true` 后，预约会议建会时日历事件自动设 `auto_record=true`，飞书侧会议结束后推送 `vc.meeting.recording_ready_v1` 回调，系统提取 `minute_token` 落库。会后离线转写优先用妙记音视频（File B，`{meetingId}_vc.pcm`）覆盖远程参会人声音；无 token 或下载失败时回退浏览器 PCM（File A）。webhook 未到时 Admin 可在会议详情页手动填入 `vcMinuteToken`，点「重新生成纪要」补走 File B。详见 [feishu-vc-recording-design.md](feishu-vc-recording-design.md)。
+- **飞书云录制接入（2026-06-28）**：开启 `meeting.vc.recording-enabled=true` 后，预约会议建会时日历事件自动设 `auto_record=true`，飞书侧会议结束后推送 `vc.meeting.recording_ready_v1` 回调，系统提取 `minute_token` 落库。会后离线转写优先用妙记音视频（File B，`{meetingId}_vc.pcm`）覆盖远程参会人声音；无 token 或下载失败时回退浏览器 PCM（File A）。webhook 未到时 Admin 可在会议详情页手动填入 `vcMinuteToken`，点「重新生成纪要」补走 File B。详见 [feishu-vc-recording-design.md](feishu-vc-recording-design.md)。**手动处理妙记链接**（下载 + 讯飞全文转写）见 [vc-minute-offline-transcribe.md](vc-minute-offline-transcribe.md)。
 - 步骤 config 示例：`{"roomHint":"3楼会议室","durationMinutes":60,"attendeeSource":"participants_and_creator","calendarMode":"upsert","startTimeSource":"scheduled_time","vchat":{"enabled":true,"vcType":"vc"}}`。
 - **Admin 会议管理**：全字段可读；未开始会议可编辑基本信息/议程/改期；`roomId` 展示为飞书 calendar event_id（只读）。
 
@@ -80,7 +80,8 @@
 - **可选**：将 `realtime-enabled` 设为 `true` 可恢复会中实时转写与字幕；此时纪要以会中分段为准，不覆盖为离线结果。
 - **音频源策略**：会议可能产生两份录音文件——浏览器麦克风 PCM（现场声音）与飞书 VC 云端录制（线上声音）；离线 ASR 按场景选择最优源，详见 `feishu-vc-recording-design.md` §4。
 - 会前建议完成参会人声纹注册（见飞书「声纹注册」入口），详见 `开关手册.md` §6.2。
-- 纪要链路各步骤（离线 ASR、LLM 初稿、AI 增强、飞书文档、通知等）可独立开关，详见 `开关手册.md` §3.1、§6.6。
+- 纪要链路各步骤（离线 ASR、OpenClaw Skill 生成、LLM 降级、AI 增强、飞书文档、通知等）可独立开关，详见 `开关手册.md` §3.1、§6.6。
+- **纪要 Skill 路由（2026-08-31）**：Admin → **纪要 Skill** 为各会务类型绑定 SKILL 模板（存 `int_meeting_type_preset.minute_skill_name`）。Step 4 将对应 `skills/*/SKILL.md` 正文注入 LLM **system prompt**（直调 `meeting.llm.*`，**不走 OpenClaw**），并跳过 Step 4.1 增强。开关 `meeting.minute.skill-generation-enabled`；未绑定类型仍走通用 LLM Prompt + 可选 AI 增强。
 
 ---
 

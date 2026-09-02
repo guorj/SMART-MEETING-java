@@ -39,4 +39,14 @@ class XfyunOfflineClientQueryParamTest {
                 "1%E5%88%86%E9%92%9F%E9%9F%B3%E9%A2%91.mp3",
                 XfyunOfflineClient.encodeQueryParam("1分钟音频.mp3"));
     }
+
+    @Test
+    void buildUploadParams_disablesDurationCheckForPcmUpload() {
+        Map<String, String> params = XfyunOfflineClient.buildUploadParams(
+                "app", "key", "2026-08-25T14:00:00+0800", "nonce1234567890",
+                109373788, "meeting.pcm", 3417931, OfflineIstOptions.blind(0));
+        assertEquals("true", params.get("durationCheckDisable"));
+        assertFalse(params.containsKey("duration"));
+        assertEquals("autodialect", params.get("language"));
+    }
 }

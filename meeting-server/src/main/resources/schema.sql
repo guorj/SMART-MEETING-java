@@ -62,7 +62,8 @@ CREATE TABLE IF NOT EXISTS int_meeting_type_preset (
     organizer_name       VARCHAR(100) NULL     COMMENT '组织人',
     leader_name          VARCHAR(100) NULL     COMMENT '会议主导',
     participants_names   TEXT         NULL     COMMENT '与会人姓名，逗号或顿号分隔',
-    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 v2 {"version":2,"items":[{"title","minutes","docs":[{"configName","role","slot","url",...}]}]}'
+    host_agenda          JSON         NULL     COMMENT 'AI主持议题模板 v2 {"version":2,"items":[{"title","minutes","docs":[{"configName","role","slot","url",...}]}]}',
+    minute_skill_name    VARCHAR(64)  NULL     COMMENT '纪要生成 OpenClaw Skill 名；NULL 表示走 LLM 降级'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='固定会议类型预设';
 
 CREATE TABLE IF NOT EXISTS int_meeting_participant (
@@ -238,68 +239,6 @@ CREATE TABLE IF NOT EXISTS int_user_mapping_feishu (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='OA用户↔飞书user_id映射表';
 
 -- int_matter_progress_doc_config 已废弃：资料内嵌 int_meeting_type_preset.host_agenda v2（见 v0.14/v0.15 升级脚本）
-
-CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_job (
-    id                    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    job_name              VARCHAR(64)     NOT NULL COMMENT '任务名，全局唯一',
-    enabled               TINYINT UNSIGNED NOT NULL DEFAULT 1 COMMENT '0关闭 1启用',
-    cron_expression       VARCHAR(64)     NOT NULL DEFAULT '0 10 * * MON' COMMENT 'Quartz cron',
-    schedule_timezone     VARCHAR(64)     NOT NULL DEFAULT 'Asia/Shanghai' COMMENT 'Cron 解析时区',
-    source_config_names   JSON            NOT NULL COMMENT 'SOURCE/BOTH config_name 列表',
-    minute_query_type     VARCHAR(32)     NOT NULL COMMENT 'PRESET_LAST_7_DAYS|MEETING_IDS',
-    minute_query_params   JSON            NOT NULL COMMENT '纪要查询参数 JSON',
-    output_config_name    VARCHAR(64)     NOT NULL COMMENT '写回 config_name（OUTPUT/BOTH）',
-    output_doc_title_tpl  VARCHAR(200)    NOT NULL DEFAULT '事项对比通报-{date}' COMMENT '飞书 Doc 标题模板',
-    feishu_folder_token   VARCHAR(128)    NULL     COMMENT '可选：Doc 创建目录 token',
-    last_run_at           DATETIME        NULL     COMMENT '最近一次执行时间',
-    last_run_status       VARCHAR(20)     NULL     COMMENT 'SUCCESS|FAILED',
-    last_run_id           BIGINT UNSIGNED NULL     COMMENT '最近一次成功 run id（指向 int_weekly_matter_comparison_run.id）',
-    last_run_error        TEXT            NULL     COMMENT '失败时错误摘要',
-    created_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at            DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_weekly_comparison_job_name (job_name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='每周事项对比定时任务（feishu-scheduled-bot + matter-progress-core）';
-
--- v0.26 会前事项对比通报结果入库（run + item 两表，一行一事）
-CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_run (
-    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '运行批次主键；host_agenda.generatedReportRunId 指向此 id',
-    job_id              BIGINT UNSIGNED NULL     COMMENT '关联 int_weekly_matter_comparison_job.id；手动补录可为 NULL',
-    output_config_name  VARCHAR(64)     NOT NULL COMMENT '写回目标 docs.configName（OUTPUT/BOTH）',
-    preset_type_code    TINYINT UNSIGNED NULL     COMMENT '冗余 preset code 1-5',
-    agenda_index        INT UNSIGNED    NULL     COMMENT '冗余 host_agenda items 下标',
-    title               VARCHAR(200)    NOT NULL COMMENT '通报标题（output_doc_title_tpl 渲染）',
-    item_count          INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '本批次事项条数',
-    generation_status   VARCHAR(20)     NOT NULL DEFAULT 'READY' COMMENT 'READY|FAILED|PARTIAL',
-    generated_at        DATETIME        NOT NULL COMMENT '本次生成时间',
-    run_error           TEXT            NULL     COMMENT 'FAILED/PARTIAL 摘要',
-    created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    INDEX idx_wmc_run_output_time (output_config_name, generated_at DESC),
-    INDEX idx_wmc_run_job (job_id),
-    INDEX idx_wmc_run_preset_agenda (preset_type_code, agenda_index, generated_at DESC)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会前事项对比通报运行批次（每次执行一条，历史保留）';
-
-CREATE TABLE IF NOT EXISTS int_weekly_matter_comparison_item (
-    id                  BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
-    run_id              BIGINT UNSIGNED NOT NULL COMMENT '所属批次 int_weekly_matter_comparison_run.id',
-    category            VARCHAR(16)     NOT NULL COMMENT '分组：DELAYED|COMPLETED|IN_PROGRESS',
-    matter_name         VARCHAR(500)    NOT NULL COMMENT '事项内容',
-    assignee            VARCHAR(200)    NULL     COMMENT '责任人；缺失统一存 NULL',
-    time_node           VARCHAR(200)    NULL     COMMENT '时间节点（截止/计划/完成时间，原文保留）',
-    status_label        VARCHAR(32)     NOT NULL COMMENT '状态文案：延期|已完成|进行中（须与 category 一致）',
-    sort_order          INT UNSIGNED    NOT NULL DEFAULT 0 COMMENT '组内排序',
-    source_config_name  VARCHAR(64)     NULL     COMMENT '可选：来源 SOURCE configName',
-    created_at          DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    INDEX idx_wmc_item_run (run_id, category, sort_order),
-    INDEX idx_wmc_item_run_category (run_id, category),
-    CONSTRAINT fk_wmc_item_run FOREIGN KEY (run_id)
-        REFERENCES int_weekly_matter_comparison_run (id) ON DELETE CASCADE
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  COMMENT='会前事项对比通报明细（一行一个事项）';
 
 -- v0.12 系统参数（meeting-admin-server 写，meeting-server reload）
 CREATE TABLE IF NOT EXISTS int_meeting_system_config (

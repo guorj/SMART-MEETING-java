@@ -89,7 +89,6 @@ public class MeetingPresetCacheService {
         if (redisTemplate != null) {
             try {
                 redisTemplate.delete(PRESET_KEY + presetTypeCode);
-                redisTemplate.delete("smart-meeting:matter-progress-doc:preset:" + presetTypeCode);
             } catch (Exception e) {
                 log.warn("Redis evict preset code={} failed: {}", presetTypeCode, e.getMessage());
             }

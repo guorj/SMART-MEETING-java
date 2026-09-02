@@ -32,4 +32,8 @@ public class HostAgendaItem {
      * true：主持页与预览严格按 SQL 结果展示（行序、列值），不应用展示模板，不做状态分组/徽章等额外渲染。
      */
     private Boolean oabpTaskSqlStrict;
+    /** 可选：会序外链 URL（如 OA 分析页），主持页「当前议程」展示为「↗ 打开 XXX」按钮，新窗口跳转 */
+    private String externalUrl;
+    /** 可选：外链按钮文案，缺省时按 URL 自动生成 */
+    private String externalLinkLabel;
 }

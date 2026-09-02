@@ -15,6 +15,8 @@ import com.smartmeeting.config.MeetingMinuteProperties;
 import com.smartmeeting.config.MeetingTodoProperties;
 import com.smartmeeting.entity.TranscriptSegment;
 import com.smartmeeting.repository.TranscriptMapper;
+import com.smartmeeting.service.agent.MinuteSkillPromptLoader;
+import com.smartmeeting.service.agent.MinuteSkillRouter;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
 import com.smartmeeting.statemachine.MeetingEvent;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
@@ -50,6 +52,8 @@ public class MinuteGenerationService {
     private final RestTemplate restTemplate;
     private final ObjectMapper objectMapper;
     private final MinuteAIEnhancer minuteAIEnhancer;
+    private final MinuteSkillRouter minuteSkillRouter;
+    private final MinuteSkillPromptLoader minuteSkillPromptLoader;
     private final MeetingMinuteService meetingMinuteService;
     private final MeetingMinuteProperties minuteProperties;
     private final MeetingTodoProperties todoProperties;
@@ -106,9 +110,26 @@ public class MinuteGenerationService {
                 log.info("Step 3: Realtime speaker name refresh, updated={}", updated);
             }
 
+            String participantsNames = participants.stream()
+                    .map(Participant::getName)
+                    .collect(java.util.stream.Collectors.joining(","));
+
+            boolean usedSkillPrompt = false;
+            String skillName = minuteSkillRouter.resolve(meeting.getPresetTypeCode());
+            String skillSystemPrompt = null;
+            if (minuteProperties.isSkillGenerationEnabled() && skillName != null) {
+                skillSystemPrompt = minuteSkillPromptLoader.loadPromptBody(skillName).orElse(null);
+                if (skillSystemPrompt != null) {
+                    usedSkillPrompt = true;
+                    log.info("Step 4: Using skill prompt template={}, bodyLength={}", skillName, skillSystemPrompt.length());
+                } else {
+                    log.warn("Step 4: Skill template not loaded, fallback to generic LLM prompt: skill={}", skillName);
+                }
+            }
+
             if (minuteProperties.isLlmEnabled()) {
                 log.info("Step 4: LLM minute generation...");
-                minuteText = generateMinuteByLLM(meeting, correctedText, participants);
+                minuteText = generateMinuteByLLM(meeting, correctedText, participants, skillSystemPrompt);
                 log.info("Step 4: LLM generation completed, text length={}", minuteText.length());
             } else {
                 minuteText = generateSimpleMinute(meeting, correctedText);
@@ -116,12 +137,8 @@ public class MinuteGenerationService {
                         minuteText.length());
             }
 
-            if (minuteProperties.isAiEnhancementEnabled()) {
+            if (!usedSkillPrompt && minuteProperties.isAiEnhancementEnabled()) {
                 try {
-                    String participantsNames = participants.stream()
-                            .map(Participant::getName)
-                            .collect(java.util.stream.Collectors.joining(","));
-
                     minuteText = minuteAIEnhancer.enhanceMinute(
                             meetingId,
                             minuteText,
@@ -134,6 +151,8 @@ public class MinuteGenerationService {
                 } catch (Exception e) {
                     log.warn("AI enhancement failed, use original minute: {}", e.getMessage());
                 }
+            } else if (usedSkillPrompt) {
+                log.info("Step 4.1: AI minute enhancement skipped (Skill prompt generation used)");
             } else {
                 log.info("Step 4.1: AI minute enhancement skipped (meeting.minute.ai-enhancement-enabled=false)");
             }
@@ -327,12 +346,30 @@ public class MinuteGenerationService {
      * @return 纪要 Markdown 文本
      */
     private String generateMinuteByLLM(Meeting meeting, String transcriptText, List<Participant> participants) {
-        // 构建 Prompt
-        String prompt = buildMinutePrompt(meeting, transcriptText, participants);
+        return generateMinuteByLLM(meeting, transcriptText, participants, null);
+    }
 
-        // 调用 LLM API
+    /**
+     * 调用 LLM API 根据转写文本生成结构化纪要；可选注入 Skill 模板作为 system prompt。
+     *
+     * @param meeting             会议实体
+     * @param transcriptText      校正后的转写全文
+     * @param participants        参会人列表
+     * @param skillSystemPrompt   Skill 模板正文；非空时作为 system prompt
+     * @return 纪要 Markdown 文本
+     */
+    private String generateMinuteByLLM(Meeting meeting,
+                                       String transcriptText,
+                                       List<Participant> participants,
+                                       String skillSystemPrompt) {
+        String userPrompt = buildMinutePrompt(meeting, transcriptText, participants, skillSystemPrompt != null);
+
+        String systemContent = skillSystemPrompt != null && !skillSystemPrompt.isBlank()
+                ? skillSystemPrompt + "\n\n请根据用户消息中的会议信息与转写文本生成纪要，直接输出 Markdown，首行必须是 # 会议纪要。"
+                : "你是专业的会议纪要助手，请根据会议录音转写文本生成结构化纪要。";
+
         String url = llmApiUrl + "/v1/chat/completions";
-        
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBearerAuth(llmApiKey);
@@ -340,8 +377,8 @@ public class MinuteGenerationService {
         Map<String, Object> body = Map.of(
                 "model", llmModel,
                 "messages", List.of(
-                        Map.of("role", "system", "content", "你是专业的会议纪要助手，请根据会议录音转写文本生成结构化纪要。"),
-                        Map.of("role", "user", "content", prompt)
+                        Map.of("role", "system", "content", systemContent),
+                        Map.of("role", "user", "content", userPrompt)
                 ),
                 "temperature", 0.3,
                 "max_tokens", 4000
@@ -352,14 +389,14 @@ public class MinuteGenerationService {
         try {
             ResponseEntity<JsonNode> response = restTemplate.exchange(url, HttpMethod.POST, request, JsonNode.class);
             JsonNode json = response.getBody();
-            
+
             if (json != null && json.has("choices")) {
                 return json.get("choices").get(0).path("message").path("content").asText();
             }
-            
+
             log.warn("LLM returned unexpected response");
             return generateSimpleMinute(meeting, transcriptText);
-            
+
         } catch (Exception e) {
             log.warn("LLM call failed: {} - using simple minute", e.getMessage());
             return generateSimpleMinute(meeting, transcriptText);
@@ -367,14 +404,18 @@ public class MinuteGenerationService {
     }
 
     /**
-     * 构建 LLM 纪要生成 Prompt，包含会议元信息与转写文本。
+     * 构建 LLM 用户 Prompt，包含会议元信息与转写文本。
      *
-     * @param meeting        会议实体
-     * @param transcriptText 转写全文
-     * @param participants   参会人列表
-     * @return 完整 Prompt 字符串
+     * @param meeting           会议实体
+     * @param transcriptText    转写全文
+     * @param participants      参会人列表
+     * @param skillPromptActive 是否已注入 Skill 模板（true 时省略通用输出格式说明）
+     * @return 用户 Prompt 字符串
      */
-    private String buildMinutePrompt(Meeting meeting, String transcriptText, List<Participant> participants) {
+    private String buildMinutePrompt(Meeting meeting,
+                                     String transcriptText,
+                                     List<Participant> participants,
+                                     boolean skillPromptActive) {
         StringBuilder prompt = new StringBuilder();
         prompt.append("请根据以下会议录音转写文本，生成结构化会议纪要。\n\n");
         prompt.append("## 会议信息\n");
@@ -389,14 +430,16 @@ public class MinuteGenerationService {
         prompt.append("\n\n");
         prompt.append("## 会议转写文本\n");
         prompt.append(transcriptText).append("\n\n");
-        prompt.append("## 输出要求\n");
-        prompt.append("请按以下格式输出：\n");
-        prompt.append("1. 会议概述（200字以内）\n");
-        prompt.append("2. 主要议题及讨论内容\n");
-        prompt.append("3. 决议事项\n");
-        prompt.append("4. 待办事项（责任人、截止时间）\n");
-        prompt.append("5. 下次会议建议\n");
-        
+        if (!skillPromptActive) {
+            prompt.append("## 输出要求\n");
+            prompt.append("请按以下格式输出：\n");
+            prompt.append("1. 会议概述（200字以内）\n");
+            prompt.append("2. 主要议题及讨论内容\n");
+            prompt.append("3. 决议事项\n");
+            prompt.append("4. 待办事项（责任人、截止时间）\n");
+            prompt.append("5. 下次会议建议\n");
+        }
+
         return prompt.toString();
     }
 

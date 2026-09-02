@@ -6,8 +6,11 @@
     "import-feishu-base": "node import-feishu-base-to-oabp.mjs",
     "import-feishu-base-jq-todos": "node import-feishu-base-to-jq-todos.mjs",
     "import-feishu-oabp-all": "node import-all-feishu-to-oabp.mjs",
+    "fetch-feishu-minute": "node fetch-feishu-minute.mjs",
+    "vc-minute-offline-transcribe": "node vc-minute-offline-transcribe.mjs",
     "test:import-feishu-base": "node --test import-feishu-base-to-oabp.test.mjs",
-    "test:import-feishu-base-jq-todos": "node --test import-feishu-base-to-jq-todos.test.mjs"
+    "test:import-feishu-base-jq-todos": "node --test import-feishu-base-to-jq-todos.test.mjs",
+    "test:xfyun-offline": "node --test lib/xfyun-offline.test.mjs"
   },
   "dependencies": {
     "mysql2": "^3.14.0"

@@ -47,6 +47,8 @@ class PostMeetingOrchestratorTest {
     private AudioCacheService audioCacheService;
     @Mock
     private AudioSourceResolver audioSourceResolver;
+    @Mock
+    private VcRecordingPostMeetingPolicy vcRecordingPolicy;
 
     private MeetingAsrProperties asrProperties;
     private MeetingMinuteProperties minuteProperties;
@@ -58,6 +60,8 @@ class PostMeetingOrchestratorTest {
         minuteProperties = new MeetingMinuteProperties();
         when(audioCacheService.findExistingCachePath(any())).thenReturn(Optional.empty());
         when(audioSourceResolver.resolve(any())).thenReturn(null);
+        when(vcRecordingPolicy.isAwaitingVcToken(any())).thenReturn(false);
+        when(vcRecordingPolicy.expectsVcRecording(any())).thenReturn(false);
         orchestrator = new PostMeetingOrchestrator(
                 meetingMapper,
                 asrProperties,
@@ -68,7 +72,8 @@ class PostMeetingOrchestratorTest {
                 offlineAsrService,
                 minuteGenerationService,
                 audioCacheService,
-                audioSourceResolver);
+                audioSourceResolver,
+                vcRecordingPolicy);
     }
 
     @Test
@@ -174,6 +179,42 @@ class PostMeetingOrchestratorTest {
 
         verify(offlineAsrService).runOfflineAsrSync(MEETING_ID, "/data/audio/a.pcm");
         verify(minuteGenerationService).generateMinute(MEETING_ID, "/data/audio/a.pcm");
+    }
+
+    @Test
+    @DisplayName("有 VC 但 token 未到时等待，不排队 File A 离线 ASR")
+    void vcAwaitingToken_defersOfflineAsr() {
+        asrProperties.setOfflineEnabled(true);
+        minuteProperties.setGenerationEnabled(true);
+        Meeting meeting = stubMeeting("/data/audio/a.pcm", null);
+        meeting.setVcMeetingUrl("https://vc.feishu.cn/j/123456");
+        when(vcRecordingPolicy.isAwaitingVcToken(meeting)).thenReturn(true);
+
+        String status = orchestrator.dispatchAfterMeetingEnded(MEETING_ID, "/data/audio/a.pcm", null, null);
+
+        assertThat(status).isEqualTo(MeetingStatus.PROCESSING.name());
+        verify(domainEventPublisher, never()).publish(any());
+    }
+
+    @Test
+    @DisplayName("VC token 就绪后 resume 走 File B 并排离线 ASR")
+    void vcReady_resumesWithFileB() {
+        asrProperties.setOfflineEnabled(true);
+        minuteProperties.setGenerationEnabled(true);
+        Meeting meeting = stubMeeting(null, null);
+        meeting.setVcMeetingUrl("https://vc.feishu.cn/j/123456");
+        meeting.setVcMinuteToken("abc123");
+        when(vcRecordingPolicy.isAwaitingVcToken(meeting)).thenReturn(false);
+        when(vcRecordingPolicy.expectsVcRecording(meeting)).thenReturn(true);
+        when(audioSourceResolver.resolve(MEETING_ID)).thenReturn(
+                new AudioSourceResolver.AudioSource(java.nio.file.Path.of("/data/audio/m_vc.pcm"),
+                        AudioSourceResolver.AudioSource.SOURCE_VC_RECORDING));
+        when(transcriptSegmentHelper.hasAnySegments(MEETING_ID)).thenReturn(false);
+        when(transcriptSegmentHelper.hasFinalRealtimeSegments(MEETING_ID)).thenReturn(false);
+
+        orchestrator.resumePostMeetingAfterVcReady(MEETING_ID);
+
+        verify(domainEventPublisher).publish(any(OfflineAsrRequestedEvent.class));
     }
 
     private Meeting stubMeeting(String audioPath, String sourceUrl) {

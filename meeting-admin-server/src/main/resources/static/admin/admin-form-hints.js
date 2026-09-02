@@ -37,23 +37,23 @@
       remark: '备注仅管理员可见。'
     },
     presets: {
-      moduleIntro: '维护会务类型预设、会序与资料绑定；资料角色影响 weekly-jobs 引用。',
+      moduleIntro: '维护会务类型预设、会序与资料绑定。',
       presetCode: '会务类型编号，对应 int_meeting_type_preset.preset_type_code。',
       agendaTitle: '会序标题，支持拖拽排序；修改后自动保存。',
       agendaMinutes: '单项会序预计时长（分钟）。',
       agendaOwners: '负责人飞书 user_id，多个用英文逗号分隔。',
       hostAgendaJson: 'host_agenda_json 原始 JSON；仅在高级模式手工编辑。',
       scheduleConfig: 'schedule_config 机器可读排期（weekly/fixed/at_start）；驱动 Dashboard 快速开始的 scheduled_time。schedule_note 仅人读展示。',
-      configName: '资料 config_name，须与会务预设内唯一；weekly-jobs 按此引用。',
+      configName: '资料 config_name，须与会务预设内唯一。',
       resourceSlot: '资料槽位序号，同会序内从 0 递增。',
       feishuUrl: '飞书 docx / bitable / sheet 链接；保存后用于会中拉取与对比任务。',
       oabpTaskSql: '可选。oabp 库只读 SELECT（单条、无分号），会中追加「项目任务」表格；须 meeting-server 启用 MEETING_DB_OABP_ENABLED。',
-      oabpTaskShow: '勾选时在主持页会序资料区展示 oabp 查询结果；取消勾选仅保留 SQL（周报对比等仍可用），主持页不渲染表格。',
-      showInHost: '勾选时在主持页会序资料区展示该资料；取消勾选后资料仍可用于 weekly-comparison 等后台任务，主持页不渲染。',
+      oabpTaskShow: '勾选时在主持页会序资料区展示 oabp 查询结果；取消勾选后主持页不渲染表格。',
+      showInHost: '勾选时在主持页会序资料区展示该资料；取消勾选后主持页不渲染。',
       localUpload: '支持 doc/docx、ppt/pptx、pdf、xls/xlsx、csv 与常见图片；ppt/pdf 单文件最大 50MB，可多选；旧版 .ppt 建议转为 pptx 以便会中幻灯片预览。',
       configRole: {
-        SOURCE: 'SOURCE：可作为周报对比源资料。',
-        OUTPUT: 'OUTPUT：可作为对比产出文档。',
+        SOURCE: 'SOURCE：源资料。',
+        OUTPUT: 'OUTPUT：产出文档。',
         BOTH: 'BOTH：同时可作为源与产出。'
       },
       bitableDisplayMode: {
@@ -61,19 +61,6 @@
         RAW: 'RAW：表格原始行列。',
         GROUPED: 'GROUPED：按分组字段聚合展示。'
       }
-    },
-    weeklyJobs: {
-      moduleIntro: '配置事项进度周报对比任务，按 Cron 定时执行。',
-      jobName: '任务显示名，便于运维识别。',
-      enabled: '关闭后不参与 Quartz 调度。',
-      cron: 'Quartz Cron 表达式，例如 0 10 * * MON 表示每周一 10:00。',
-      minuteQueryType: {
-        PRESET_LAST_7_DAYS: '按会务类型查询最近 N 天已结束会议的纪要。',
-        MEETING_IDS: '按指定会议 ID 列表查询纪要。'
-      },
-      minuteQueryParams: 'JSON 参数：PRESET_LAST_7_DAYS 用 {"presetTypeCode":1,"days":7}；MEETING_IDS 用 {"meetingIds":["id1"]}。',
-      sourceConfigNames: '源资料 config_name，多个用英文逗号分隔，须已在会序资料中标记 SOURCE/BOTH。',
-      outputConfigName: '产出 config_name，须已标记 OUTPUT/BOTH。'
     },
     pushBot: {
       moduleIntro: '管理 INTERNAL/EXTERNAL 推送任务与发送日志。',

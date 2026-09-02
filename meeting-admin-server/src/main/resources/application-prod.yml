@@ -1,0 +1,35 @@
+# =============================================================================
+# Prod Profile — meeting-admin-server（阿里云 39.97.61.212 / oa.qdyhjz.cn）
+# =============================================================================
+# 激活：SPRING_PROFILES_ACTIVE=prod（application.yml 默认）
+# Nginx：/meeting-admin/ → 127.0.0.1:8766（须与本文件 context-path 一致）
+# =============================================================================
+
+server:
+  servlet:
+    context-path: /meeting-admin
+
+meeting:
+  agenda-material:
+    storage-dir: ${AGENDA_MATERIAL_DIR:/root/smart-meeting-java/data/agenda-materials}
+
+  runtime:
+    # 同机部署：admin 调 meeting-server / internal API 走 loopback
+    meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765/meeting-server}
+    # scheduled-bot 与 meeting-server 同机，走本地端口（nginx 对外仍 /scheduled-bot/）
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764/scheduled-bot}
+
+  admin:
+    oauth:
+      feishu:
+        enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:true}
+        app-id: ${FEISHU_APP_ID:cli_a9742c7795795bc2}
+        app-secret: ${FEISHU_APP_SECRET:yNKh96SePvhk4h3b1Z1Rnjw3RZ6fivIj}
+        redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:https://oa.qdyhjz.cn/meeting-admin/admin/oauth/feishu/callback}
+
+logging:
+  file:
+    path: /root/smart-meeting-java/logs/meeting-admin
+
+smart-meeting:
+  skills-dir: ${SMART_MEETING_SKILLS_DIR:/root/smart-meeting-java/skills}

@@ -34,6 +34,28 @@ public class MeetingCalendarSyncService {
                              int invitedCount, String vcMeetingUrl) {
     }
 
+    /**
+     * 取消预约时删除飞书日历日程（meeting.room_id 即 event_id）。
+     * 失败仅打日志，不阻断上层取消流程。
+     */
+    public SyncResult deleteScheduledCalendarEvent(Meeting meeting) {
+        if (meeting == null) {
+            return new SyncResult(false, "skip", "", "meeting_missing", 0, "");
+        }
+        String eventId = meeting.getRoomId();
+        if (eventId == null || eventId.isBlank()) {
+            return new SyncResult(true, "skip", "", "no_event_id", 0, "");
+        }
+        FeishuService.CalendarDeleteResult deleted = feishuService.deleteCalendarEvent(eventId);
+        if (deleted.success()) {
+            log.info("Meeting calendar deleted: meetingId={}, eventId={}", meeting.getId(), eventId);
+            return new SyncResult(true, "deleted", eventId, "ok", 0, "");
+        }
+        log.warn("Meeting calendar delete failed: meetingId={}, eventId={}, err={}",
+                meeting.getId(), eventId, deleted.message());
+        return new SyncResult(false, "delete", eventId, deleted.message(), 0, "");
+    }
+
     public SyncResult syncScheduledMeeting(Meeting meeting) {
         return syncScheduledMeeting(meeting, DEFAULT_DURATION_MINUTES, "", true, resolveVchatOptionsForSchedule());
     }

@@ -3,7 +3,6 @@ package com.smartmeeting.service.agent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.config.OpenClawProperties;
-import com.smartmeeting.entity.Meeting;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -24,7 +23,7 @@ import java.util.Map;
  * <p>由配置 {@code openclaw.agent.provider=llm} 激活；
  * 当 {@code openclaw.agent.provider} 未配置时也默认激活（{@code matchIfMissing}）。
  *
- * <p>会前进度（上次待办进度卡片）已在 v0.9 下线。
+ * <p>会前 matter-progress 已在 v0.9 下线；本 Provider 仅用于 Step 4.1 纪要增强。
  */
 @Slf4j
 @Component
@@ -47,26 +46,6 @@ public class DirectLlmAgentProvider implements AgentProvider {
     public DirectLlmAgentProvider(RestTemplate restTemplate, OpenClawProperties openClawProperties) {
         this.restTemplate = restTemplate;
         this.openClawProperties = openClawProperties;
-    }
-
-    @Override
-    public String runMatterProgressReport(Meeting meeting, String bitableDirective) {
-        String systemPrompt = "你是企业会务与项目管理助手。请根据用户提供的上下文生成「事项进度通报」Markdown，"
-                + "语言简洁专业，包含概览、分项进度、风险与需协调事项、下一步建议。";
-
-        StringBuilder userPrompt = new StringBuilder();
-        if (bitableDirective != null && !bitableDirective.isBlank()) {
-            userPrompt.append("【参考】多维表相关指令描述（LLM 无法直接读取，仅供结构参考）：\n");
-            userPrompt.append(bitableDirective.trim()).append("\n\n");
-        }
-        userPrompt.append("## 当前会议\n");
-        userPrompt.append("- 会议ID：").append(meeting.getId()).append("\n");
-        userPrompt.append("- 主题：").append(meeting.getTitle()).append("\n");
-        userPrompt.append("- 集团/会议组：").append(meeting.getCompany()).append(" / ").append(meeting.getGroupName()).append("\n\n");
-        userPrompt.append("请输出事项进度通报 Markdown 正文（不要 JSON 代码块包裹全文）。\n");
-        userPrompt.append("若无法获取真实多维表数据，请基于上述上下文生成框架性通报，并在开头注明「以下为 AI 基于上下文生成的框架性通报」。");
-
-        return callLlm(systemPrompt, userPrompt.toString(), "matter_progress");
     }
 
     @Override

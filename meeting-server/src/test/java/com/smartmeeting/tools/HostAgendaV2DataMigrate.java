@@ -94,10 +94,7 @@ public final class HostAgendaV2DataMigrate {
                     rs.getString("feishu_doc_url"),
                     rs.getInt("enabled"),
                     rs.getString("config_role"),
-                    rs.getString("bitable_display_mode"),
-                    rs.getString("generated_report_url"),
-                    rs.getTimestamp("generated_report_at") != null
-                            ? rs.getTimestamp("generated_report_at").toLocalDateTime() : null));
+                    rs.getString("bitable_display_mode")));
         }
         if (legacy.get(0).getFeishuDocUrl() == null || legacy.get(0).getFeishuDocUrl().isBlank()) {
             return;
@@ -151,10 +148,7 @@ public final class HostAgendaV2DataMigrate {
                             rs.getString("feishu_doc_url"),
                             rs.getInt("enabled"),
                             rs.getString("config_role"),
-                            rs.getString("bitable_display_mode"),
-                            rs.getString("generated_report_url"),
-                            rs.getTimestamp("generated_report_at") != null
-                                    ? rs.getTimestamp("generated_report_at").toLocalDateTime() : null));
+                            rs.getString("bitable_display_mode")));
                 }
             }
         }

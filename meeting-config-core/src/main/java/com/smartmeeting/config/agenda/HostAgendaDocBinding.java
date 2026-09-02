@@ -5,8 +5,6 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-import java.time.LocalDateTime;
-
 /**
  * 会序项内嵌资料（host_agenda v2 {@code items[].docs[]}）。
  */
@@ -27,12 +25,8 @@ public class HostAgendaDocBinding {
     private String mimeType;
     private String bitableDisplayMode;
     private Boolean enabled;
-    /** 是否在主持页会序资料区展示；默认 true。false 时仍可用于 weekly-comparison 等后台任务 */
+    /** 是否在主持页会序资料区展示；默认 true */
     private Boolean showInHost;
-    private String generatedReportUrl;
-    private LocalDateTime generatedReportAt;
-    /** v0.26：指向 int_weekly_matter_comparison_run.id（最新批次）；新任务写此字段，不再写 URL */
-    private Long generatedReportRunId;
 
     public int resolvedSlot() {
         return slot != null && slot >= 0 ? slot : 0;

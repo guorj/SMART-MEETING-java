@@ -23,6 +23,13 @@ class MeetingMinutePropertiesTest {
     }
 
     @Test
+    @DisplayName("未配置时 skill-generation-enabled 默认 true")
+    void defaultSkillGenerationEnabled() {
+        MeetingMinuteProperties props = new MeetingMinuteProperties();
+        assertThat(props.isSkillGenerationEnabled()).isTrue();
+    }
+
+    @Test
     @DisplayName("未配置时 llm/feishu-doc/notify 默认 true")
     void defaultStepFlagsEnabled() {
         MeetingMinuteProperties props = new MeetingMinuteProperties();

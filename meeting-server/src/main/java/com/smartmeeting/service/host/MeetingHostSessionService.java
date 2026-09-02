@@ -24,7 +24,6 @@ import com.smartmeeting.repository.MeetingTypePresetMapper;
 import com.smartmeeting.api.dto.FeishuDocRefDto;
 import com.smartmeeting.service.PresetAgendaDocService;
 import com.smartmeeting.service.MeetingService;
-import com.smartmeeting.config.agenda.AgendaBindingConverter;
 import com.smartmeeting.config.feishu.FeishuResourceRef;
 import com.smartmeeting.config.feishu.FeishuResourceResolver;
 import com.smartmeeting.service.feishu.FeishuDocRefs;
@@ -1405,6 +1404,12 @@ public class MeetingHostSessionService {
             if (dto.getOabpTaskShow() != null) {
                 t.oabpTaskShow = dto.getOabpTaskShow();
             }
+            if (dto.getExternalUrl() != null && !dto.getExternalUrl().isBlank()) {
+                t.externalUrl = dto.getExternalUrl().trim();
+                if (dto.getExternalLinkLabel() != null && !dto.getExternalLinkLabel().isBlank()) {
+                    t.externalLinkLabel = dto.getExternalLinkLabel().trim();
+                }
+            }
             syncPrimaryUrlFromDocs(t);
             out.add(t);
         }
@@ -1447,6 +1452,14 @@ public class MeetingHostSessionService {
                     }
                     if (n.has("oabpTaskShow")) {
                         t.oabpTaskShow = n.path("oabpTaskShow").asBoolean(true);
+                    }
+                    String externalUrl = n.path("externalUrl").asText("").trim();
+                    if (!externalUrl.isEmpty()) {
+                        t.externalUrl = externalUrl;
+                        String externalLabel = n.path("externalLinkLabel").asText("").trim();
+                        if (!externalLabel.isEmpty()) {
+                            t.externalLinkLabel = externalLabel;
+                        }
                     }
                     if (includeFeishuBindings) {
                         JsonNode docsV2 = n.path("docs");
@@ -1849,22 +1862,6 @@ public class MeetingHostSessionService {
             o.put("detail", t.detail == null ? "" : t.detail);
             o.put("feishuDocUrl", t.feishuDocUrl == null ? "" : t.feishuDocUrl);
             o.put("feishuDocKind", t.feishuDocKind == null ? "" : t.feishuDocKind);
-            if (rt.presetTypeCode != null && rt.presetTypeCode > 0) {
-                presetAgendaDocService.findReportBindingForAgenda(rt.presetTypeCode, i).ifPresent(b -> {
-                    if (b.generatedReportRunId() != null) {
-                        o.put("generatedReportRunId", b.generatedReportRunId());
-                    }
-                    if (b.generatedReportUrl() != null && !b.generatedReportUrl().isBlank()) {
-                        o.put("generatedReportUrl", b.generatedReportUrl());
-                    }
-                    if (b.generatedReportAt() != null) {
-                        o.put("generatedReportAt", b.generatedReportAt().toString());
-                    }
-                    if (b.outputFeishuDocUrl() != null && !b.outputFeishuDocUrl().isBlank()) {
-                        o.put("outputFeishuDocUrl", b.outputFeishuDocUrl());
-                    }
-                });
-            }
             ArrayNode docsArr = o.putArray("feishuDocs");
             if (t.feishuDocs != null) {
                 for (FeishuDocBinding b : t.feishuDocs) {
@@ -1889,6 +1886,12 @@ public class MeetingHostSessionService {
             if (t.oabpTaskSql != null && !t.oabpTaskSql.isBlank()) {
                 o.put("oabpTaskSql", t.oabpTaskSql);
                 o.put("oabpTaskShow", t.oabpTaskShow);
+            }
+            if (t.externalUrl != null && !t.externalUrl.isBlank()) {
+                o.put("externalUrl", t.externalUrl);
+                if (t.externalLinkLabel != null && !t.externalLinkLabel.isBlank()) {
+                    o.put("externalLinkLabel", t.externalLinkLabel);
+                }
             }
         }
         ObjectNode rollCall = root.putObject("rollCall");
@@ -2125,11 +2128,15 @@ public class MeetingHostSessionService {
         List<FeishuDocBinding> feishuDocs;
         /** 本地上传资料（host_agenda docs[] storageKind=LOCAL） */
         List<LocalMaterialBinding> localMaterials;
-        /** oabp 只读 SQL；无飞书/本地资料时仍可单独展示项目任务表格 */
-        String oabpTaskSql;
-        /** 是否在主持页展示 oabp 查询结果；默认 true */
-        boolean oabpTaskShow = true;
-    }
+    /** oabp 只读 SQL；无飞书/本地资料时仍可单独展示项目任务表格 */
+    String oabpTaskSql;
+    /** 是否在主持页展示 oabp 查询结果；默认 true */
+    boolean oabpTaskShow = true;
+    /** 可选：会序外链 URL（如 OA 分析页），主持页「当前议程」展示为「↗ 打开 XXX」按钮 */
+    String externalUrl;
+    /** 可选：外链按钮文案，缺省时按 URL 自动生成 */
+    String externalLinkLabel;
+}
 
     private static final class FeishuDocBinding {
         String kind;

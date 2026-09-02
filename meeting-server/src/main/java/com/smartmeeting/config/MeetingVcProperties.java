@@ -32,8 +32,7 @@ public class MeetingVcProperties {
 
     /**
      * 等待 {@code recording_ready_v1} 回调的超时分钟数。
-     * 当前实现不阻塞等待（webhook 迟到时由 Admin 手动补 minute_token），
-     * 此值保留供后续阻塞等待实现或文档参考。
+     * 超时后 {@link com.smartmeeting.scheduled.VcRecordingWaitScheduler} 用 File A 继续离线转写。
      */
     private int callbackTimeoutMin = 15;
 }

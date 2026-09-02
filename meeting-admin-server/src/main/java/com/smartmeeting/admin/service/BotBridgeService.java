@@ -59,11 +59,6 @@ public class BotBridgeService {
         return objectMapper.convertValue(body, Map.class);
     }
 
-    public Map<String, Object> executeWeeklyComparison(long jobId) {
-        JsonNode body = post("/api/weekly-comparison/jobs/" + jobId + "/execute", null);
-        return objectMapper.convertValue(body, Map.class);
-    }
-
     public JsonNode get(String path, Map<String, String> query) {
         return exchange(HttpMethod.GET, path, query, null);
     }

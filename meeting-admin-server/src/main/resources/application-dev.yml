@@ -1,7 +1,7 @@
 # =============================================================================
-# Dev Profile — meeting-admin-server 开发环境覆盖
+# Dev Profile — meeting-admin-server 本地开发覆盖
 # =============================================================================
-# 激活：SPRING_PROFILES_ACTIVE=dev（默认）
+# 激活：SPRING_PROFILES_ACTIVE=dev 或 ./scripts/start-dev.sh
 # 仅覆盖 meeting.* 子树；数据源等继承 application.yml
 #
 # 本地开发时 bot-base-url 默认走 OA 反代；本机起 feishu-scheduled-bot 可改为
@@ -15,7 +15,7 @@ meeting:
     modules:
       - api-reference
       - presets
-      - weekly-jobs
+      - minute-skills
       - push-bot
       - users
       - meetings
@@ -28,6 +28,14 @@ meeting:
     agenda-config:
       file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}
       file-path: ${MEETING_ADMIN_AGENDA_FILE_PATH:classpath:agenda-templates/example-presets.json}
+    oauth:
+      feishu:
+        enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}
+        app-id: ${FEISHU_APP_ID:}
+        app-secret: ${FEISHU_APP_SECRET:}
+        redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:http://127.0.0.1:8766/admin/oauth/feishu/callback}
+        allowed-user-ids: []
+        session-ttl-hours: 8
 
   runtime:
     meeting-server-base-url: ${MEETING_SERVER_URL:http://127.0.0.1:8765/meeting-server}
@@ -36,12 +44,3 @@ meeting:
     bot-base-url: ${MEETING_NOTIFY_BOT_URL:https://oa.qdyhjz.cn/scheduled-bot}
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
     internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
-
-  oauth:
-    feishu:
-      enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}
-      app-id: ${FEISHU_APP_ID:}
-      app-secret: ${FEISHU_APP_SECRET:}
-      redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:http://127.0.0.1:8766/admin/oauth/feishu/callback}
-      allowed-user-ids: []
-      session-ttl-hours: 8

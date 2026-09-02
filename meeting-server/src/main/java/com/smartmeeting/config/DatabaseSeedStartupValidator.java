@@ -50,7 +50,6 @@ public class DatabaseSeedStartupValidator {
             return;
         }
         validatePresetAgendaDocConfigs();
-        validateWeeklyReportBindings();
         refreshPresetCachesAfterValidation();
         validateMeetingMinuteTable();
     }
@@ -61,20 +60,6 @@ public class DatabaseSeedStartupValidator {
             log.info("已刷新 preset={} Redis/本地缓存", PRESET_COMPREHENSIVE);
         } catch (Exception e) {
             log.warn("刷新 preset 缓存失败: {}", e.getMessage());
-        }
-    }
-
-    private void validateWeeklyReportBindings() {
-        for (int idx : EXPECTED_AGENDA_INDICES) {
-            var binding = presetAgendaDocService.findReportBindingForAgenda(PRESET_COMPREHENSIVE, idx);
-            if (binding.isPresent() && binding.get().generatedReportUrl() != null
-                    && !binding.get().generatedReportUrl().isBlank()) {
-                log.info("会前对比通报已绑定: preset=1 agenda_index={} url={}",
-                        idx, binding.get().generatedReportUrl());
-            } else {
-                log.warn("会前对比通报未就绪 preset=1 agenda_index={}（需 feishu-scheduled-bot 定时任务写回 generated_report_url）",
-                        idx);
-            }
         }
     }
 

@@ -23,7 +23,7 @@ public class PipelinePostStageAutoTriggerListener {
     private final PipelineStepExecutionMapper executionMapper;
     private final MeetingPipelineProperties pipelineProperties;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onMeetingEnded(MeetingEndedEvent event) {
         if (!pipelineProperties.getPostAutoTrigger().isEnabled() || event == null || event.meetingId() == null || event.meetingId().isBlank()) {
             return;

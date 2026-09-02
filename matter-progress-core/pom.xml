@@ -13,7 +13,7 @@
     <artifactId>matter-progress-core</artifactId>
     <packaging>jar</packaging>
     <name>Matter Progress Core</name>
-    <description>会序事项对比：配置/纪要/飞书读写/OpenClaw 对比（供 feishu-scheduled-bot 依赖）</description>
+    <description>飞书资料导出与 OpenClaw Gateway 共享库（meeting-server / feishu-scheduled-bot）</description>
 
     <dependencies>
         <dependency>

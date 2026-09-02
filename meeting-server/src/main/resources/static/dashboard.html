@@ -402,7 +402,8 @@ function renderSchedulePanel(canCreate,presets,scheduledMeetings){
   if(!canCreate){
     return `<div class="ui-card card blur-fade"><p class="muted">您没有创建会议的权限，请联系管理员。</p></div>`;
   }
-  const presetOptions=(presets||[]).map(p=>'<option value="'+p.code+'">'+esc(p.code+' — '+p.displayName)+'</option>').join('');
+  const DEFAULT_SCHEDULE_PRESET=99;
+  const presetOptions=(presets||[]).map(p=>'<option value="'+p.code+'"'+(p.code===DEFAULT_SCHEDULE_PRESET?' selected':'')+'>'+esc(p.code+' — '+p.displayName)+'</option>').join('');
   const scheduledList=(scheduledMeetings||[]).length===0?'<p class="muted">暂无待开始预约</p>':
     scheduledMeetings.map(m=>'<div class="meeting-item"><span class="meeting-title">'+esc(m.title)+'</span>'
       +statusBadge(m.status)+'<span class="meeting-time">'+fmtDt(m.scheduledTime)+'</span>'

@@ -1,9 +1,8 @@
 # =============================================================================
-# Dev Profile — meeting-server 开发环境
+# Dev Profile — meeting-server 本地开发环境
 # =============================================================================
-# 激活：spring.profiles.active=dev（默认）或 SPRING_PROFILES_ACTIVE=dev
-# 启动：mvn spring-boot:run -pl meeting-server
-# 覆盖关系：本文件覆盖 application.yml 同名键；环境变量仍可覆盖本文件
+# 激活：SPRING_PROFILES_ACTIVE=dev 或 ./scripts/start-dev.sh
+# 本地进程默认 http://127.0.0.1:8765；飞书卡片/外链仍可用公网 base-url（见下方）
 #
 # 业务开关：[Admin热更] → int_meeting_system_config（Java 出厂默认 + DB 覆盖）
 # 下方 dev-only 块为 [冷启动] 例外；reload 后以 DB 或 Java 出厂为准（见 Loader）
@@ -148,10 +147,14 @@ openclaw:
   agent:
     # [冷启动]
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
+  # 本地 Windows 开发：Gateway 在阿里云 39.97.61.212，默认走 SSH 隧道到本机 127.0.0.1。
+  #   先运行 scripts/openclaw-tunnel.ps1，再启动 meeting-server。
+  # 若 OPENCLAW_GATEWAY_URL 指向远程 IP 且未配 device-token，Gateway 会清空 operator scopes，chat.send 失败。
   gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
-  auth-token: ${OPENCLAW_AUTH_TOKEN:bc6e1fc38ed4d2be39556be74ce349ea376354f455089e20}
+  auth-token: ${OPENCLAW_AUTH_TOKEN:49a4395d662298ec7c4efa2d038411ae3aceb41bd4912271}
   device-token: ${OPENCLAW_DEVICE_TOKEN:}
+  timeout-seconds: 120
 
 logging:
   level:

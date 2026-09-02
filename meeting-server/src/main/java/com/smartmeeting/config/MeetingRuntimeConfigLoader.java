@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.smartmeeting.entity.MeetingSystemConfig;
 import com.smartmeeting.repository.MeetingSystemConfigMapper;
 import com.smartmeeting.service.DashboardGrantService;
+import com.smartmeeting.service.FeishuMinutesUserTokenProvider;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.BeanUtils;
@@ -29,9 +30,14 @@ public class MeetingRuntimeConfigLoader {
     private final MeetingIsvProperties isvProperties;
     private final MeetingWebProperties webProperties;
     private final MeetingVcProperties vcProperties;
+    private final MeetingFeishuMinutesProperties feishuMinutesProperties;
+    private final FeishuMinutesUserTokenProvider feishuMinutesUserTokenProvider;
     private final OpenClawProperties openClawProperties;
     private final ObjectMapper objectMapper;
     private final DashboardGrantService dashboardGrantService;
+
+    /** 含 env/yml 注入的出厂快照，reload 时恢复后再叠 DB。 */
+    private MeetingFeishuMinutesProperties feishuMinutesFactorySnapshot;
 
     public MeetingRuntimeConfigLoader(MeetingSystemConfigMapper configMapper,
                                       MeetingRuntimeConfig runtimeConfig,
@@ -45,6 +51,8 @@ public class MeetingRuntimeConfigLoader {
                                       MeetingIsvProperties isvProperties,
                                       MeetingWebProperties webProperties,
                                       MeetingVcProperties vcProperties,
+                                      MeetingFeishuMinutesProperties feishuMinutesProperties,
+                                      FeishuMinutesUserTokenProvider feishuMinutesUserTokenProvider,
                                       OpenClawProperties openClawProperties,
                                       ObjectMapper objectMapper,
                                       @Lazy DashboardGrantService dashboardGrantService) {
@@ -60,9 +68,13 @@ public class MeetingRuntimeConfigLoader {
         this.isvProperties = isvProperties;
         this.webProperties = webProperties;
         this.vcProperties = vcProperties;
+        this.feishuMinutesProperties = feishuMinutesProperties;
+        this.feishuMinutesUserTokenProvider = feishuMinutesUserTokenProvider;
         this.openClawProperties = openClawProperties;
         this.objectMapper = objectMapper;
         this.dashboardGrantService = dashboardGrantService;
+        this.feishuMinutesFactorySnapshot = new MeetingFeishuMinutesProperties();
+        copyBean(feishuMinutesProperties, feishuMinutesFactorySnapshot);
     }
 
     @PostConstruct
@@ -147,6 +159,10 @@ public class MeetingRuntimeConfigLoader {
 
         copyBean(new MeetingWebProperties(), webProperties);
         copyBean(new MeetingVcProperties(), vcProperties);
+        if (feishuMinutesFactorySnapshot != null) {
+            copyBean(feishuMinutesFactorySnapshot, feishuMinutesProperties);
+        }
+        feishuMinutesUserTokenProvider.invalidateCache();
         copyBean(new OpenClawProperties(), openClawProperties);
     }
 
@@ -177,6 +193,8 @@ public class MeetingRuntimeConfigLoader {
                         runtimeConfig.getReminder().setMeetingMinutesLeft(parseString(node, ""));
                 case "meeting.minute.generation-enabled" -> minuteProperties.setGenerationEnabled(parseBoolean(node));
                 case "meeting.minute.llm-enabled" -> minuteProperties.setLlmEnabled(parseBoolean(node));
+                case "meeting.minute.skill-generation-enabled" ->
+                        minuteProperties.setSkillGenerationEnabled(parseBoolean(node));
                 case "meeting.minute.ai-enhancement-enabled" ->
                         minuteProperties.setAiEnhancementEnabled(parseBoolean(node));
                 case "meeting.minute.feishu-doc-enabled" -> minuteProperties.setFeishuDocEnabled(parseBoolean(node));
@@ -243,6 +261,14 @@ public class MeetingRuntimeConfigLoader {
                 case "meeting.vc.recording-enabled" -> vcProperties.setRecordingEnabled(parseBoolean(node));
                 case "meeting.vc.auto-record" -> vcProperties.setAutoRecord(parseBoolean(node));
                 case "meeting.vc.callback-timeout-min" -> vcProperties.setCallbackTimeoutMin(parseInt(node));
+                case "meeting.feishu.minutes.user-refresh-token" -> {
+                    feishuMinutesProperties.setUserRefreshToken(stripJsonString(node));
+                    feishuMinutesUserTokenProvider.invalidateCache();
+                }
+                case "meeting.feishu.minutes.user-access-token" -> {
+                    feishuMinutesProperties.setUserAccessToken(stripJsonString(node));
+                    feishuMinutesUserTokenProvider.invalidateCache();
+                }
                 case "openclaw.enabled" -> openClawProperties.setEnabled(parseBoolean(node));
                 case "openclaw.skill-mode" -> openClawProperties.setSkillMode(parseBoolean(node));
                 case "openclaw.timeout-seconds" -> openClawProperties.setTimeoutSeconds(parseInt(node));

@@ -7,6 +7,7 @@ import com.smartmeeting.api.dto.internal.RefreshHostAgendaResult;
 import com.smartmeeting.entity.Meeting;
 import com.smartmeeting.exception.BusinessException;
 import com.smartmeeting.repository.MeetingMapper;
+import com.smartmeeting.service.PostMeetingOrchestrator;
 import com.smartmeeting.service.PresetAgendaDocService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,7 @@ public class InternalMeetingAdminService {
 
     private final MeetingMapper meetingMapper;
     private final PresetAgendaDocService presetAgendaDocService;
+    private final PostMeetingOrchestrator postMeetingOrchestrator;
 
     public RefreshHostAgendaResult refreshHostAgenda(RefreshHostAgendaRequest req) {
         int preset = req.getPresetTypeCode() != null ? req.getPresetTypeCode() : 0;
@@ -86,6 +88,9 @@ public class InternalMeetingAdminService {
             meeting.setVcRecordingUrl(recordingUrl.trim());
         }
         meetingMapper.updateById(meeting);
+        if (!token.isBlank()) {
+            postMeetingOrchestrator.resumePostMeetingAfterVcReady(meetingId);
+        }
     }
 
     private List<Meeting> resolveTargets(int preset, List<String> meetingIds) {

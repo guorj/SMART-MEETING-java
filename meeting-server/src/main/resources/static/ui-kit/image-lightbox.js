@@ -1,5 +1,5 @@
 /**
- * 主持页资料区统一图片 Lightbox：点击放大、滚轮缩放、ESC 关闭。
+ * 主持页资料区统一图片 Lightbox：点击放大、滚轮/双指缩放、拖拽平移、ESC 关闭。
  * 绑定：ImageLightbox.bind('.feishu-doc-panel');
  */
 (function (global) {
@@ -15,6 +15,18 @@
   var dragStartY = 0;
   var dragOriginX = 0;
   var dragOriginY = 0;
+  var touchMode = null;
+  var pinchStartDist = 0;
+  var pinchStartScale = 1;
+  var lastTouchX = 0;
+  var lastTouchY = 0;
+  var lastTapMs = 0;
+
+  function touchDistance(touches) {
+    var dx = touches[0].clientX - touches[1].clientX;
+    var dy = touches[0].clientY - touches[1].clientY;
+    return Math.hypot(dx, dy);
+  }
 
   function ensureOverlay() {
     if (overlay) return;
@@ -51,6 +63,56 @@
       dragOriginY = translateY;
       e.preventDefault();
     });
+    imgEl.addEventListener('touchstart', function (e) {
+      if (overlay.hidden) return;
+      if (e.touches.length === 2) {
+        touchMode = 'pinch';
+        pinchStartDist = touchDistance(e.touches);
+        pinchStartScale = scale;
+        e.preventDefault();
+        return;
+      }
+      if (e.touches.length === 1) {
+        if (scale > 1) {
+          touchMode = 'pan';
+          lastTouchX = e.touches[0].clientX;
+          lastTouchY = e.touches[0].clientY;
+        }
+        var now = Date.now();
+        if (now - lastTapMs < 320) {
+          setScale(scale >= 1.8 ? 1 : 2);
+          lastTapMs = 0;
+          e.preventDefault();
+          return;
+        }
+        lastTapMs = now;
+      }
+    }, { passive: false });
+    imgEl.addEventListener('touchmove', function (e) {
+      if (overlay.hidden) return;
+      if (touchMode === 'pinch' && e.touches.length === 2) {
+        e.preventDefault();
+        var dist = touchDistance(e.touches);
+        if (pinchStartDist > 0) {
+          setScale(pinchStartScale * (dist / pinchStartDist));
+        }
+        return;
+      }
+      if (touchMode === 'pan' && e.touches.length === 1 && scale > 1) {
+        e.preventDefault();
+        translateX += e.touches[0].clientX - lastTouchX;
+        translateY += e.touches[0].clientY - lastTouchY;
+        lastTouchX = e.touches[0].clientX;
+        lastTouchY = e.touches[0].clientY;
+        applyTransform();
+      }
+    }, { passive: false });
+    imgEl.addEventListener('touchend', function () {
+      touchMode = null;
+    });
+    imgEl.addEventListener('touchcancel', function () {
+      touchMode = null;
+    });
     document.addEventListener('mousemove', function (e) {
       if (!dragging) return;
       translateX = dragOriginX + (e.clientX - dragStartX);
@@ -86,6 +148,7 @@
     scale = 1;
     translateX = 0;
     translateY = 0;
+    touchMode = null;
     imgEl.src = src;
     imgEl.alt = alt || '放大图片';
     applyTransform();
@@ -96,6 +159,7 @@
   function close() {
     if (!overlay) return;
     overlay.hidden = true;
+    touchMode = null;
     imgEl.removeAttribute('src');
     document.body.classList.remove('sm-lightbox-open');
   }

@@ -158,45 +158,6 @@ public final class PresetAgendaMergeEngine {
                 HostAgendaJsonCodec.parseItemAtIndex(new ObjectMapper(), presetHostAgendaJson, agendaIndex));
     }
 
-    public static Optional<AgendaReportBinding> findReportBinding(List<AgendaDocBindingSnapshot> allBindings,
-                                                                  int presetTypeCode, int agendaIndex) {
-        if (allBindings != null && !allBindings.isEmpty()) {
-            AgendaDocBindingSnapshot row = allBindings.stream()
-                    .filter(b -> b.getEnabled() != null && b.getEnabled() == 1)
-                    .filter(b -> presetTypeCode == (b.getPresetTypeCode() != null ? b.getPresetTypeCode() : 0))
-                    .filter(b -> agendaIndex == (b.getAgendaIndex() != null ? b.getAgendaIndex() : -1))
-                    .filter(b -> {
-                        String role = b.getConfigRole();
-                        if (role == null) {
-                            return false;
-                        }
-                        role = role.trim().toUpperCase(Locale.ROOT);
-                        return "OUTPUT".equals(role) || "BOTH".equals(role);
-                    })
-                    .max(Comparator.comparingLong(b -> b.getId() != null ? b.getId() : 0L))
-                    .orElse(null);
-            if (row != null) {
-                String outputFeishu = null;
-                if ("OUTPUT".equalsIgnoreCase(nullToEmpty(row.getConfigRole()))
-                        && row.getFeishuDocUrl() != null && !row.getFeishuDocUrl().isBlank()) {
-                    outputFeishu = row.getFeishuDocUrl().trim();
-                }
-                return Optional.of(new AgendaReportBinding(
-                        row.getGeneratedReportUrl(),
-                        row.getGeneratedReportAt(),
-                        row.getGeneratedReportRunId(),
-                        outputFeishu));
-            }
-        }
-        return Optional.empty();
-    }
-
-    public static Optional<AgendaReportBinding> findReportBindingInHostAgenda(String presetHostAgendaJson,
-                                                                              int agendaIndex,
-                                                                              ObjectMapper mapper) {
-        return HostAgendaJsonCodec.findReportBinding(presetHostAgendaJson, agendaIndex, mapper);
-    }
-
     public static List<HostAgendaItem> parseHostAgendaItems(ObjectMapper objectMapper, String hostAgendaJson) {
         return HostAgendaJsonCodec.parseItems(objectMapper, hostAgendaJson);
     }
@@ -319,6 +280,23 @@ public final class PresetAgendaMergeEngine {
             to.setFeishuDocUrl(from.getFeishuDocUrl().trim());
         }
         copyOabpFields(from, to);
+        copyExternalLinkFields(from, to);
+    }
+
+    /**
+     * 复制外链字段（与 {@link HostAgendaJsonCodec#toJson} 序列化字段对齐），
+     * 确保会议快照合并/刷新时不会丢失 externalUrl / externalLinkLabel。
+     */
+    private static void copyExternalLinkFields(HostAgendaItem from, HostAgendaItem to) {
+        if (from == null || to == null) {
+            return;
+        }
+        if (from.getExternalUrl() != null && !from.getExternalUrl().isBlank()) {
+            to.setExternalUrl(from.getExternalUrl().trim());
+        }
+        if (from.getExternalLinkLabel() != null && !from.getExternalLinkLabel().isBlank()) {
+            to.setExternalLinkLabel(from.getExternalLinkLabel().trim());
+        }
     }
 
     /**

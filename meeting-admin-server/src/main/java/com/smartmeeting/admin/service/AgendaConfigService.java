@@ -406,6 +406,8 @@ public class AgendaConfigService {
                     .oabpTaskSqlStrict(Boolean.TRUE.equals(item.getOabpTaskSqlStrict()))
                     .oabpDisplayTemplate(item.getOabpDisplayTemplate())
                     .oabpSqlPresetId(item.getOabpSqlPresetId())
+                    .externalUrl(item.getExternalUrl())
+                    .externalLinkLabel(item.getExternalLinkLabel())
                     .bindings(bindings)
                     .build());
         }
@@ -484,6 +486,12 @@ public class AgendaConfigService {
                 hi.setOwners(owners);
             } else {
                 hi.setOwners(List.of());
+            }
+            if (item.getExternalUrl() != null && !item.getExternalUrl().isBlank()) {
+                hi.setExternalUrl(item.getExternalUrl().trim());
+                if (item.getExternalLinkLabel() != null && !item.getExternalLinkLabel().isBlank()) {
+                    hi.setExternalLinkLabel(item.getExternalLinkLabel().trim());
+                }
             }
             List<HostAgendaDocBinding> docs = new ArrayList<>();
             if (item.getBindings() != null) {

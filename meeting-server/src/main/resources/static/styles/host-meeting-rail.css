@@ -292,6 +292,32 @@ body.host-page.host-rail-layout .host-rail-drawer.is-open ~ .host-rail-edge::aft
 }
 
 /* — Mobile toggle — */
+body.host-page.host-rail-layout .host-rail-drawer-backdrop {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 34;
+  border: none;
+  padding: 0;
+  margin: 0;
+  background: rgba(26, 26, 26, 0.38);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body.host-page.host-rail-layout .host-rail-drawer-backdrop[hidden] {
+  display: none !important;
+}
+
+body.host-page.host-rail-layout.host-rail-drawer-open .host-rail-drawer-backdrop:not([hidden]) {
+  display: block;
+}
+
+body.host-page.host-rail-layout.host-rail-drawer-open {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body.host-page.host-rail-layout .host-rail-mobile-toggle {
   display: none;
   position: fixed;
@@ -341,6 +367,13 @@ body.host-page.host-preview-mode.host-rail-layout.scene-idle .host-rail-main {
   opacity: 0.96;
 }
 
+.host-idle-hint-mobile { display: none; }
+
+@media (max-width: 900px) {
+  .host-idle-hint-mobile { display: inline; }
+  .host-idle-hint-desktop { display: none; }
+}
+
 /* — Responsive — */
 @media (min-width: 901px) {
   body.host-page.host-rail-layout .host-rail-mobile-toggle {
@@ -363,6 +396,19 @@ body.host-page.host-preview-mode.host-rail-layout.scene-idle .host-rail-main {
 
   body.host-page.host-rail-layout .host-rail-drawer {
     width: var(--rail-drawer-w);
+  }
+
+  /* iOS Safari：fixed + transform 关闭态仍可能拦截触摸；visibility 彻底移出命中区域 */
+  body.host-page.host-rail-layout .host-rail-drawer:not(.is-open) {
+    visibility: hidden;
+  }
+
+  body.host-page.host-rail-layout .host-rail-drawer.is-open {
+    visibility: visible;
+  }
+
+  body.host-page.host-rail-layout .host-toast-stack {
+    bottom: calc(var(--rail-dock-h) + var(--touch-min, 44px) + 20px + env(safe-area-inset-bottom, 0px));
   }
 
   body.host-page.host-rail-layout .host-rail-main .card-matter {

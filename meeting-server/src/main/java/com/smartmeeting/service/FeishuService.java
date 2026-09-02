@@ -595,6 +595,56 @@ public class FeishuService {
 
     public record CalendarUpdateResult(boolean success, String eventId, String message) {}
 
+    public record CalendarDeleteResult(boolean success, String eventId, String message) {}
+
+    /**
+     * 删除飞书日历日程（primary 日历）。
+     *
+     * @param eventId 创建日程时返回的 event_id（存于 meeting.room_id）
+     * @return 删除结果；scope 不足或 event 不存在时 success=false 但不抛异常
+     */
+    public CalendarDeleteResult deleteCalendarEvent(String eventId) {
+        return deleteCalendarEvent("primary", eventId, true);
+    }
+
+    /**
+     * 删除飞书日历日程。
+     *
+     * @param calendarId        日历 ID（可传 primary）
+     * @param eventId           日程 event_id
+     * @param needNotification  是否通知参与人
+     * @return 删除结果
+     */
+    public CalendarDeleteResult deleteCalendarEvent(String calendarId, String eventId, boolean needNotification) {
+        if (eventId == null || eventId.isBlank()) {
+            return new CalendarDeleteResult(false, "", "empty_event_id");
+        }
+        String cal = normalizeCalendarId(calendarId);
+        try {
+            HttpHeaders headers = feishuJsonAuthHeaders();
+            URI uri = UriComponentsBuilder.fromHttpUrl(baseUrl)
+                    .path("/open-apis/calendar/v4/calendars/{calendar_id}/events/{event_id}")
+                    .queryParam("need_notification", needNotification)
+                    .queryParam("user_id_type", "user_id")
+                    .buildAndExpand(cal, eventId)
+                    .encode()
+                    .toUri();
+            ResponseEntity<JsonNode> resp = restTemplate.exchange(
+                    uri, HttpMethod.DELETE, new HttpEntity<>(headers), JsonNode.class);
+            JsonNode root = resp.getBody();
+            if (root != null && root.path("code").asInt(0) != 0) {
+                String msg = feishuErrorMessage(root, "feishu_error");
+                log.warn("deleteCalendarEvent feishu error: eventId={}, err={}", eventId, msg);
+                return new CalendarDeleteResult(false, eventId, msg);
+            }
+            log.info("deleteCalendarEvent ok: eventId={}, calendarId={}", eventId, cal);
+            return new CalendarDeleteResult(true, eventId, "ok");
+        } catch (Exception e) {
+            log.warn("deleteCalendarEvent failed: eventId={}, err={}", eventId, e.getMessage());
+            return new CalendarDeleteResult(false, eventId, e.getMessage());
+        }
+    }
+
     public CalendarUpdateResult updateCalendarEvent(String eventId, LocalDateTime startAt, LocalDateTime endAt,
                                                     String summary, String roomHint, boolean needNotification) {
         return updateCalendarEvent("primary", eventId, startAt, endAt, summary, roomHint, needNotification,

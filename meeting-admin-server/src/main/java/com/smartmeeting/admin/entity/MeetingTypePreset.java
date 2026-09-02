@@ -26,4 +26,5 @@ public class MeetingTypePreset {
     private String participantsNames;
     @TableField(value = "host_agenda", jdbcType = JdbcType.OTHER, typeHandler = MysqlJsonAsStringTypeHandler.class)
     private String hostAgenda;
+    private String minuteSkillName;
 }

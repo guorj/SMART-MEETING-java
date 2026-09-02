@@ -6,6 +6,21 @@
   let scriptsLoaded = {};
   let navigateSeq = 0;
 
+  function detectAdminContext() {
+    if (window.__ADMIN_CTX__ != null) return window.__ADMIN_CTX__;
+    const p = location.pathname || '';
+    const idx = p.indexOf('/admin');
+    return idx > 0 ? p.slice(0, idx) : '';
+  }
+  const ADMIN_CTX = detectAdminContext();
+  window.__ADMIN_CTX__ = ADMIN_CTX;
+
+  function adminResolveUrl(path) {
+    if (!path || /^https?:\/\//i.test(path)) return path;
+    if (path.charAt(0) !== '/') return path;
+    return ADMIN_CTX + path;
+  }
+
   function readJsonSafely(text) {
     if (!text) return null;
     try {
@@ -27,6 +42,7 @@
 
   window.AdminApi = {
     token: () => sessionStorage.getItem(TOKEN_KEY) || '',
+    resolveUrl: adminResolveUrl,
     fetch: async (path, opts = {}) => {
       const reqOpts = Object.assign({}, opts);
       const headers = Object.assign({ 'X-Admin-Token': AdminApi.token() }, reqOpts.headers || {});
@@ -34,7 +50,7 @@
       if (!(reqOpts.body instanceof FormData) && !hasContentType) {
         headers['Content-Type'] = 'application/json';
       }
-      const res = await fetch(path, Object.assign({}, reqOpts, { headers }));
+      const res = await fetch(adminResolveUrl(path), Object.assign({}, reqOpts, { headers }));
       const text = await res.text();
       const json = readJsonSafely(text);
       if (!res.ok) {
@@ -243,7 +259,7 @@
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
       const sep = m.scriptPath.indexOf('?') >= 0 ? '&' : '?';
-      s.src = m.scriptPath + sep + 'v=' + encodeURIComponent(STATIC_ASSET_VERSION);
+      s.src = adminResolveUrl(m.scriptPath + sep + 'v=' + encodeURIComponent(STATIC_ASSET_VERSION));
       s.onload = resolve;
       s.onerror = () => reject(new Error('模块脚本加载失败: ' + m.scriptPath));
       document.body.appendChild(s);
@@ -334,7 +350,7 @@
     const oauthToken = params.get('oauth_token');
     if (oauthToken) {
       sessionStorage.setItem(TOKEN_KEY, oauthToken);
-      window.history.replaceState({}, '', '/admin' + (window.location.hash || ''));
+      window.history.replaceState({}, '', adminResolveUrl('/admin') + (window.location.hash || ''));
     }
   })();
 

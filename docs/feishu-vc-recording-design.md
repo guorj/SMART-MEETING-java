@@ -432,3 +432,13 @@ RecordingService.stopRecording()
 | AI 产物 | `GET .../minutes/:minute_token/artifacts` | 同上 |
 
 官方文档：[视频会议概述](https://open.feishu.cn/document/server-docs/vc-v1/video-conferencing-overview)、[完成录制事件](https://open.feishu.cn/document/server-docs/vc-v1/meeting/events/recording_ready)
+
+## 附录 C：手动妙记 → 离线转写 SOP
+
+未接入 webhook 或需对单个妙记 URL 补全文转写时，使用标准脚本（与 File B + IST 逻辑对齐）：
+
+```powershell
+.\scripts\vc-minute-offline-transcribe.ps1 "https://xxx.feishu.cn/minutes/{token}"
+```
+
+详见 [vc-minute-offline-transcribe.md](vc-minute-offline-transcribe.md)。

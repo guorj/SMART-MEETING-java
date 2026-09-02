@@ -2,7 +2,7 @@
 # smart-meeting-server 默认配置（全环境基线）
 # =============================================================================
 # 生效顺序（高 → 低）：环境变量 > application-{profile}.yml > 本文件
-# 默认 profile：dev（见 spring.profiles.active，可用 SPRING_PROFILES_ACTIVE 覆盖）
+# 默认 profile：prod（线上）；本地开发请设 SPRING_PROFILES_ACTIVE=dev 或 ./scripts/start-dev.sh
 #
 # 会后链路：业务开关见 Admin / int_meeting_system_config；新装执行 schema-seed/meeting-runtime-defaults-prod.sql
 #   meeting.kafka.enabled=false 时由 LocalEventBus 异步执行（dev/prod 常用）
@@ -37,7 +37,7 @@ spring:
     name: smart-meeting-server
   profiles:
     # 激活的配置文件后缀：dev / prod 等
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:prod}
   servlet:
     multipart:
       # 声纹注册等上传接口的单文件大小上限
@@ -63,7 +63,7 @@ spring:
   data:
     redis:
       # Redis 主机（会务预设缓存、主持会话等；不可用时部分能力降级）
-      host: ${REDIS_HOST:localhost}
+      host: ${REDIS_HOST:60.205.1.17}
       # Redis 端口
       port: ${REDIS_PORT:6379}
       # Redis 密码（空表示无密码）
@@ -158,7 +158,7 @@ meeting:
     attachment-max-bytes: ${MEETING_TODO_ATTACHMENT_MAX_BYTES:10485760}
   notification:
     # [部署/密钥] scheduled-bot 服务根 URL
-    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:https://oa.qdyhjz.cn/scheduled-bot}
     # 调用 scheduled-bot 的 API Key
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
   # ----- [冷启动] 异步消息（Kafka / LocalEventBus）-----
@@ -173,10 +173,12 @@ meeting:
     recording-enabled: ${MEETING_VC_RECORDING_ENABLED:false}
     # recording-enabled=true 时，日历事件是否设置 auto_record=true
     auto-record: true
-    # 等待 recording_ready 回调超时（分钟，保留字段，当前实现不阻塞等待）
+    # 等待 recording_ready 回调超时（分钟）；超时后 VcRecordingWaitScheduler 回退 File A
     callback-timeout-min: 15
+    # 扫描等待 VC 回调的会议间隔（毫秒）
+    wait-scan-ms: 60000
   # [部署/密钥] 对外根 URL（飞书卡片链接、JWT 跳转、录音/主持页入口），须与浏览器实际访问一致
-  base-url: ${BASE_URL:http://localhost:8765/meeting-server}
+  base-url: ${BASE_URL:https://oa.qdyhjz.cn/meeting-server}
   # ----- [部署/密钥] 会序本地上传资料（与 meeting-admin-server 共用目录）-----
   agenda-material:
     # 本地上传 doc/图片落盘目录；admin 上传、runtime 下载须同路径
@@ -389,6 +391,10 @@ meeting:
       menu-event-key-start-meeting: start_meeting
       # 菜单 v6 无 chat_id 时是否回退最近群聊
       menu-v6-fallback-to-last-group-chat: true
+    minutes:
+      # 妙记 /media 下载：API 调试台用 user_access_token 成功、tenant 常 2091005 时配置此项
+      user-access-token: ${FEISHU_MINUTES_USER_ACCESS_TOKEN:}
+      user-refresh-token: ${FEISHU_MINUTES_USER_REFRESH_TOKEN:}
   jwt:
     # JWT 签名密钥（生产务必更换）
     secret: ${JWT_SECRET:this-is-…mum-key-change-in-production}
@@ -437,7 +443,7 @@ openclaw:
     # [冷启动] openclaw.agent.provider；mcp（Gateway WebSocket）| llm（直调大模型）
     provider: ${OPENCLAW_AGENT_PROVIDER:mcp}
   # OpenClaw Gateway HTTP/WS 根地址
-  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18792}
+  gateway-url: ${OPENCLAW_GATEWAY_URL:http://127.0.0.1:18789}
   # Gateway 会话 Key（chat.send 目标）
   agent-session-key: ${OPENCLAW_SESSION_KEY:agent:jqclaw:direct:ou_5eadac907bd2dc79e8b39205ef6bf33a}
   # Gateway Bearer Token（可选）

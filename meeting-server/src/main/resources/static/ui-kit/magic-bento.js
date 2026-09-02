@@ -9,7 +9,15 @@
   var DEFAULT_SPOTLIGHT_RADIUS = 300;
   var DEFAULT_SPOTLIGHT_MAX_OPACITY = 0.22;
   var DEFAULT_GLOW_COLOR = '0, 47, 167';
-  var MOBILE_BREAKPOINT = 768;
+  var MOBILE_BREAKPOINT = 900;
+  var MOBILE_MQ = typeof window.matchMedia === 'function'
+    ? window.matchMedia('(max-width: 900px), (pointer: coarse)')
+    : null;
+
+  function isMobile() {
+    return (MOBILE_MQ && MOBILE_MQ.matches) || window.innerWidth <= MOBILE_BREAKPOINT;
+  }
+
   var INTERACTIVE_SELECTOR = 'button, a, input, select, textarea, .agenda-doc-panel-actions';
 
   var defaultConfig = {
@@ -30,11 +38,6 @@
   var cardStates = new Map();
   var spotlightInitialized = false;
   var spotlightState = null;
-
-  function isMobile() {
-    return window.innerWidth <= MOBILE_BREAKPOINT ||
-      window.matchMedia('(pointer: coarse)').matches;
-  }
 
   function resolveElements(selectorOrElements) {
     if (!selectorOrElements) return [];

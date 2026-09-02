@@ -18,6 +18,9 @@ import java.util.List;
 
 /**
  * 会后链路编排：按开关独立触发离线转写与纪要生成（顺序：先离线、再纪要）。
+ * <p>
+ * 有飞书 VC（{@code vc_meeting_url}）且云端录制开启时：先等妙记 {@code recording_ready} 落库后再对 File B 离线转写；
+ * 超时 {@code meeting.vc.callback-timeout-min} 后回退 File A。无 VC 时直接对浏览器 PCM 转写。
  */
 @Slf4j
 @Service
@@ -34,6 +37,7 @@ public class PostMeetingOrchestrator {
     private final MinuteGenerationService minuteGenerationService;
     private final AudioCacheService audioCacheService;
     private final AudioSourceResolver audioSourceResolver;
+    private final VcRecordingPostMeetingPolicy vcRecordingPolicy;
 
     /**
      * 会议结束后的异步编排入口。
@@ -48,7 +52,66 @@ public class PostMeetingOrchestrator {
             return MeetingStatus.COMPLETED.name();
         }
 
+        if (vcRecordingPolicy.isAwaitingVcToken(meeting)) {
+            log.info("Post-meeting: awaiting VC recording_ready before offline ASR, meetingId={}", meetingId);
+            return MeetingStatus.PROCESSING.name();
+        }
+
         String resolvedAudio = resolveAudioWithCacheFallback(meeting, audioPath);
+        return queuePostMeetingWork(meetingId, meeting, resolvedAudio, featureIds, modelName);
+    }
+
+    /**
+     * 飞书 {@code recording_ready_v1} 落库后继续会后链路（File B 离线转写 / 纪要）。
+     * 若离线转写已完成（如超时已走 File A），则不自动重跑。
+     */
+    public void resumePostMeetingAfterVcReady(String meetingId) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return;
+        }
+        if (!MeetingStatus.PROCESSING.name().equals(meeting.getStatus())) {
+            log.debug("VC ready but meeting not PROCESSING, skip resume: meetingId={}", meetingId);
+            return;
+        }
+        if (transcriptSegmentHelper.hasAnySegments(meetingId)) {
+            log.info("VC recording_ready late, offline ASR already done, skip auto resume: meetingId={}", meetingId);
+            return;
+        }
+        if (vcRecordingPolicy.isAwaitingVcToken(meeting)) {
+            return;
+        }
+        String resolvedAudio = resolveAudioWithCacheFallback(meeting, null);
+        queuePostMeetingWork(meetingId, meeting, resolvedAudio, List.of(), null);
+    }
+
+    /**
+     * 等待 VC 回调超时后，用 File A（浏览器 PCM）继续会后链路。
+     */
+    public void resumePostMeetingWithFileAFallback(String meetingId) {
+        Meeting meeting = meetingMapper.selectById(meetingId);
+        if (meeting == null) {
+            return;
+        }
+        if (!MeetingStatus.PROCESSING.name().equals(meeting.getStatus())) {
+            return;
+        }
+        if (!vcRecordingPolicy.isAwaitingVcToken(meeting)) {
+            return;
+        }
+        if (!vcRecordingPolicy.isPastCallbackTimeout(meeting)) {
+            return;
+        }
+        if (transcriptSegmentHelper.hasAnySegments(meetingId)) {
+            return;
+        }
+        log.warn("VC recording_ready timeout, fallback File A for offline ASR: meetingId={}", meetingId);
+        String fileA = resolveFileAWithCacheFallback(meeting, null);
+        queuePostMeetingWork(meetingId, meeting, fileA, List.of(), null);
+    }
+
+    private String queuePostMeetingWork(String meetingId, Meeting meeting, String resolvedAudio,
+                                        List<String> featureIds, String modelName) {
         boolean needsOffline = needsOfflineAsr(meetingId, resolvedAudio, meeting);
         boolean needsMinute = minuteProperties.isGenerationEnabled();
         long sentAt = System.currentTimeMillis();
@@ -58,7 +121,8 @@ public class PostMeetingOrchestrator {
                     meetingId, resolvedAudio,
                     featureIds != null ? featureIds : List.of(),
                     modelName, sentAt));
-            log.info("Post-meeting: offline ASR queued, meetingId={}, minuteAfter={}", meetingId, needsMinute);
+            log.info("Post-meeting: offline ASR queued, meetingId={}, minuteAfter={}, audio={}",
+                    meetingId, needsMinute, resolvedAudio);
             return MeetingStatus.PROCESSING.name();
         }
         if (needsMinute) {
@@ -130,19 +194,31 @@ public class PostMeetingOrchestrator {
         return meeting.getSourceAudioUrl() != null && !meeting.getSourceAudioUrl().isBlank();
     }
 
-    /** DB/入参无路径时，若 WebSocket cache 已落盘则回填 {@code audio_path}。 */
+    /**
+     * 解析会后转写音频：有 VC 时优先 File B；等 token 期间不回落 File A。
+     */
     private String resolveAudioWithCacheFallback(Meeting meeting, String audioPath) {
-        // 优先：AudioSourceResolver 尝试拉妙记音视频（File B），失败回退 File A
-        AudioSourceResolver.AudioSource resolved = audioSourceResolver.resolve(meeting.getId());
-        if (resolved != null && resolved.path() != null) {
-            String vcPath = resolved.path().toString();
-            meeting.setAudioPath(vcPath);
-            meetingMapper.updateById(meeting);
-            log.info("Post-meeting using File B (vc_recording): meetingId={}, path={}", meeting.getId(), vcPath);
-            return vcPath;
+        if (vcRecordingPolicy.expectsVcRecording(meeting)) {
+            AudioSourceResolver.AudioSource resolved = audioSourceResolver.resolve(meeting.getId());
+            if (resolved != null && resolved.path() != null) {
+                String vcPath = resolved.path().toString();
+                meeting.setAudioPath(vcPath);
+                meetingMapper.updateById(meeting);
+                log.info("Post-meeting using File B (vc_recording): meetingId={}, path={}", meeting.getId(), vcPath);
+                return vcPath;
+            }
+            if (vcRecordingPolicy.isAwaitingVcToken(meeting)) {
+                log.info("Post-meeting defer File A: awaiting VC recording, meetingId={}", meeting.getId());
+                return null;
+            }
+            log.warn("File B download failed with vc_minute_token present, fallback File A: meetingId={}",
+                    meeting.getId());
         }
+        return resolveFileAWithCacheFallback(meeting, audioPath);
+    }
 
-        // 回退：原 File A 逻辑
+    /** 浏览器 PCM（File A）及 cache 回填，不尝试妙记。 */
+    private String resolveFileAWithCacheFallback(Meeting meeting, String audioPath) {
         String resolvedAudio = resolveAudioPath(audioPath, meeting);
         if (resolvedAudio != null && !resolvedAudio.isBlank()) {
             return resolvedAudio;

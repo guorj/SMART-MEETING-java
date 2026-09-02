@@ -17,7 +17,7 @@ public class MeetingDomainEventOutboxListener {
 
     private final OutboxWriter outboxWriter;
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onOfflineAsrRequested(OfflineAsrRequestedEvent event) {
         OfflineAsrMessage payload = OfflineAsrMessage.builder()
                 .meetingId(event.meetingId())
@@ -34,7 +34,7 @@ public class MeetingDomainEventOutboxListener {
                 payload);
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onMeetingEnded(MeetingEndedEvent event) {
         MinuteGenerateMessage payload = MinuteGenerateMessage.builder()
                 .meetingId(event.meetingId())
@@ -51,7 +51,7 @@ public class MeetingDomainEventOutboxListener {
                 payload);
     }
 
-    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void onMinuteGenerated(MinuteGeneratedEvent event) {
         TodoExtractMessage payload = TodoExtractMessage.builder()
                 .meetingId(event.meetingId())

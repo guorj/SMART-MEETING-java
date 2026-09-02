@@ -12,7 +12,16 @@ class MinuteGenerationEnabledDescriptor extends AbstractBooleanDescriptor {
 @Component
 class MinuteLlmEnabledDescriptor extends AbstractBooleanDescriptor {
     MinuteLlmEnabledDescriptor() {
-        super("meeting.minute.llm-enabled", "minute", "true", "是否调用 LLM 生成纪要初稿",
+        super("meeting.minute.llm-enabled", "minute", "true", "未绑定 Skill 时是否调用 LLM 生成纪要初稿",
+                "meeting.minute.generation-enabled");
+    }
+}
+
+@Component
+class MinuteSkillGenerationEnabledDescriptor extends AbstractBooleanDescriptor {
+    MinuteSkillGenerationEnabledDescriptor() {
+        super("meeting.minute.skill-generation-enabled", "minute", "true",
+                "是否按会务类型将 SKILL.md 注入 LLM system prompt",
                 "meeting.minute.generation-enabled");
     }
 }

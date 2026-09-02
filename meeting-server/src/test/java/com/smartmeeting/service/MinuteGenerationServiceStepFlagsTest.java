@@ -11,6 +11,8 @@ import com.smartmeeting.repository.MeetingMapper;
 import com.smartmeeting.repository.ParticipantMapper;
 import com.smartmeeting.repository.TranscriptMapper;
 import com.smartmeeting.service.notification.MeetingFeishuNotifier;
+import com.smartmeeting.service.agent.MinuteSkillPromptLoader;
+import com.smartmeeting.service.agent.MinuteSkillRouter;
 import com.smartmeeting.statemachine.MeetingStateMachineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -55,6 +57,10 @@ class MinuteGenerationServiceStepFlagsTest {
     @Mock
     private MinuteAIEnhancer minuteAIEnhancer;
     @Mock
+    private MinuteSkillRouter minuteSkillRouter;
+    @Mock
+    private MinuteSkillPromptLoader minuteSkillPromptLoader;
+    @Mock
     private MeetingMinuteService meetingMinuteService;
     @Mock
     private MeetingStateMachineService meetingStateMachineService;
@@ -91,6 +97,8 @@ class MinuteGenerationServiceStepFlagsTest {
                 restTemplate,
                 new ObjectMapper(),
                 minuteAIEnhancer,
+                minuteSkillRouter,
+                minuteSkillPromptLoader,
                 meetingMinuteService,
                 minuteProperties,
                 todoProperties,

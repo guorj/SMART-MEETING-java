@@ -356,6 +356,13 @@ body.dashboard-page .detected-meeting-row .dashboard-inline-btn {
   font-size: 12px;
   line-height: 1.2;
 }
+@media (max-width: 900px) {
+  body.dashboard-page .detected-meeting-row .dashboard-inline-btn {
+    min-height: var(--touch-min, 44px);
+    padding: 8px 12px;
+    font-size: 14px;
+  }
+}
 body.dashboard-page .detected-meetings-stack .detected-meeting-row {
   margin: 0;
 }
@@ -503,19 +510,22 @@ button.ghost, .ghost {
 }
 .sm-image-lightbox[hidden] { display: none !important; }
 .sm-image-lightbox-close {
-  position: absolute; top: 12px; right: 16px; z-index: 2;
-  width: 40px; height: 40px; border: none; border-radius: 999px;
+  position: absolute; top: max(12px, env(safe-area-inset-top, 0px)); right: 16px; z-index: 2;
+  width: var(--touch-min, 44px); height: var(--touch-min, 44px); min-width: var(--touch-min, 44px);
+  border: none; border-radius: 999px;
   background: rgba(255,255,255,0.15); color: #fff; font-size: 24px; line-height: 1;
   cursor: pointer;
 }
 .sm-image-lightbox-stage {
   width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
   overflow: hidden; padding: 48px 24px;
+  padding-top: max(48px, calc(env(safe-area-inset-top, 0px) + 32px));
+  padding-bottom: max(48px, calc(env(safe-area-inset-bottom, 0px) + 24px));
 }
 .sm-image-lightbox-img {
-  max-width: 92vw; max-height: 92vh; object-fit: contain;
+  max-width: 92vw; max-height: 92vh; max-height: 92dvh; object-fit: contain;
   transform-origin: center center; transition: transform 0.05s linear;
-  user-select: none;
+  user-select: none; touch-action: none;
 }
 body.sm-lightbox-open { overflow: hidden; }
 .structured-table-scroll { overflow-x: auto; -webkit-overflow-scrolling: touch; width: 100%; }

@@ -62,6 +62,46 @@ public class SystemConfigAdminService {
         return items;
     }
 
+    /**
+     * 系统内部写入（OAuth 回调等），可写入 {@link SystemConfigDescriptor#sensitive()} 项。
+     *
+     * @param key       配置键
+     * @param valueJson JSON 字符串值
+     * @param operator  审计操作者标识
+     */
+    public void upsertInternal(String key, String valueJson, String operator) {
+        SystemConfigDescriptor d = descriptorRegistry.find(key)
+                .orElseThrow(() -> new BusinessException("unknown config key"));
+        if (d.requiresRestart()) {
+            throw new BusinessException("此参数须在 application.yml 或环境变量中修改并重启 meeting-server");
+        }
+        Map<String, String> dbValues = configMapper.selectList(null).stream()
+                .collect(Collectors.toMap(MeetingSystemConfig::getConfigKey,
+                        MeetingSystemConfig::getValueJson, (a, b) -> b));
+        cascadeSupport.validateUpsert(d, valueJson, dbValues);
+        d.validator().ifPresent(v -> {
+            if (!v.test(valueJson)) {
+                throw new BusinessException("validation failed for " + key);
+            }
+        });
+        LambdaQueryWrapper<MeetingSystemConfig> q = new LambdaQueryWrapper<>();
+        q.eq(MeetingSystemConfig::getConfigKey, key);
+        MeetingSystemConfig existing = configMapper.selectOne(q);
+        String oldJson = existing != null ? existing.getValueJson() : null;
+        if (existing == null) {
+            MeetingSystemConfig row = new MeetingSystemConfig();
+            row.setConfigKey(key);
+            row.setCategory(d.category());
+            row.setValueJson(valueJson);
+            row.setDescription(d.description());
+            configMapper.insert(row);
+        } else {
+            existing.setValueJson(valueJson);
+            configMapper.updateById(existing);
+        }
+        recordAudit(key, "UPSERT", oldJson, valueJson, operator);
+    }
+
     public void upsert(String key, String valueJson) {
         SystemConfigDescriptor d = descriptorRegistry.find(key)
                 .orElseThrow(() -> new BusinessException("unknown config key"));
@@ -95,7 +135,7 @@ public class SystemConfigAdminService {
             existing.setValueJson(valueJson);
             configMapper.updateById(existing);
         }
-        recordAudit(key, "UPSERT", oldJson, valueJson);
+        recordAudit(key, "UPSERT", oldJson, valueJson, "admin");
     }
 
     public void delete(String key) {
@@ -109,17 +149,21 @@ public class SystemConfigAdminService {
         MeetingSystemConfig existing = configMapper.selectOne(q);
         String oldJson = existing != null ? existing.getValueJson() : null;
         configMapper.delete(q);
-        recordAudit(key, "DELETE", oldJson, null);
+        recordAudit(key, "DELETE", oldJson, null, "admin");
     }
 
     private void recordAudit(String key, String action, String oldJson, String newJson) {
+        recordAudit(key, action, oldJson, newJson, "admin");
+    }
+
+    private void recordAudit(String key, String action, String oldJson, String newJson, String operator) {
         try {
             MeetingSystemConfigAudit row = new MeetingSystemConfigAudit();
             row.setConfigKey(key);
             row.setAction(action);
             row.setOldValueJson(oldJson);
             row.setNewValueJson(newJson);
-            row.setOperator("admin");
+            row.setOperator(operator == null || operator.isBlank() ? "admin" : operator);
             auditMapper.insert(row);
         } catch (Exception e) {
             log.warn("config audit insert failed: {}", e.getMessage());

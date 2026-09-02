@@ -35,7 +35,7 @@ spring:
   application:
     name: meeting-admin-server
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:dev}
+    active: ${SPRING_PROFILES_ACTIVE:prod}
   datasource:
     # 与 meeting-server 同库；管理端主要操作 int_meeting_type_preset 等配置表
     url: jdbc:mysql://${DB_HOST:60.205.1.17}:${DB_PORT:3306}/intelligence?allowPublicKeyRetrieval=true&nullCatalogMeansCurrent=true&useSSL=false&useUnicode=true&characterEncoding=UTF-8&connectionCollation=utf8mb4_unicode_ci&serverTimezone=Asia/Shanghai
@@ -77,7 +77,7 @@ meeting:
     modules:
       - api-reference
       - presets
-      - weekly-jobs
+      - minute-skills
       - push-bot
       - users
       - meetings
@@ -91,13 +91,23 @@ meeting:
       # 是否允许从 JSON 文件导入预设（替代纯 DB 编辑）
       file-enabled: ${MEETING_ADMIN_AGENDA_FILE_ENABLED:false}
       file-path: ${MEETING_ADMIN_AGENDA_FILE_PATH:classpath:agenda-templates/example-presets.json}
+    oauth:
+      feishu:
+        # 管理后台飞书 OAuth 登录（可选）；prefix 须与 FeishuOAuthProperties 一致
+        enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}
+        app-id: ${FEISHU_APP_ID:}
+        app-secret: ${FEISHU_APP_SECRET:}
+        redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:https://oa.qdyhjz.cn/meeting-admin/admin/oauth/feishu/callback}
+        # 允许登录的飞书 user_id 白名单；空列表表示不限制（需结合业务代码）
+        allowed-user-ids: []
+        session-ttl-hours: 8
 
   # ----- 调用运行时与其它服务的基址 -----
   runtime:
     # meeting-server 根 URL（触发内部刷新、代理部分 API）
     meeting-server-base-url: ${MEETING_SERVER_URL:https://oa.qdyhjz.cn/meeting-server}
     # feishu-scheduled-bot 推送服务
-    bot-base-url: ${MEETING_NOTIFY_BOT_URL:http://127.0.0.1:8764}
+    bot-base-url: ${MEETING_NOTIFY_BOT_URL:https://oa.qdyhjz.cn/scheduled-bot}
     scheduled-bot-apikey: ${SCHEDULED_BOT_APIKEY:jq_int_meeting_key}
     # 调用 meeting-server /api/v1/internal/* 时的 X-Internal-Token
     internal-reload-token: ${INTERNAL_RELOAD_TOKEN:dev-internal-reload}
@@ -111,13 +121,6 @@ meeting:
       expire-years: 10
       expiring-warning-hours: 48
 
-  oauth:
-    feishu:
-      # 管理后台飞书 OAuth 登录（可选）
-      enabled: ${MEETING_ADMIN_FEISHU_OAUTH_ENABLED:false}
-      app-id: ${FEISHU_APP_ID:}
-      app-secret: ${FEISHU_APP_SECRET:}
-      redirect-uri: ${MEETING_ADMIN_FEISHU_REDIRECT_URI:http://127.0.0.1:8766/admin/oauth/feishu/callback}
-      # 允许登录的飞书 user_id 白名单；空列表表示不限制（需结合业务代码）
-      allowed-user-ids: []
-      session-ttl-hours: 8
+# 纪要 Skill 模板目录（Admin 扫描 catalog、meeting-server Step 4 加载 prompt）
+smart-meeting:
+  skills-dir: ${SMART_MEETING_SKILLS_DIR:}

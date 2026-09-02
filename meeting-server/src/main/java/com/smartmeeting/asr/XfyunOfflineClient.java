@@ -151,7 +151,8 @@ public class XfyunOfflineClient {
         params.put("fileSize", String.valueOf(fileSize));
         params.put("fileName", filename);
         params.put("language", "autodialect");
-        params.put("duration", String.valueOf(duration));
+        // PCM 按字节估算 duration 与讯飞解析值可能偏差；开启后免传 duration，避免误报 100020
+        params.put("durationCheckDisable", "true");
 
         int roleType = istOptions != null ? istOptions.roleType() : 1;
         params.put("roleType", String.valueOf(roleType));

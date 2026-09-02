@@ -20,8 +20,9 @@
   opacity: 0;
   filter: blur(6px);
   transition: filter 0.4s ease, opacity 0.4s ease;
+  pointer-events: none;
 }
-.blur-fade.visible { opacity: 1; filter: blur(0); }
+.blur-fade.visible { opacity: 1; filter: blur(0); pointer-events: auto; }
 
 .status-pulse { animation: status-pulse 1.5s ease-in-out infinite; }
 @keyframes status-pulse {

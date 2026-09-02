@@ -19,7 +19,8 @@ VALUES
     ('meeting.host.reminder.meeting-minutes-left', 'host', '"10,3"', '整场剩余分钟提醒列表', NOW()),
     -- 会后纪要
     ('meeting.minute.generation-enabled', 'minute', 'true', '会后是否自动生成纪要', NOW()),
-    ('meeting.minute.llm-enabled', 'minute', 'true', 'LLM 纪要初稿', NOW()),
+    ('meeting.minute.llm-enabled', 'minute', 'true', 'LLM 纪要初稿（未绑 Skill 时）', NOW()),
+    ('meeting.minute.skill-generation-enabled', 'minute', 'true', 'SKILL 模板注入 LLM Prompt', NOW()),
     ('meeting.minute.ai-enhancement-enabled', 'minute', 'true', 'AI 增强', NOW()),
     ('meeting.minute.feishu-doc-enabled', 'minute', 'true', '飞书文档', NOW()),
     ('meeting.minute.notify-enabled', 'minute', 'true', '飞书通知', NOW()),
